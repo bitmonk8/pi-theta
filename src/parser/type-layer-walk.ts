@@ -1,5 +1,9 @@
-// Per-parse type-layer diagnostics walk. Unprovable reads defer to runtime;
-// withholding can suppress a diagnostic, never manufacture one.
+// Per-parse type-layer diagnostics walk — the statement/expression/fn walking
+// core; the provability, interpolation and operand/receiver check families it
+// drives live in ./type-layer-provable.ts, ./type-layer-interpolation.ts and
+// ./type-layer-operand-checks.ts, sharing this walk's per-parse state through
+// `TypeWalkContext`. Unprovable reads defer to runtime; withholding can
+// suppress a diagnostic, never manufacture one.
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import { containsWithheldBinderType } from "./compat-type-traversal";
@@ -15,17 +19,11 @@ import type {
   PatternNode,
   Stmt,
 } from "./theta-document";
-import { callWithClauseValues, parseExpressionSource } from "./theta-document";
-import {
-  INTERPOLATED_RESULT_CODE,
-  INTERPOLATED_RESULT_MESSAGE,
-  lexQueryTemplate,
-} from "../render/query-render";
+import { callWithClauseValues } from "./theta-document";
 import {
   checkCompatible,
   displayType,
   resolveNamed,
-  resolveNamedRef,
   unfoldAlias,
   widenLiteralTypes,
   withheldBinderType,
@@ -39,52 +37,53 @@ import {
   checkObjectFieldCompat,
   checkReassignRhsCompat,
 } from "./type-compat-sites";
-import { BOOLEAN_BINARY_OPS, type StaticTypeInferencePass } from "./static-type-inference";
-import { checkBooleanPosition, checkIndexReceiver } from "./expression-position-checks";
+import type { StaticTypeInferencePass } from "./static-type-inference";
+import { checkBooleanPosition } from "./expression-position-checks";
 import { checkIterand } from "./type-layer-iterand";
 import { annotationSourceIsNotTypeExpression } from "./annotation-validation";
-import { checkStdlibMethodCall } from "./stdlib-arg-diagnostics";
 import {
   checkMatchArmTypes,
-  checkQuestionOperand,
-  checkQuestionScope,
   collectPatternBinderNames,
   type EnclosingReturnScope,
-  type QuestionOperandType,
 } from "./match-result";
 import { resolveReturnType, type ReturnContribution } from "./functions";
 import { checkFnCallArity, checkInvokeReturnType } from "./invoke-diagnostics";
-import { checkArrayJoin } from "../runtime/stdlib-array";
-import { checkObjectIndex } from "../runtime/stdlib-object";
 import {
   annotationToCompatType,
   letAnnotationToCompatType,
   isResultAnnotation,
-  isResultGenericTypeName,
   patternLiteralType,
 } from "./annotation-compat";
 import {
-  ARITHMETIC_OPS,
   NO_SUNK_ARRAYS,
-  ORDERING_OPS,
-  builtinMembers,
   childExprs,
-  classifyOperand,
-  classifyReceiver,
   fnParamNamesAreIdentifiers,
   placeholderSiteRange,
-  stdlibSignatureFor,
   stmtBlocks,
   stmtExprs,
   type WalkCtx,
 } from "./type-layer-checks";
+import { provableArgType, type TypeWalkContext } from "./type-layer-provable";
+import {
+  checkBinaryOperands,
+  checkIndex,
+  checkMemberAccess,
+  checkMethodCall,
+  pushMixedPlusIfNeeded,
+} from "./type-layer-operand-checks";
+import {
+  checkQueryInterpolationOperands,
+  checkQueryInterpolationResults,
+  checkQuestion,
+  isCertainResultNode,
+} from "./type-layer-interpolation";
 
 /**
  * A per-parse walk feeding the wired `type`-phase checkers. Holds only per-parse
  * state (the injected pass, the type env, the file, the callee-resolution
  * tables, the accumulated diagnostics) — no module-level mutable state.
  */
-class TypeLayerWalk {
+class TypeLayerWalk implements TypeWalkContext {
   public readonly diagnostics: Diagnostic[] = [];
 
   /**
@@ -99,7 +98,7 @@ class TypeLayerWalk {
    * `Result`-marked binding keeps that membership across the copy. Per-parse
    * instance state, like `diagnostics`.
    */
-  private readonly resultBindings = new Set<CompatType>();
+  public readonly resultBindings = new Set<CompatType>();
 
   /**
    * The type objects recorded for a binding whose recorded type is an ERASED
@@ -130,7 +129,7 @@ class TypeLayerWalk {
    * hit; a false identity hit only withholds, never fabricates an emission.
    * Per-parse instance state, like `diagnostics`.
    */
-  private readonly unprovableBindings = new Set<CompatType>();
+  public readonly unprovableBindings = new Set<CompatType>();
 
   /**
    * `fnDecls`, `importedSymbols` and `shadowedNames` are `checkFnCallArgs`'s
@@ -139,17 +138,17 @@ class TypeLayerWalk {
    * the four dependencies above them.
    */
   public constructor(
-    private readonly pass: StaticTypeInferencePass,
-    private readonly env: TypeEnv,
-    private readonly file: string,
-    private readonly fnReturns: ReadonlyMap<string, string>,
+    public readonly pass: StaticTypeInferencePass,
+    public readonly env: TypeEnv,
+    public readonly file: string,
+    public readonly fnReturns: ReadonlyMap<string, string>,
     private readonly fnDecls: ReadonlyMap<string, FnDecl>,
     private readonly importedSymbols: ReadonlySet<string>,
     private readonly shadowedNames: ReadonlySet<string>,
   ) {}
 
   /** The static type the `V20b` pass assigns `expr` under the in-scope bindings. */
-  private typeOf(expr: Expr, bindings: ReadonlyMap<string, CompatType>): CompatType {
+  public typeOf(expr: Expr, bindings: ReadonlyMap<string, CompatType>): CompatType {
     return this.pass.typeOf(expr, this.env, bindings);
   }
 
@@ -387,7 +386,7 @@ class TypeLayerWalk {
       // marking site below — and `&&` short-circuits, so an annotated one
       // reaches no proof obligation at all.
       const initUnprovable =
-        annotation === undefined && this.provableArgType(stmt.init, bindings) === undefined;
+        annotation === undefined && provableArgType(this, stmt.init, bindings) === undefined;
       //
       // An unannotated binding records what the initialiser EXPRESSION
       // types as, so every literal type inside the inferred type is
@@ -407,7 +406,7 @@ class TypeLayerWalk {
             : inferred
           : unfoldAlias(annotation, this.env);
       bindings.set(stmt.name, recorded);
-      if (annotation === undefined && this.isCertainResultNode(stmt.init)) {
+      if (annotation === undefined && isCertainResultNode(this, stmt.init)) {
         // Bug 0079 §Fix (a) — remember this binding's `Result`-ness by the
         // IDENTITY of the type object recorded above, never by its name.
         // `CompatType` has no `Result` shape, so a `Result` binding records
@@ -518,7 +517,7 @@ class TypeLayerWalk {
         // `declared` (the TARGET's type) stands in for the desugar's left
         // operand since the desugar reads `x` before writing it.
         if (stmt.op === "+=") {
-          this.pushMixedPlusIfNeeded(declared, rhsType, stmt.range);
+          pushMixedPlusIfNeeded(this, declared, rhsType, stmt.range);
         }
       }
     }
@@ -626,7 +625,7 @@ class TypeLayerWalk {
     iterand: Expr,
     bindings: ReadonlyMap<string, CompatType>,
   ): void {
-    const unproven = this.provableArgType(iterand, bindings) === undefined;
+    const unproven = provableArgType(this, iterand, bindings) === undefined;
     const recorded: CompatType = unproven ? { ...element } : element;
     scope.set(variable, recorded);
     if (unproven) {
@@ -700,7 +699,7 @@ class TypeLayerWalk {
    * A pattern binding nothing (a literal or a wildcard) yields `bindings`
    * unchanged, so the common arm copies no map.
    */
-  private matchArmScope(
+  public matchArmScope(
     pattern: PatternNode,
     bindings: ReadonlyMap<string, CompatType>,
   ): ReadonlyMap<string, CompatType> {
@@ -1393,7 +1392,7 @@ class TypeLayerWalk {
         continue;
       }
       const arg = e.args[i] as Expr;
-      const argType = this.provableArgType(arg, bindings);
+      const argType = provableArgType(this, arg, bindings);
       if (argType !== undefined) {
         // Withheld only when the whole-argument reduction is unprovable
         // (`provableArgType`) — the element sink below must still run in
@@ -1428,371 +1427,6 @@ class TypeLayerWalk {
     }
   }
 
-  /**
-   * Whether `this.typeOf(expr, bindings)` is a PROOF of `expr`'s runtime value
-   * type — `undefined` withholds `checkFnCallArgs`'s judgement rather than
-   * trusting an unproven read.
-   *
-   * `StaticTypeInferencePass.#commonType` reduces a candidate set to one type
-   * by two lossy mechanisms: a statically unresolvable candidate never blocks
-   * another candidate ("unknown-blessing"), and a set with no common upper
-   * bound falls back to `candidates[0]`. Both are reachable at an argument
-   * position: `true ? 1 : obj.field` reads `integer` (the unresolvable branch
-   * never blocks it), and `true ? A { a: 1 } : B { b: "x" }` reads `A`, rule
-   * 3's own fallback. Both erase a sibling arm the runtime can still produce.
-   * Emitting on an erased read would refuse a theta whose runtime value the
-   * emission misdescribes: bug 0072's landed soundness lesson at the
-   * `.theta`-callable argument sink (`collectProvableArgTypes`,
-   * `../extension/invoke-static-checks.ts`) applied here at a new sink. That
-   * function is an extension-layer answer over the SET of types an expression
-   * can take and cannot be imported into this parser-layer module without
-   * inverting the dependency direction, so the same discipline is applied
-   * in-layer as an EXACTNESS test instead (`isProvenReduction` below).
-   *
-   * Exhaustive `switch` over the `Expr` union with no `default` arm, so a kind
-   * added to the union without an arm here is a compile error rather than a
-   * silent verdict.
-   */
-  private provableArgType(
-    expr: Expr,
-    bindings: ReadonlyMap<string, CompatType>,
-  ): CompatType | undefined {
-    switch (expr.kind) {
-      case "number":
-      case "string":
-      case "bool":
-      case "null":
-        // A literal's read IS its value's type.
-        return this.typeOf(expr, bindings);
-      case "ternary": {
-        const reduced = this.typeOf(expr, bindings);
-        return this.isProvenReduction([expr.consequent, expr.alternate], reduced, bindings)
-          ? reduced
-          : undefined;
-      }
-      case "match": {
-        const reduced = this.typeOf(expr, bindings);
-        // Each arm body is proven in THAT ARM's scope, the one the walk uses
-        // (`matchArmScope`): a proof taken in the enclosing scope would prove a
-        // binding the arm body does not read, which is the false-`E` shape this
-        // whole predicate exists to refuse. The reduction is taken in the same
-        // scope without being asked for it here: `typeOf` reaches
-        // `StaticTypeInferencePass`'s own `case "match"`
-        // (./static-type-inference.ts), which types every arm body under that
-        // arm's binders, so `reduced` and the proof below answer for one
-        // reading of the arm bodies rather than two.
-        return this.isProvenReduction(
-          expr.arms.map((arm) => arm.body),
-          reduced,
-          bindings,
-          expr.arms.map((arm) => this.matchArmScope(arm.pattern, bindings)),
-        )
-          ? reduced
-          : undefined;
-      }
-      case "array": {
-        const reduced = this.typeOf(expr, bindings);
-        if (reduced.kind !== "array") {
-          // `#typeExpr`'s own `"array"` arm always answers `kind: "array"`;
-          // this is the narrowing `reduced.element` below needs, not a
-          // reachable branch.
-          return undefined;
-        }
-        // An empty element list satisfies `isProvenReduction`'s `every`
-        // vacuously without proving anything about a runtime value.
-        return this.isProvenReduction(expr.elements, reduced.element, bindings)
-          ? reduced
-          : undefined;
-      }
-      case "binary":
-        return this.provableBinaryType(expr, bindings);
-      case "try":
-        // `operand?` propagates the operand's success type: a proof of the
-        // operand is a proof of the `try` expression.
-        return this.provableArgType(expr.operand, bindings);
-      case "block":
-        // A block's value is its tail expression's value (bug 0082 §Fix
-        // constraint 3): a proof of the tail, in the SAME `bindings` `typeOf`'s own
-        // `"block"` arm reads (./static-type-inference.ts), is a proof of the
-        // block — mirroring the `try` arm immediately above rather than
-        // threading the block's own `let`s into a wider scope this predicate
-        // does not otherwise build.
-        return expr.body.tail === null
-          ? undefined
-          : this.provableArgType(expr.body.tail, bindings);
-      case "ident":
-        return this.provableIdentType(expr, bindings);
-      case "method-call":
-        // A read that mints a `named` type out of an author-chosen METHOD
-        // name is not a proof of the value's type: `#typeExpr` answers
-        // `named <method>` for `xs.length()`, which is not the type of the
-        // value the call produces. The adjacent `interpolationIsResult`
-        // refuses the same minted names for the same reason — a name an
-        // author chose for a field or a method collides freely with a
-        // declared schema's name, so reading meaning out of it judges an
-        // unrelated namespace.
-        //
-        // No sound emission is lost by withholding here. A minted name that
-        // resolves to nothing declared already defers at `checkCompatible`
-        // (`"unknown"`), and one that DOES resolve is judging the declaration
-        // that happens to share the spelling rather than the read value.
-        return undefined;
-      case "member":
-        return this.provableMemberType(expr, bindings);
-      case "call":
-      case "invoke":
-        // A `named` type minted from an author-chosen CALLEE is not a proof of
-        // the call's value type, for the reason the `method-call` arm above
-        // already states at the method namespace: `#typeExpr` answers
-        // `named <callee>` for `f(x)` and `named <path>` for an `invoke`, and
-        // neither names the type of the value the call produces. The operand a
-        // sound judgement needs is the callee's declared RETURN type, which
-        // the substrate does not carry to this position.
-        //
-        // No sound emission is lost by withholding. A minted name resolving to
-        // nothing declared already defers at `checkCompatible` (`"unknown"`),
-        // and the only env a name CAN resolve in here is the schema-only
-        // `TypeEnv` (`collectTypeEnv` — `schema` declarations, object form and
-        // alias form; enums excluded), whose every entry is uppercase-first by
-        // `theta/parse/schema-case-mismatch` while a user `fn` name is
-        // lowercase-first by `theta/parse/binding-case-mismatch`. A callee
-        // name that resolves is therefore never the callee's own type: it is a
-        // schema that merely shares the spelling with a schema-cased callee —
-        // a `.thetalib` import, a `.theta`-callable `as` alias, or a name the
-        // callable set never had. An `invoke` shares the arm because its
-        // minted path is a `.theta` path literal, which either ends in
-        // `.theta` (unspellable as a schema name) or draws
-        // `theta/parse/invoke-non-theta-extension` — one rule instead of two.
-        return undefined;
-      case "query":
-      case "object":
-      case "result-ctor":
-      case "par-for":
-        // Each is a nominal `named` reference naming the construct that
-        // produced the value — a query's `as` schema, a constructed schema, a
-        // `Result` constructor, a `par for`'s CTRL-3 element — so
-        // `checkCompatible` either resolves the name it was given or answers
-        // `"unknown"` and defers.
-        return this.typeOf(expr, bindings);
-      case "index":
-        // `#typeExpr` narrows an index read to the TARGET's ELEMENT type, and
-        // that element object is not the object the two recording arms put in
-        // `unprovableBindings` — the array type is — so an erased target would
-        // launder its erasure through the narrowing, past the identity channel
-        // the `ident` arm reads. The proof obligation belongs to the target:
-        // recur on it the way the `try` arm recurs on its operand, and take
-        // the element narrowing from `typeOf` only once the target is proven.
-        return this.provableArgType(expr.target, bindings) === undefined
-          ? undefined
-          : this.typeOf(expr, bindings);
-    }
-  }
-
-  /** Prove a binary result through its operator contract and operand reduction. */
-  private provableBinaryType(
-    expr: Expr & { kind: "binary" },
-    bindings: ReadonlyMap<string, CompatType>,
-  ): CompatType | undefined {
-    // `parseUnary` (./theta-document.ts) models unary `!` / `-` as a
-    // binary carrying a synthetic `null` left operand; dispatch in
-    // `#typeBinary`'s own order so the two never disagree on shape.
-    if (expr.left.kind === "null" && expr.op === "-") {
-      // A negation's value type is the OPERATOR's, not the operand's:
-      // expressions.md §"Other arithmetic" gives unary `-` `integer` for an
-      // `integer` operand and `number` for a `number` one and admits no
-      // other result. Outside those two shapes the negation itself never
-      // reaches a value: a statically resolvable non-numeric operand is
-      // parse-refused by `checkUnaryArithmeticOperand`, and a laundered
-      // one throws `UnaryNonNumericError` at the runtime belt — so there
-      // is no value left for the operand's proof to describe, and
-      // withholding is the only sound answer outside the numeric shapes.
-      //
-      // `classifyOperand` is this module's one numeric test, shared with
-      // the A5 `+` and A6 ordering operand checks over the same operator
-      // family, so the two cannot drift on which `CompatType` shapes count
-      // as numeric — a `prim` `integer` / `number` from an annotation
-      // (`annotationToCompatType`), a `literal` typing as either from a
-      // numeric literal (`#typeExpr`), or a transparent alias (TYPE-11)
-      // unfolding to one of those.
-      const operand = this.provableArgType(expr.right, bindings);
-      if (operand === undefined || classifyOperand(operand, this.env) !== "numeric") {
-        return undefined;
-      }
-      return operand;
-    }
-    if ((expr.left.kind === "null" && expr.op === "!") || BOOLEAN_BINARY_OPS.has(expr.op)) {
-      // Result-fixed: the value is a boolean whatever the operands
-      // evaluate to, so the read is exact even where an operand is not.
-      return this.typeOf(expr, bindings);
-    }
-    // Arithmetic narrows the operands through `#commonType`, the same
-    // erasure risk as `ternary` / `match` above.
-    const reduced = this.typeOf(expr, bindings);
-    if (!this.isProvenReduction([expr.left, expr.right], reduced, bindings)) {
-      return undefined;
-    }
-    // `isProvenReduction` tests the reduction's EXACTNESS, not the
-    // operator's ADMISSIBILITY, so a same-typed pair of proven non-numeric
-    // operands passes it — and for `-`, `*`, `/`, `%` the result type is
-    // fixed by the operator: expressions.md §"Other arithmetic" gives
-    // those four `integer` or `number` for every input (NaN included, which
-    // is a `number`), and the runtime casts both operands to reach it
-    // (`applyBinaryScalar`, ../runtime/statement-executor.ts), so
-    // `"a" - "b"` is the number NaN rather than the `string` the reduction
-    // names. An operand's own type is not a proof of the expression's value
-    // type outside the numeric shapes, and withholding can only suppress an
-    // emission.
-    //
-    // `+` keeps the reduction, because there the reduction IS the result
-    // type: expressions.md §"`+` operator" makes a both-`string` pair
-    // concatenation and a both-numeric pair addition, and every other
-    // pairing fails to load on `theta/parse/mixed-plus-operands`.
-    return expr.op === "+" || classifyOperand(reduced, this.env) === "numeric"
-      ? reduced
-      : undefined;
-  }
-
-  /** Read a recorded identifier type only when its provenance is proven. */
-  private provableIdentType(
-    expr: Expr & { kind: "ident" },
-    bindings: ReadonlyMap<string, CompatType>,
-  ): CompatType | undefined {
-    // The RECORDED type is the only channel that carries a JUDGED type, so
-    // it is read here directly rather than through `typeOf`: `#typeExpr`'s
-    // own `ident` arm (./static-type-inference.ts) falls back to
-    // `{ kind: "named", name }` MINTED FROM THE IDENTIFIER'S OWN SPELLING
-    // for any name the map does not hold, and a name an author chose for a
-    // value proves nothing about that value's type — where the spelling
-    // collides with a declared schema it resolves and is judged nominally
-    // (TYPE-10) against a declaration the read has nothing to do with,
-    // which is the false-judgement shape the `member` arm's field-name
-    // fallback, the `method-call` arm, and the `call` / `invoke` arms
-    // below refuse over the field and callee namespaces. `bindings` is
-    // still not a complete local view (a `params:` field reaches it now,
-    // by bug 0192 §Fix, but other names legitimately resolve without ever
-    // reaching this map): a `tools:`-declared callable name read as a
-    // VALUE, for instance, resolves through the lexical layer's own
-    // `identRoots` rather than through `bindings` at all — measured, a
-    // plain `fn` call passing one as an argument draws no diagnostic here,
-    // where the same position over an undeclared name draws
-    // `theta/parse/unknown-identifier` instead. So a MISS still means "not
-    // recorded", never "no such binding", and the only sound answer is to
-    // withhold. The binder classes this layer cannot type are recorded as
-    // WITHHELD entries instead of being left to miss
-    // (`recordWithheldBinders`), so where an inner binder hides a same-named
-    // outer record the hit is that binder's own withheld entry, never the
-    // record the runtime does not read there. That entry's own name is
-    // unspellable (`WITHHELD_BINDER_TYPE_NAME`), which keeps the nominal
-    // collision described above out of the sibling rows that read this map
-    // by value rather than by identity. `Map.get` against an explicit
-    // `undefined` rather than a truthiness test, because the key is
-    // author-controlled source text.
-    const recorded = bindings.get(expr.name);
-    if (recorded === undefined) {
-      return undefined;
-    }
-    // The laundered-binding hole: an unannotated `let` can record an
-    // unprovable initialiser read as the binding's type (`walkStmt`'s
-    // `let` arm), and `bindings.get(name)` returns that EXACT object, so
-    // identity is the channel back to the erasure a name read alone
-    // cannot see.
-    return this.unprovableBindings.has(recorded) ? undefined : recorded;
-  }
-
-  /** Prove the receiver before reading its declared member type. */
-  private provableMemberType(
-    expr: Expr & { kind: "member" },
-    bindings: ReadonlyMap<string, CompatType>,
-  ): CompatType | undefined {
-    // PROOF iff both hold: the RECEIVER is itself a proven read
-    // (`provableArgType(expr.target, bindings)` is defined) AND the read
-    // resolves to a DECLARED field type on a resolved object schema —
-    // `StaticTypeInferencePass`'s own-key-guarded branch, reached here
-    // through `declaredFieldType`. The proven answer IS that declared
-    // field type, TYPE-11-unfolded.
-    //
-    // (1) Why a declared field type is a proof at all. Bug 0136 made a
-    // member read's static type the receiver's declared field type, and
-    // wrote the rule into expressions.md's Member access bullet: the
-    // static result type of `obj.field` is the receiver's declared type
-    // for that field, TYPE-11-unfolded. TYPE-9 conditions this sink's
-    // obligation on both operands being statically resolvable, and a
-    // declared field on a resolved object schema is read straight out of
-    // the `TypeEnv` rather than left past the parser's static view.
-    //
-    // (2) Why the arm's other two outcomes are not proofs. The
-    // field-name mint (an absent field, a fields-less declaration, or a
-    // declined `typeSource`) is author-chosen and can RESOLVE against an
-    // unrelated declaration sharing its spelling — `schema Zzz = integer`
-    // beside `p.Zzz` on a `P` that declares no `Zzz` — and
-    // expressions.md's Member access bullet assigns an absent
-    // theta-side name a RUNTIME `theta/runtime/missing-object-key`
-    // panic; judging the mint would refuse at `E` a program whose
-    // specified disposition is a panic. The receiver's own `named`, for
-    // an unresolvable receiver, is exactly what `checkCompatible`
-    // answers `"unknown"` for and defers.
-    //
-    // (3) Why the RECEIVER's own proof is a further, separate
-    // obligation — a soundness requirement this arm cannot ship
-    // without, not a preference. An erased receiver launders its
-    // erasure through the field lookup: for
-    // `let m = flag ? A { s: "x" } : B { s: 1 }`, the ternary is not a
-    // proven reduction (`#commonType` rule 3 falls back to
-    // `candidates[0]`, discarding the `B` arm), so `m` is recorded in
-    // `unprovableBindings` (read here through the `ident` arm's identity
-    // check) — and `m.s` then resolves against `A` and answers `string`,
-    // while the runtime can hand the callee a `B` whose `s` IS the
-    // `integer` the parameter declares. Without this clause that program
-    // draws a false
-    // `theta/parse/fn-arg-type-mismatch: expected integer, got string`.
-    // This is the same species as the `index` arm's own obligation
-    // below: "The proof obligation belongs to the target: recur on it
-    // the way the `try` arm recurs on its operand"; this arm carries the
-    // identical obligation over its RECEIVER. The conservatism this
-    // buys: where an erased receiver's candidate schemas happen to
-    // declare the same field type, withholding loses a sound emission —
-    // but withholding can only ever suppress an emission, never
-    // manufacture one, which is the asymmetry the whole predicate is
-    // built on.
-    return this.provableArgType(expr.target, bindings) === undefined
-      ? undefined
-      : this.pass.declaredFieldType(expr, this.env, bindings);
-  }
-
-  /**
-   * The exactness test every composite `provableArgType` arm
-   * (`ternary` / `match` / `array` / arithmetic `binary`) shares: every member
-   * of `arms` must itself be a proven read (`provableArgType` defined) AND
-   * relate to `reduced` — the pass's own narrowed answer for the composite —
-   * by `checkCompatible(armType, reduced, env) === "compatible"`. An undefined
-   * arm, or an `"unknown"` / `"incompatible"` relation, withholds the whole
-   * composite: `"unknown"` must withhold rather than pass, because trusting it
-   * would be the unknown-blessing mechanism this test exists to refuse. An
-   * empty `arms` satisfies `every` vacuously without proving anything about a
-   * runtime value, so it withholds too, never trusts.
-   *
-   * `armScopes`, when supplied, gives arm `i` its OWN scope: a `match` arm's
-   * body is evaluated with that arm's pattern bindings installed, so the proof
-   * of that body has to be taken there. Every other composite's arms are
-   * evaluated in the one enclosing scope and omit it.
-   */
-  private isProvenReduction(
-    arms: readonly Expr[],
-    reduced: CompatType,
-    bindings: ReadonlyMap<string, CompatType>,
-    armScopes?: readonly ReadonlyMap<string, CompatType>[],
-  ): boolean {
-    if (arms.length === 0) {
-      return false;
-    }
-    return arms.every((arm, index) => {
-      const armType = this.provableArgType(arm, armScopes?.[index] ?? bindings);
-      return (
-        armType !== undefined && checkCompatible(armType, reduced, this.env) === "compatible"
-      );
-    });
-  }
-
   private walkExpr(
     e: Expr,
     bindings: ReadonlyMap<string, CompatType>,
@@ -1812,12 +1446,12 @@ class TypeLayerWalk {
         this.walkExpr(e.alternate, bindings, flow);
         return;
       case "binary":
-        this.checkBinaryOperands(e, bindings);
+        checkBinaryOperands(this, e, bindings);
         this.walkExpr(e.left, bindings, flow);
         this.walkExpr(e.right, bindings, flow);
         return;
       case "try":
-        this.checkQuestion(e.operand, e.range, bindings, flow);
+        checkQuestion(this, e.operand, e.range, bindings, flow);
         this.walkExpr(e.operand, bindings, flow);
         return;
       case "array":
@@ -1832,7 +1466,7 @@ class TypeLayerWalk {
         }
         return;
       case "index":
-        this.checkIndex(e, bindings);
+        checkIndex(this, e, bindings);
         this.walkExpr(e.target, bindings, flow);
         this.walkExpr(e.index, bindings, flow);
         return;
@@ -1868,14 +1502,14 @@ class TypeLayerWalk {
         }
         return;
       case "method-call":
-        this.checkMethodCall(e, bindings);
+        checkMethodCall(this, e, bindings);
         this.walkExpr(e.target, bindings, flow);
         for (const arg of e.args) {
           this.walkExpr(arg, bindings, flow);
         }
         return;
       case "member":
-        this.checkMemberAccess(e, bindings);
+        checkMemberAccess(this, e, bindings);
         this.walkExpr(e.target, bindings, flow);
         return;
       case "call": {
@@ -1916,13 +1550,13 @@ class TypeLayerWalk {
         this.checkParFor(e, bindings, flow);
         return;
       case "query":
-        this.checkQueryInterpolationResults(e, bindings);
+        checkQueryInterpolationResults(this, e, bindings);
         // Bug 0345 §Fix: appended AFTER the Result-classification call above, not
         // in place of it, so an interpolation that is both a `Result` and an
         // operand violation draws `theta/parse/interpolated-result` (pushed
         // above) BEFORE the operand code (pushed below) — the deliberate
         // ordering the bug doc records.
-        this.checkQueryInterpolationOperands(e, bindings);
+        checkQueryInterpolationOperands(this, e, bindings);
         return;
       case "block":
         // Descend into the block's own body so a nested `type`-phase
@@ -2007,688 +1641,6 @@ class TypeLayerWalk {
     this.bindLoopElement(inner, e.variable, elementType, e.iterand, bindings);
     this.walkBlock(e.body, inner, flow);
     return;
-  }
-
-  /** Check boolean, additive, ordering, and numeric binary operand contracts. */
-  private checkBinaryOperands(
-    e: Expr & { kind: "binary" },
-    bindings: ReadonlyMap<string, CompatType>,
-  ): void {
-    if (e.op === "&&" || e.op === "||") {
-      for (const operand of [e.left, e.right]) {
-        this.diagnostics.push(
-          ...checkBooleanPosition({
-            operandType: this.typeOf(operand, bindings),
-            site: { file: this.file, range: operand.range },
-          }),
-        );
-      }
-    } else if (e.op === "!") {
-      // `!` is a boolean position (expressions.md §Truthiness, six-position
-      // list). `parseUnary` models `!` as a binary carrying a synthetic
-      // `null` left operand (bug 0367's `unary` marker discipline) — judge
-      // `e.right` only, the real operand; judging `e.left` would refuse a
-      // phantom. `checkCompatible`'s existing `unknown` deferral keeps a
-      // laundered `!c` (an unannotated fn param) flowing to the bug 0369
-      // runtime belt.
-      this.diagnostics.push(
-        ...checkBooleanPosition({
-          operandType: this.typeOf(e.right, bindings),
-          site: { file: this.file, range: e.right.range },
-        }),
-      );
-    } else if (e.op === "+") {
-      this.checkPlusOperands(e, bindings);
-    } else if (ORDERING_OPS.has(e.op)) {
-      this.checkOrderingOperands(e, bindings);
-    } else if (ARITHMETIC_OPS.has(e.op) && e.unary !== true) {
-      // `parseUnary` (theta-document.ts) models unary `-`/`!` as a binary
-      // carrying a synthetic `null` left operand, and marks that one
-      // minted node `unary: true`. The spec's numeric-operand rule for
-      // `-`/`*`/`/`/`%` is a BINARY-arithmetic rule (bug 0332's Non-goals
-      // excludes unary `-` in expression position explicitly), so the
-      // marked unary node must not reach `checkArithmeticOperands` — it
-      // would judge the placeholder `null` left operand, not a real
-      // pairing. Gating on the marker (bug 0367) rather than on
-      // `e.left.kind === "null"` keeps an authored `null - x` in scope:
-      // that pairing is AST-identical to the synthetic node except for
-      // the marker, and the spec names `null` in the refusal set.
-      this.checkArithmeticOperands(e, bindings);
-    } else if (ARITHMETIC_OPS.has(e.op) && e.unary === true) {
-      // The marked unary node's placeholder `null` left operand is not a
-      // real pairing (see the comment above), but its single `right`
-      // operand IS the real unary `-` operand — expressions.md §"Other
-      // arithmetic" applies the same numeric-only rule to it (bug 0392;
-      // bug 0332's Non-goals scope-excluded unary `-`, but the belt law
-      // now brings it into the family as this arm's sibling).
-      this.checkUnaryArithmeticOperand(e, bindings);
-    }
-  }
-
-  /** The `?` operand-type and enclosing-scope preconditions (owned V4a). */
-  private checkQuestion(
-    operand: Expr,
-    range: Expr["range"],
-    bindings: ReadonlyMap<string, CompatType>,
-    flow: WalkCtx,
-  ): void {
-    const site = { file: this.file, range };
-    const operandKind = this.questionOperandKind(operand, bindings);
-    if (operandKind !== undefined) {
-      const diag = checkQuestionOperand(operandKind, site);
-      if (diag !== undefined) {
-        this.diagnostics.push(diag);
-      }
-    }
-    const scopeDiag = checkQuestionScope(flow.returnScope, site);
-    if (scopeDiag !== undefined) {
-      this.diagnostics.push(scopeDiag);
-    }
-  }
-
-  /**
-   * Classify a `?` operand for the operand-type check. A query / `Result`-
-   * constructor operand is a `Result` (no diagnostic). A statically-concrete
-   * non-`Result` type (a primitive, literal, array, union, or inline object
-   * type) is a `non-result`. Only a statically-unresolvable operand (a
-   * `named` reference — an unresolved call result, a member/index
-   * placeholder, and every genuine-`Result` placeholder: `Ok` / `Err` /
-   * `Result<…>` / a query result) is left unclassified (`undefined`) so no
-   * false positive is raised; the runtime net (`evalTry`'s brand-based guard,
-   * bug 0019) rejects a non-`Result` that reaches the unwrap through this
-   * arm.
-   */
-  private questionOperandKind(
-    operand: Expr,
-    bindings: ReadonlyMap<string, CompatType>,
-  ): QuestionOperandType | undefined {
-    if (operand.kind === "query" || operand.kind === "result-ctor") {
-      return { kind: "result", errIsQueryError: true };
-    }
-    const type = this.typeOf(operand, bindings);
-    switch (type.kind) {
-      case "prim":
-        return { kind: "non-result", display: type.name };
-      case "literal":
-        return { kind: "non-result", display: type.typesAs };
-      case "array":
-        return { kind: "non-result", display: "array" };
-      case "union":
-      case "object":
-        // Non-`Result` by construction — a `Result` types as a `named`
-        // placeholder (`Ok` / `Err` / `Result<…>` / a query result), never as
-        // a union or an inline object type — so classifying these can never
-        // false-positive a genuine `Result` (bug 0019).
-        return { kind: "non-result", display: displayType(type) };
-      default:
-        return undefined;
-    }
-  }
-
-  /**
-   * Bug 0079 §Fix (a) — the QRY-18 `Result<T, E>` interpolation row: a
-   * `${…}` interpolation this walk can PROVE `Result`-valued (see
-   * {@link interpolationIsResult}) draws `theta/parse/interpolated-result`,
-   * located at the enclosing `@`-query's whole range. `QueryTemplatePart`
-   * carries no per-interpolation offsets and `QueryExpr` carries only `template` plus
-   * the whole `range`, so the enclosing query's range is the only locatable
-   * site — the same choice `checkQueryTemplateInterpolations`
-   * (theta-document.ts) makes, for the same reason: the verbatim template
-   * carries no per-interpolation token span.
-   */
-  private checkQueryInterpolationResults(
-    e: Expr & { kind: "query" },
-    bindings: ReadonlyMap<string, CompatType>,
-  ): void {
-    for (const part of lexQueryTemplate(e.template).parts) {
-      if (part.kind !== "interp") {
-        continue;
-      }
-      const parsed = parseExpressionSource(part.exprSource);
-      if (parsed === null || parsed.kind === "try") {
-        // No parse ⇒ no static type to classify. `?` UNWRAPS, so `${…?}` is
-        // never itself the `Result` it consumes — stated here rather than left
-        // to the classifier because `static-type-inference.ts`'s `try` arm
-        // propagates the operand's type verbatim, making the unwrap invisible
-        // to any type read.
-        continue;
-      }
-      if (this.interpolationIsResult(parsed, bindings)) {
-        this.diagnostics.push({
-          severity: "error",
-          code: INTERPOLATED_RESULT_CODE,
-          file: this.file,
-          range: e.range,
-          message: INTERPOLATED_RESULT_MESSAGE,
-        });
-      }
-    }
-  }
-
-  /**
-   * Bug 0345 §Fix — QRY-18 evaluates a `${expr}` interpolation "per the
-   * Expression Sublanguage", so the three operand checks the binary arm of
-   * `walkExpr` dispatches (`checkPlusOperands`, `checkOrderingOperands`,
-   * `checkArithmeticOperands`) must reach an interpolation expression too —
-   * `checkQueryInterpolationResults` above classifies `Result`-ness only and
-   * never fires them. This method parses each interpolation source the same
-   * way that classifier does and descends {@link checkInterpolationOperands}
-   * over the parsed expression, OPERAND-CHECKS ONLY: it does not run
-   * `checkMethodCall` / `checkIndex` / `checkMemberAccess` / `checkQuestion`.
-   * Residual 1's non-operand half (unknown-method, non-indexable-receiver,
-   * question-on-non-result at interpolation position) is explicitly NOT owned
-   * by bug 0345 — it keeps its pinned disposition from bug 0122 — so a full
-   * `walkExpr` re-entry here would close cells this report never measured or
-   * authorized.
-   *
-   * Every diagnostic the descent pushes is relocated to the enclosing query's
-   * own site (`file`/`range`) before returning: `QueryTemplatePart` carries no
-   * per-interpolation offsets, the same reason `checkQueryInterpolationResults`
-   * locates `INTERPOLATED_RESULT_CODE` at `e.range` rather than at the
-   * expression's own (nonexistent) source span.
-   */
-  private checkQueryInterpolationOperands(
-    e: Expr & { kind: "query" },
-    bindings: ReadonlyMap<string, CompatType>,
-  ): void {
-    for (const part of lexQueryTemplate(e.template).parts) {
-      if (part.kind !== "interp") {
-        continue;
-      }
-      const parsed = parseExpressionSource(part.exprSource);
-      if (parsed === null) {
-        // Only a genuine parse failure is skipped: a `null` yields no static
-        // type to walk. A top-level `try` is DESCENDED, not skipped — an
-        // operand violation inside the unwrapped expression (`${f("a" + 1)?}`)
-        // must still be caught, and `childExprs`' `try` arm hands the descent
-        // that operand. The `.kind === "try"` skip is
-        // `checkQueryInterpolationResults`' Result-classification concern (a
-        // `?`-unwrap is never itself the `Result` it consumes) and does not
-        // apply to operand checks, which owe the descent.
-        continue;
-      }
-      const before = this.diagnostics.length;
-      this.checkInterpolationOperands(parsed, bindings);
-      for (let i = before; i < this.diagnostics.length; i++) {
-        const diag = this.diagnostics[i]!;
-        this.diagnostics[i] = { ...diag, file: this.file, range: e.range };
-      }
-    }
-  }
-
-  /**
-   * The operand-only recursive walk {@link checkQueryInterpolationOperands}
-   * drives. Fires the three operand checks the same way the body-statement
-   * `walkExpr` binary arm does — including the same unary-minus guard, since
-   * `parseUnary` (theta-document.ts) can hand this walk the same synthetic-
-   * `null`-left binary node the body path excludes — then recurs into every
-   * child `childExprs` exposes (binary operands, ternary branches, array
-   * elements, index target/index, method-call target/args, member target,
-   * call args, `try` operand, …) so a nested binary reachable through any of
-   * those shapes is reached too. It fires NO other check: no method-call /
-   * index / member / question check runs here, by design (see the doc comment
-   * on the caller).
-   */
-  private checkInterpolationOperands(
-    parsed: Expr,
-    bindings: ReadonlyMap<string, CompatType>,
-  ): void {
-    if (parsed.kind === "match") {
-      // `match` is unconditionally refused in interpolation position
-      // (`firstForbiddenInterpolationForm` → theta/parse/unsupported-feature),
-      // so no operand row is owed on its arm bodies. Descending would recurse
-      // into them under this walk's scope, which carries none of the
-      // scrutinee-binding a real `match` arm evaluates under, and stack a
-      // spurious operand diagnostic on an already-refused document. Skip whole.
-      return;
-    }
-    if (parsed.kind === "binary") {
-      if (parsed.op === "+") {
-        this.checkPlusOperands(parsed, bindings);
-      } else if (ORDERING_OPS.has(parsed.op)) {
-        this.checkOrderingOperands(parsed, bindings);
-      } else if (
-        ARITHMETIC_OPS.has(parsed.op) &&
-        !(parsed.op === "-" && parsed.left.kind === "null")
-      ) {
-        this.checkArithmeticOperands(parsed, bindings);
-      }
-    }
-    for (const child of childExprs(parsed)) {
-      this.checkInterpolationOperands(child, bindings);
-    }
-  }
-
-  /**
-   * Whether the interpolated expression `parsed` is a `Result` the static layer
-   * can PROVE, classified by where the `Result`-ness comes from rather than by a
-   * type name. `CompatType` has no `Result` shape, so a `Result` arrives as a
-   * `named` reference — but `static-type-inference.ts` mints `named` references
-   * out of author-controlled identifiers too (a member access is `named
-   * <field>`, an `Ok`/`Err` constructor is `named "Ok"`/`"Err"`, a call is
-   * `named <callee>`), so matching those names reads `Result` meaning into an
-   * unrelated namespace: `enum Status { Ok, Bad }` / `${Status.Ok}` is QRY-18's
-   * ENUM row, and a `string` field sharing a name with a `Result`-returning `fn`
-   * is its object row. Hence three provenances, each unambiguous:
-   *
-   *   1. the node is a `Result` by construction — an `Ok`/`Err` constructor, or
-   *      a call to a `fn` whose written return annotation names one;
-   *   2. an identifier whose recorded binding type carries (1)'s provenance
-   *      (`resultBindings`, keyed by object identity);
-   *   3. a type named in the generic `Result<…>` form — a written annotation, an
-   *      annotated `fn` parameter, or a `par for` element (CTRL-3). `<` bars any
-   *      identifier from colliding with it.
-   *
-   * Everything else is left to §Fix (b)'s runtime panic. The asymmetry is the
-   * point: an unprovable interpolation degrades to the runtime fallback, whereas
-   * a wrong emission refuses a valid theta at load, which is what this module's
-   * header and the adjacent `questionOperandKind` (bug 0019) both forbid.
-   */
-  private interpolationIsResult(
-    parsed: Expr,
-    bindings: ReadonlyMap<string, CompatType>,
-  ): boolean {
-    switch (parsed.kind) {
-      case "result-ctor":
-      case "call":
-        return this.isCertainResultNode(parsed);
-      case "ident": {
-        const type = this.typeOf(parsed, bindings);
-        return this.resultBindings.has(type) || this.isResultGenericType(type);
-      }
-      case "index":
-        // CTRL-3 makes a `par for`'s value `array<Result<U, QueryError>>`, so an
-        // element read is the one composite whose type names the generic form.
-        return this.isResultGenericType(this.typeOf(parsed, bindings));
-      default:
-        // `binary` / `ternary` / `match` narrow through `#commonType`
-        // (static-type-inference.ts), which lets an unresolvable operand type
-        // stand in for the whole expression — so a type read on them proves
-        // nothing about the expression's own type. Every remaining kind types as
-        // a `named` reference built from an author-chosen identifier, which
-        // cannot spell the generic form.
-        return false;
-    }
-  }
-
-  /**
-   * Whether `e`'s node kind alone makes it a `Result`: an `Ok`/`Err`
-   * constructor, or a call to a `fn` whose own WRITTEN return annotation names a
-   * `Result`. `this.fnReturns` is the only source for the latter — `TypeEnv`
-   * carries schema declarations only, and a `call` types as its callee's bare
-   * NAME, so an annotated `Result` return is invisible past the call site.
-   *
-   * The prefix match below is safe against text that names no type WITHOUT a
-   * guard here, because the table it reads was seeded absent of such text
-   * (`collectFnReturnAnnotations`, and the absence invariant at
-   * `annotationSourceIsNotTypeExpression`) — which is what keeps `/^Result\b/`
-   * from granting `Result`-ness to a `Result`-prefixed junk annotation.
-   */
-  private isCertainResultNode(e: Expr): boolean {
-    if (e.kind === "result-ctor") {
-      return true;
-    }
-    if (e.kind !== "call") {
-      return false;
-    }
-    const declaredReturn = this.fnReturns.get(e.callee);
-    return declaredReturn !== undefined && isResultAnnotation(declaredReturn);
-  }
-
-  /**
-   * Whether `type` is an unresolvable `named` reference spelling the generic
-   * `Result<…>` form. A name `this.env` resolves is a declared schema / enum /
-   * alias and is rejected first, so an author's own `Result`-named declaration
-   * keeps its own meaning.
-   */
-  private isResultGenericType(type: CompatType): boolean {
-    return (
-      type.kind === "named" &&
-      resolveNamedRef(this.env, type) === undefined &&
-      isResultGenericTypeName(type.name)
-    );
-  }
-
-  /** The indexed-access receiver / object-index checks (owned V3a / V3h). */
-  private checkIndex(
-    e: Expr & { kind: "index" },
-    bindings: ReadonlyMap<string, CompatType>,
-  ): void {
-    const receiverType = this.typeOf(e.target, bindings);
-    const site = { file: this.file, range: e.range };
-    const receiverDiag = checkIndexReceiver({ receiverType, env: this.env, site });
-    if (receiverDiag !== undefined) {
-      this.diagnostics.push(receiverDiag);
-    }
-    // The KEY read is judged by `checkObjectIndex`, which requires a `string`
-    // and refuses everything else, an unresolvable `named` included
-    // (../runtime/stdlib-object.ts) — the `checkForIterand` shape. A key read
-    // out of a WITHHELD binder therefore withholds the verdict here: the
-    // runtime key may well be the string the receiver wants.
-    const indexType = this.typeOf(e.index, bindings);
-    const objectDiag = containsWithheldBinderType(indexType)
-      ? undefined
-      : checkObjectIndex({ receiverType, indexType, env: this.env, site });
-    if (objectDiag !== undefined) {
-      this.diagnostics.push(objectDiag);
-    }
-  }
-
-  /**
-   * The method-call type-layer checks: the `array.join` element-type
-   * precondition (owned V3g), the A2 `unknown-method` stdlib allow-list,
-   * and the known-member arity/type signature check (bug 0315).
-   * The latter two fire only for a concretely-resolvable built-in receiver.
-   */
-  private checkMethodCall(
-    e: Expr & { kind: "method-call" },
-    bindings: ReadonlyMap<string, CompatType>,
-  ): void {
-    const targetType = this.typeOf(e.target, bindings);
-    // TYPE-11: an alias of `array<T>` IS `array<T>`, so the `join` element
-    // precondition (expressions.md §"array<T>" `join` row) must see it that
-    // way. One construction point: `classifyReceiver` below unfolds
-    // internally on whatever it is handed, so it is unaffected by receiving
-    // this already-unfolded value.
-    const unfoldedTarget = unfoldAlias(targetType, this.env);
-    this.checkJoinElement(e, unfoldedTarget);
-    // A2 — a method call on a concrete built-in receiver whose name the theta
-    // 1.0 stdlib does not expose. A statically-unresolvable receiver defers to
-    // the runtime safety net (no diagnostic).
-    const kind = classifyReceiver(unfoldedTarget, this.env);
-    if (kind === "unknown") {
-      return;
-    }
-    if (!builtinMembers(kind).has(e.method)) {
-      // The RAW `targetType`, not the unfolded copy above: the message names
-      // the receiver's declared type, and an alias the author wrote must
-      // still read back as itself here, whatever it unfolds to for the
-      // checks above.
-      this.pushUnknownMethod(e.method, targetType, e.range);
-      return;
-    }
-    this.checkStdlibSignature(e, bindings, targetType, unfoldedTarget, kind);
-  }
-
-  /** Check the array.join element precondition after unfolding the receiver. */
-  private checkJoinElement(
-    e: Expr & { kind: "method-call" },
-    unfoldedTarget: CompatType,
-  ): void {
-    if (e.method === "join" && unfoldedTarget.kind === "array") {
-      // The ELEMENT is unfolded too, and for the same reason one level down:
-      // TYPE-11 makes an alias element the type it names, so the registered
-      // trigger — an element type that is not `string` — is a question about
-      // the unfolded element, not about the name the author wrote for it.
-      // `checkArrayJoin` is a pure element predicate and holds no `TypeEnv`,
-      // so applying the transparency is the caller's job. TYPE-10 bounds it:
-      // an object-schema `named` element comes back unchanged and stays
-      // non-string, as does an unresolvable one.
-      //
-      // An element read out of a WITHHELD binder withholds this verdict, for
-      // the same reason as the iterand and object-key rows: the predicate
-      // refuses every non-`string` element including an unresolvable one, so it
-      // cannot defer on a withheld read by itself, and the runtime element may
-      // be the string the method requires (`[x].join(",")` inside
-      // `for x in ["a"] { … }`).
-      const joinElement = unfoldAlias(unfoldedTarget.element, this.env);
-      const diag = containsWithheldBinderType(joinElement)
-        ? undefined
-        : checkArrayJoin(joinElement, {
-            file: this.file,
-            range: e.range,
-          });
-      if (diag !== undefined) {
-        this.diagnostics.push(diag);
-      }
-    }
-  }
-
-  /** Check a known stdlib member's arity and argument types after the allow-list passes. */
-  private checkStdlibSignature(
-    e: Expr & { kind: "method-call" },
-    bindings: ReadonlyMap<string, CompatType>,
-    targetType: CompatType,
-    unfoldedTarget: CompatType,
-    kind: ReturnType<typeof classifyReceiver>,
-  ): void {
-    // Bug 0315 — the member NAME is known (the allow-list above passed), so
-    // check its argument list against the shared arity/type signature table:
-    // arity first (`theta/parse/stdlib-arity-mismatch`), then, only if arity is
-    // in range, per-argument type (`theta/parse/stdlib-arg-type-mismatch`).
-    // Only reached for a concretely-resolvable receiver `kind` (the `unknown`
-    // early-return above already deferred a laundered receiver to the runtime
-    // dispatcher belt).
-    const signature = stdlibSignatureFor(kind, e.method);
-    if (signature === undefined) {
-      return;
-    }
-    // The array receiver's own element type, for the `"element"` param
-    // descriptor (`includes(x)` / `indexOf(x)` on `array<T>`) — unfolded the
-    // same way the `join` precondition's `joinElement` above is, so TYPE-11
-    // transparency applies identically.
-    const elementType =
-      unfoldedTarget.kind === "array" ? unfoldAlias(unfoldedTarget.element, this.env) : undefined;
-    const diags = checkStdlibMethodCall({
-      method: e.method,
-      signature,
-      displayReceiverType: displayType(targetType),
-      argCount: e.args.length,
-      // `provableArgType`, not `typeOf`: the same EXACTNESS gate
-      // `checkFnCallArgs` reads for its own per-argument type check (bug
-      // 0156/0072's soundness lesson) — a lossy reduction (an array literal
-      // with no common element type, a bare identifier minted from an
-      // author-chosen name that resolves to nothing declared, an erased
-      // ternary/match branch) must not be treated as a proof of the
-      // argument's runtime type here either, or this check would double up on
-      // a node another row already refuses (or fabricate a mismatch `typeOf`'s
-      // lossy fallback invents).
-      argTypeAt: (i) => this.provableArgType(e.args[i] as Expr, bindings),
-      elementType,
-      env: this.env,
-      site: { file: this.file, range: e.range },
-    });
-    this.diagnostics.push(...diags);
-  }
-
-  /**
-   * The A2 `unknown-method` check on a bare member (property) access
-   * `target.member`. Object *field* access (`obj.field`) is legitimate and is
-   * not gated; a member-less primitive (`number` / `integer` / `boolean` /
-   * `null`) or a `string` / `array` property outside the stdlib surface is
-   * `theta/parse/unknown-method`. A statically-unresolvable receiver defers.
-   */
-  private checkMemberAccess(
-    e: Expr & { kind: "member" },
-    bindings: ReadonlyMap<string, CompatType>,
-  ): void {
-    // Bug 0191 §Fix route 1: `e` ITSELF (not `e.target`) is the node
-    // `#memberType` (./static-type-inference.ts) types, so its own answer
-    // already carries the `enumRef` provenance marker when `e.target` names a
-    // declared enum. An object-schema shadow already bypasses this whole
-    // check through the `"object"` kind below — field access on an object
-    // value is not a stdlib-member question — but a shadow that unfolds to a
-    // primitive or union (`schema Color = string`, e1–e3) does not, and
-    // without this test `Red` would be judged as a `string` / stdlib member
-    // of the SCHEMA's own unfolded type, which is exactly the fabrication
-    // §Fix removes: an enum variant access is never a stdlib-member read, so
-    // it defers here the same way an unresolved receiver does.
-    const ownType = this.typeOf(e, bindings);
-    if (ownType.kind === "named" && ownType.enumRef === true) {
-      return;
-    }
-    const receiverType = this.typeOf(e.target, bindings);
-    const kind = classifyReceiver(receiverType, this.env);
-    if (kind === "unknown" || kind === "object") {
-      // Unresolved receiver (defer to runtime) or an object field access
-      // (`obj.field` — not a stdlib member surface).
-      return;
-    }
-    if (!builtinMembers(kind).has(e.field)) {
-      this.pushUnknownMethod(e.field, receiverType, e.range);
-    }
-  }
-
-  /** Emit `theta/parse/unknown-method` (message from code-registry-parse.md). */
-  private pushUnknownMethod(
-    name: string,
-    receiverType: CompatType,
-    range: Expr["range"],
-  ): void {
-    this.diagnostics.push({
-      severity: "error",
-      code: "theta/parse/unknown-method",
-      file: this.file,
-      range,
-      message: `unknown method '${name}' on type ${displayType(receiverType)}`,
-    });
-  }
-
-  /**
-   * A5 — the `+` operand-type check. `+` accepts two numeric operands
-   * (addition) or two `string` operands (concatenation); every other concrete
-   * pairing is `theta/parse/mixed-plus-operands` (expressions.md §"`+`
-   * operator"). Fires only when both operands are statically resolvable.
-   */
-  private checkPlusOperands(
-    e: Expr & { kind: "binary" },
-    bindings: ReadonlyMap<string, CompatType>,
-  ): void {
-    const leftType = this.typeOf(e.left, bindings);
-    const rightType = this.typeOf(e.right, bindings);
-    this.pushMixedPlusIfNeeded(leftType, rightType, e.range);
-  }
-
-  /**
-   * The type-pair core of A5, factored out so the SPELLED `x + e` binary
-   * (`checkPlusOperands` above) and the DESUGARED `x += e` compound
-   * reassignment (bug 0314's `case "reassign"` arm, bindings.md's
-   * `x <op>= e ≡ x = x <op> e`) share one classifier instead of drifting into
-   * two copies of the same rule.
-   */
-  private pushMixedPlusIfNeeded(
-    leftType: CompatType,
-    rightType: CompatType,
-    range: Expr["range"],
-  ): void {
-    const left = classifyOperand(leftType, this.env);
-    const right = classifyOperand(rightType, this.env);
-    if (left === "unknown" || right === "unknown") {
-      return;
-    }
-    if (
-      (left === "numeric" && right === "numeric") ||
-      (left === "string" && right === "string")
-    ) {
-      return;
-    }
-    this.diagnostics.push({
-      severity: "error",
-      code: "theta/parse/mixed-plus-operands",
-      file: this.file,
-      range,
-      message: `'+' has mixed operand types: ${displayType(leftType)} and ${displayType(
-        rightType,
-      )}`,
-    });
-  }
-
-  /**
-   * A6 — the ordering-operator (`<` / `<=` / `>` / `>=`) operand-type check.
-   * Ordering accepts two numeric operands or two `string` operands; every other
-   * concrete pairing is `theta/parse/non-orderable-operands` (expressions.md
-   * §"Ordering comparisons"). Fires only when both operands are statically
-   * resolvable.
-   */
-  private checkOrderingOperands(
-    e: Expr & { kind: "binary" },
-    bindings: ReadonlyMap<string, CompatType>,
-  ): void {
-    const leftType = this.typeOf(e.left, bindings);
-    const rightType = this.typeOf(e.right, bindings);
-    const left = classifyOperand(leftType, this.env);
-    const right = classifyOperand(rightType, this.env);
-    if (left === "unknown" || right === "unknown") {
-      return;
-    }
-    if (
-      (left === "numeric" && right === "numeric") ||
-      (left === "string" && right === "string")
-    ) {
-      return;
-    }
-    this.diagnostics.push({
-      severity: "error",
-      code: "theta/parse/non-orderable-operands",
-      file: this.file,
-      range: e.range,
-      message: `'${e.op}' requires two numeric or two string operands; got ${displayType(
-        leftType,
-      )} and ${displayType(rightType)}`,
-    });
-  }
-
-  /**
-   * A7 — the spelled arithmetic (`-` / `*` / `/` / `%`) operand-type check.
-   * expressions.md §"Other arithmetic": these accept only numeric operands;
-   * every other concrete pairing is `theta/parse/non-numeric-arithmetic-operands`
-   * (bug 0332). Mirrors `checkOrderingOperands`: fires only when both operands
-   * are statically resolvable, deferring a statically-unresolvable operand to
-   * runtime, where the executor's `applyBinaryScalar` numeric belt catches a
-   * non-number on the body-statement evaluation path. Scoped to the spelled binary in
-   * expression position — the compound `-=`/`*=`/`/=`/`%=` desugar is a §Non-goal
-   * kept on bug 0314's runtime belt (see the `case "reassign"` arm).
-   */
-  private checkArithmeticOperands(
-    e: Expr & { kind: "binary" },
-    bindings: ReadonlyMap<string, CompatType>,
-  ): void {
-    const leftType = this.typeOf(e.left, bindings);
-    const rightType = this.typeOf(e.right, bindings);
-    const left = classifyOperand(leftType, this.env);
-    const right = classifyOperand(rightType, this.env);
-    if (left === "unknown" || right === "unknown") {
-      return;
-    }
-    if (left === "numeric" && right === "numeric") {
-      return;
-    }
-    this.diagnostics.push({
-      severity: "error",
-      code: "theta/parse/non-numeric-arithmetic-operands",
-      file: this.file,
-      range: e.range,
-      message: `'${e.op}' requires two numeric operands; got ${displayType(
-        leftType,
-      )} and ${displayType(rightType)}`,
-    });
-  }
-
-  /**
-   * Bug 0392 — unary `-`'s single-operand sibling of `checkArithmeticOperands`.
-   * expressions.md §"Other arithmetic" gives unary `-` the same numeric-only
-   * rule as the binary operators, judged against the marked node's real
-   * operand (`e.right`; `e.left` is the synthetic placeholder — bug 0367).
-   * Reuses the binary check's code rather than minting one (the 0326
-   * anti-fork law; the 0314 `mixed-plus-operands` widening is the DIAG-2
-   * precedent) — permitted-codes.json stays unchanged.
-   */
-  private checkUnaryArithmeticOperand(
-    e: Expr & { kind: "binary" },
-    bindings: ReadonlyMap<string, CompatType>,
-  ): void {
-    const rightType = this.typeOf(e.right, bindings);
-    const right = classifyOperand(rightType, this.env);
-    if (right === "unknown" || right === "numeric") {
-      return;
-    }
-    this.diagnostics.push({
-      severity: "error",
-      code: "theta/parse/non-numeric-arithmetic-operands",
-      file: this.file,
-      range: e.range,
-      message: `unary '-' requires a numeric operand; got ${displayType(rightType)}`,
-    });
   }
 }
 
