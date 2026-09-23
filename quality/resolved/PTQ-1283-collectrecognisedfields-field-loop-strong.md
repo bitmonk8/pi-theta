@@ -2,7 +2,7 @@
 id: PTQ-1283
 title: collectRecognisedFields is a 271-LOC single function (strong band) whose 14 field arms and unknown-key fallback all live inline around one mutable record
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/frontmatter.ts:386-656

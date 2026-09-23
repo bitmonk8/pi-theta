@@ -2,7 +2,7 @@
 id: PTQ-1286
 title: checkRecognisedFields is a 259-LOC single function (strong band) running twelve independent cross-field rule blocks inline behind a 25-name destructure
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/frontmatter.ts:659-917

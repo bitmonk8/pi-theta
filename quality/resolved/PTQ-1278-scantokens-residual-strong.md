@@ -2,7 +2,7 @@
 id: PTQ-1278
 title: scanTokens remains a 262-LOC single function after the PTQ-1167 extraction, with the template-prose arm, identifier arm, and EOF template check still inline around six shared mutable locals
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/lexer/lexer.ts:471-732

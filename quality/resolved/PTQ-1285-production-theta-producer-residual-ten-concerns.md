@@ -2,7 +2,7 @@
 id: PTQ-1285
 title: production-theta-producer.ts still bundles ten separable concern clusters at 6474 LOC after the PTQ-1150 split
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:1-6474

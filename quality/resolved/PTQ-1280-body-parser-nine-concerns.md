@@ -2,7 +2,7 @@
 id: PTQ-1280
 title: src/parser/body-parser.ts bundles nine method groups — statement, schema/enum, import, type, expression, pattern, par-for-scan, invoke/query recognition plus cursor infrastructure — in one 4346-LOC file
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/body-parser.ts:1-4346

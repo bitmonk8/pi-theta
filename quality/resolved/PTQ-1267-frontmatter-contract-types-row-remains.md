@@ -2,7 +2,7 @@
 id: PTQ-1267
 title: src/parser/frontmatter.ts still co-hosts the exported contract-type family with the field-contract parse machinery (1215 LOC, justify) after the PTQ-1146 fix
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/frontmatter.ts:1-1215
