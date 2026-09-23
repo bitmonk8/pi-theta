@@ -1,0 +1,47 @@
+---
+id: pending
+title: subagent-spawn-regime.ts bundles the parent-side spawn assembly, the child-side root regime, and the subagent-fn call regime at 1683 LOC after the PTQ-1285 move
+lens: D9
+status: intake
+verdict: pending
+locations:
+  - src/extension/subagent-spawn-regime.ts:1-1683
+sites: 1
+fix_scope: cross-module
+d9_class: breakdown
+d9_host: src/extension/subagent-spawn-regime.ts
+d9_band: justify
+wave: qw20260923145222
+reported_by: lens-d9-placement (anthropic/claude-fable-5)
+date: 2026-09-23
+---
+
+# subagent-spawn-regime.ts bundles the parent-side spawn assembly, the child-side root regime, and the subagent-fn call regime at 1683 LOC after the PTQ-1285 move
+
+## Observation
+src/extension/subagent-spawn-regime.ts is 1683 LOC (structural map; justify band, file threshold 1000). It was created by the ratified PTQ-1285 fix, which moved the former `production-theta-producer.ts` "subagent spawn & child-side regime" cluster wholesale into this file as the `SubagentSpawnRegime` class (1500 LOC, map lines 184-1683). The file has never had its own file-level breakdown review: PTQ-1168/1288 (spawnSubagentConversation), PTQ-1192/1437 (driveSubagentRootRegime), and PTQ-1204 (#driveSubagentFnEntry) are member-level findings, all resolved, keyed to the pre-move host. The class header says it is "the extracted subagent spawn & child-side regime … holds no cross-invocation mutable state".
+
+## Evidence
+Distinct-concern inventory (member names and ranges from the structural map):
+
+| concern | members | line ranges | LOC |
+|---|---|---|---|
+| parent-side spawn & child-launch assembly (runs in the parent process) | spawnSubagentConversation, #buildControlPlaneEnv, #launchSubagentChild, #renderChildSystemPrompt, #marshalChildCallables | 203-703 | ~477 |
+| params marshalling & placement plumbing | #placementResolver, #paramsMarshalDeps, #intakeSubagentRootParams | 712-794 | ~68 |
+| child-side root regime (runs inside the spawned child) | isSubagentRootFor, driveSubagentRootRegime, #bindMarshalledRootParams, #emitOkEnvelopeGuarded, #confirmChildModelOrRefuse, #subagentRootIntendedModelRef | 803-1108, 1361-1373 | ~303 |
+| subagent-fn call regime (child-side fn entry + parent-side fn child drive) | #driveSubagentFnEntry, #subagentFnParamsValidator, #requestVisibleChildShutdown, #resolveSubagentFnDecl, #applySubagentFnConfig, resolveSubagentFnChild, #driveSubagentFnChild, #guardSubagentFnArgs, #driveAndValidateFnChild, #resolveSubagentFnReturnSite, #subagentFnDeclaringPath | 1136-1349, 1394-1682 | ~590 |
+| deps surface | SubagentSpawnRegimeDeps | 143-177 | 35 |
+
+The parent/child process boundary is stated in the code itself — spawnSubagentConversation's doc (203): "the WHOLE callee runs in a spawned child pi … process", vs driveSubagentRootRegime's doc (817-819): "Child-side subagent-root drive. Runs INSIDE the spawned child". The two regimes never call one another; their only shared members are the child-side pair #emitOkEnvelopeGuarded / #confirmChildModelOrRefuse (both inside the child-side rows) and the constructor state `#input`/`#deps`. Importer count from the map: 1 src / 0 tests (production-theta-producer.ts, which re-exposes the three facade methods).
+
+## Why this is a problem
+Justify band (1683 LOC ≥ 1000): presumption of breakdown unless a concrete reason to keep whole is recorded. Reasons considered and defeated: (a) single algorithm with shared local state — the four concern rows share only the immutable `#input`/`#deps` constructor fields; no mutable state crosses rows (header: "holds no cross-invocation mutable state"), and the parent-side rows never invoke the child-side rows; (b) closed-enumeration dispatch — no; the file cites a launch contract spanning PIC-58/59/60/62/65/66 and RFC 0012 §1/§6/§7/§10, not one spec-named enumeration; (c) data-only — no; SubagentSpawnRegimeDeps plus doc comments are the only non-executable LOC, far under 80%; (d) generated — hand-authored; (e) human ruling — quality/exemptions.json has no row for this host (only the D8 `#firstAdmittingArmProperties` row for production-theta-producer.ts). PTQ-1285 ratified the MOVE of this cluster out of the producer; it did not rule the 1683-LOC destination whole. Precedent: callable-lowering.ts, another PTQ-1285 move target born over threshold, was filed and accepted the same way (qw20260923023517-d9-01).
+
+## Suggested direction (non-binding, optional)
+All hypotheses unproven. Seam A: the child-side root regime + fn entry (isSubagentRootFor, driveSubagentRootRegime, #bindMarshalledRootParams, #emitOkEnvelopeGuarded, #confirmChildModelOrRefuse, #subagentRootIntendedModelRef, #driveSubagentFnEntry, #subagentFnParamsValidator, #requestVisibleChildShutdown, #resolveSubagentFnDecl, #applySubagentFnConfig, #subagentFnDeclaringPath) -> subagent-child-regime.ts (hypothesis) — ~700 LOC, exported symbols moved: the two facade methods (1 src importer), cross-references back into the host: none beyond the shared deps object. Seam B: the parent-side subagent-fn child drive (resolveSubagentFnChild, #driveSubagentFnChild, #guardSubagentFnArgs, #driveAndValidateFnChild, #resolveSubagentFnReturnSite) -> subagent-fn-child.ts (hypothesis) — ~230 LOC, resolveSubagentFnChild (1 src importer via the map), cross-reference back: #launchSubagentChild for the spawn. Seam C: none identified yet for the marshalling/placement plumbing (stays with the launch assembly).
+
+## False-positive check
+Band: map-quoted 1683 LOC / justify; not recounted by hand. Reasons-considered list above with the defeating evidence per reason. Exemptions check: quality/exemptions.json has no row keyed to this file or any member of it. Generated-code check: hand-authored narrative doc comments throughout, no generator banner. Spec-mirror check: the concern rows cite disjoint clause families (PIC-65 launch vs PIC-59 envelope vs RFC 0012 §10 fn regime), not one closed enumeration. Duplicate check: no file-level finding exists for this host — PTQ-1168/1288/1192/1437/1204/1430 are member-level and all resolved; the brief's pending-candidate list has no subagent-spawn-regime file entry; qw20260922211400-d4-01 (root vs fn-entry parallel) is a D4 clone claim, a different class. Not a husk (payload-dominant, 1 live src importer, no re-export block).
+
+## Triage
+verdict: questionable — accounting verified: size-scan map (one-line manifest) reproduces `src/extension/subagent-spawn-regime.ts — 1683 LOC — band justify` (file justify ≥ 1000) with `SubagentSpawnRegimeDeps` 143-177/35 and `SubagentSpawnRegime` 184-1683/1500 and every member range in the inventory matching the map line-for-line; both doc excerpts reproduce (203-205 "the WHOLE callee runs in a spawned child", 817-818 "Child-side subagent-root drive. Runs INSIDE the spawned child") and the module header itself (lines 1-13) states the parent-side / child-side split; the ≥ 2-concern inventory holds — an awk of every `this.#x(` / facade call shows the parent-side spawn cluster (spawnSubagentConversation → #buildControlPlaneEnv/#launchSubagentChild/#renderChildSystemPrompt/#marshalChildCallables → #paramsMarshalDeps/#placementResolver) and the child-side root cluster (driveSubagentRootRegime → #bindMarshalledRootParams/#confirmChildModelOrRefuse/#emitOkEnvelopeGuarded → #intakeSubagentRootParams/#subagentRootIntendedModelRef/#requestVisibleChildShutdown) share no member and no field beyond the readonly `#input`/`#deps`; two prose imprecisions the human ruling should weigh, neither refuting: row 3 ↔ row 4 are cross-linked (driveSubagentRootRegime → #driveSubagentFnEntry at entry.kind "fn"; #subagentRootIntendedModelRef → #resolveSubagentFnDecl; #emitOkEnvelopeGuarded → #requestVisibleChildShutdown; #driveSubagentFnEntry → #emitOkEnvelopeGuarded), consistent with the filing's own Seam A grouping them, and Seam B's back-reference is `spawnSubagentConversation` (line ~1520), not `#launchSubagentChild`, while `#applySubagentFnConfig` (1394) is by its own doc deliberately shared by PARENT and CHILD (RFC 0012 §10) so any cut must keep one copy; no overlooked reason — quality/exemptions.json has no row for this file or any member (grep rc=1), ~570 comment lines + 35 interface LOC ≈ 36 % not ≥ 80 %, no generator banner, header cites disjoint spec topics not one enumeration, `git log` shows the file born whole in the PTQ-1285 move commits (f1b77776 → 48b6a1b7) with no reverted split, and quality/resolved/PTQ-1285 records no ruling on the destination's size; precedent PTQ-1436 (callable-lowering.ts, same PTQ-1285 move destination) is resolved/confirmed the same way; not a duplicate — no file-level finding keys this host (PTQ-1285 fixed; PTQ-1168/1288/1192/1437/1204/1430 member-level on the pre-move host, all resolved; PTQ-1419 is D4; same-wave d9-02 keys production-theta-producer.ts) — which seams (A child regime / B fn child drive) and their homes are a design decision for a human ruling (triage: claude-fable-5-1)
