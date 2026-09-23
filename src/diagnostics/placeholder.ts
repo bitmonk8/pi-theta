@@ -74,7 +74,9 @@ export type RuntimeValue =
   | { readonly kind: "number"; readonly value: number }
   | { readonly kind: "boolean"; readonly value: boolean }
   | { readonly kind: "null" }
-  | { readonly kind: "schema-object"; readonly value: Record<string, unknown> }
+  | { readonly kind: "enum"; readonly value: string }
+  | { readonly kind: "array"; readonly value: readonly unknown[] }
+  | { readonly kind: "schema-object"; readonly value: Readonly<Record<string, unknown>> }
   | { readonly kind: "result"; readonly variant: "Ok" | "Err"; readonly inner: RuntimeValue };
 
 /**
@@ -97,6 +99,14 @@ export function renderRuntimeValue(value: RuntimeValue): string {
       return value.value ? "true" : "false";
     case "null":
       return "null";
+    case "enum":
+      // An enum variant renders as its bare wire string (the declaring-enum
+      // tag never surfaces).
+      return value.value;
+    case "array":
+      // An array value: compact `JSON.stringify` (same disposition as the
+      // schema-typed-object row).
+      return JSON.stringify(value.value);
     case "schema-object":
       // Schema-typed object: compact `JSON.stringify` (the schema name does
       // not surface in the rendered string).

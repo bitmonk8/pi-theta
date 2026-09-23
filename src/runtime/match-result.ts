@@ -20,6 +20,7 @@
 
 import { type ThetaValue, defineRecordField, isObjectValue, isResultValue, valuesEqual } from "./value";
 import { ThetaPanic } from "./runtime-panics";
+import { type RuntimeValue, renderRuntimeValue } from "../diagnostics/placeholder";
 
 /** The registry code carried by the non-exhaustive-`match` runtime panic. */
 export const MATCH_ERROR_CODE = "theta/runtime/match-error";
@@ -52,37 +53,45 @@ export class MatchError extends ThetaPanic {
  * objects as compact `JSON.stringify` (the schema name does not surface).
  */
 function summariseScrutinee(value: ThetaValue): string {
+  return renderRuntimeValue(classifyScrutinee(value));
+}
+
+/**
+ * Classify a runtime `ThetaValue` into the category-2 `RuntimeValue` shape
+ * `renderRuntimeValue` consumes, so the rendering rules live only in the
+ * diagnostic placeholder-rendering seam.
+ */
+function classifyScrutinee(value: ThetaValue): RuntimeValue {
   if (value === null) {
-    return "null";
+    return { kind: "null" };
   }
   if (typeof value === "string") {
-    const codePoints = Array.from(value);
-    return codePoints.length <= 80 ? value : codePoints.slice(0, 77).join("") + "...";
+    return { kind: "string", value };
   }
   if (typeof value === "boolean") {
-    return value ? "true" : "false";
+    return { kind: "boolean", value };
   }
   if (typeof value === "number") {
-    return Object.is(value, -0) ? "0" : String(value);
+    return { kind: "number", value };
   }
   // An enum runtime value is a boxed `String`; it renders as its bare wire
   // string (the declaring-enum tag never surfaces).
   if (value instanceof String) {
-    return String(value);
+    return { kind: "enum", value: String(value) };
   }
   if (Array.isArray(value)) {
-    return JSON.stringify(value);
+    return { kind: "array", value };
   }
   // A `Result` value renders as `Ok(<inner>)` / `Err(<inner>)`. Classified by
   // the constructor-installed brand, never the `ok` shape — a user object
   // carrying a boolean `ok` field is a schema-typed object (bug 0017).
   if (isResultValue(value)) {
     return value.ok
-      ? `Ok(${summariseScrutinee(value.value)})`
-      : `Err(${summariseScrutinee(value.error)})`;
+      ? { kind: "result", variant: "Ok", inner: classifyScrutinee(value.value) }
+      : { kind: "result", variant: "Err", inner: classifyScrutinee(value.error) };
   }
   // Any other schema-typed object: compact `JSON.stringify`.
-  return JSON.stringify(value);
+  return { kind: "schema-object", value: value as Readonly<Record<string, unknown>> };
 }
 
 /**
