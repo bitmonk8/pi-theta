@@ -3,12 +3,10 @@
 import { type LexicalEnvironment } from "./lexical-environment";
 import { BinaryMixedOperandError, BinaryNonNumericError, BooleanPositionKindDefectError, IndexKindDefectError, ThetaFnArityError, UnaryNonNumericError } from "./statement-executor";
 import { pushCountableFrame, thetalibFnFrameKind, type InvokeChain } from "./invoke-depth-cycle";
-import { buildObjectSchemaValue, defineRecordField, isObjectValue, isResultValue, makeErr, makeOk, valuesEqual, type ThetaValue } from "./value";
-import { evaluateStringMember } from "./stdlib-string";
-import { evaluateArrayMember } from "./stdlib-array";
-import { evaluateObjectMember } from "./stdlib-object";
+import { buildObjectSchemaValue, defineRecordField, isResultValue, makeErr, makeOk, valuesEqual, type ThetaValue } from "./value";
+import { applyNumericArithmetic, applyStdlibMethod } from "./executor-operators";
 import type { Block, CallExpr, Expr, FnDecl, InvokeExpr, Stmt } from "../parser/theta-document";
-import { attachPanicRange, attachPanicSite, evaluateIndexAccess, evaluateMemberAccess, evaluateQuestion, InterpolatedResultPanic, isThetaPanic, nonObjectReceiverRejection, pushPanicFrame, QuestionOperandDefectError } from "./runtime-panics";
+import { attachPanicRange, attachPanicSite, evaluateIndexAccess, evaluateMemberAccess, evaluateQuestion, InterpolatedResultPanic, isThetaPanic, pushPanicFrame, QuestionOperandDefectError } from "./runtime-panics";
 import { INTERPOLATED_RESULT_MESSAGE } from "../render/query-render";
 
 /**
@@ -212,7 +210,13 @@ function evaluatePureExpression(
       // (expressions.md §"Built-in methods and properties").
       const receiver = evaluatePureExpression(expr.target, env, chain);
       const args = expr.args.map((arg) => evaluatePureExpression(arg, env, chain));
-      return evaluateStdlibMethod(receiver, expr.method, args);
+      // `applyStdlibMethod` (executor-operators.ts) is the ONE receiver-type
+      // dispatch gate shared with the effectful executor, so the two hosts
+      // cannot drift apart on receiver classification — including on the
+      // QRY-18 interpolation render path (`stringifyInterpolation`), where a
+      // receiver that would otherwise leak into a rendered query template is
+      // rejected before any text reaches the model.
+      return applyStdlibMethod(receiver, expr.method, args);
     }
     case "try": {
       // §Fix (a) (bug 0116) — the `Ok`/`Err` discrimination is NOT
@@ -449,47 +453,6 @@ function evaluatePureIf(
 }
 
 /**
- * Dispatch a `target.method(args)` stdlib member by the receiver's runtime type
- * (expressions.md §"Built-in methods and properties"), reusing the runtime
- * stdlib modules so `replace`'s `$`-literal insertion and the `valuesEqual`
- * structural equality of `includes` / `indexOf` match the reference semantics.
- * A receiver kind with no built-in method surface — a `number`, a `boolean`,
- * or `null` — is rejected loudly with `theta/runtime/non-object-receiver`
- * (bug 0393 §Fix), the disposition the index arm (`evaluateIndexAccess`)
- * already gives a laundered primitive — a `null` receiver at the index or
- * member read raises its dedicated null-access panic ahead of that gate, so
- * `null` carries this code only at the method-call read — including on the
- * QRY-18 interpolation render path (`stringifyInterpolation`), so a receiver
- * that would otherwise leak into a rendered query template is rejected before
- * any text reaches the model. An enum value or a `Result` value satisfies the
- * object arm's `typeof` test but is gated ahead of `evaluateObjectMember`
- * (bug 0027 §Fix): neither is an object value in the language's sense, so
- * the call rejects with `theta/runtime/non-object-receiver` rather than
- * answering the carrier's own enumerable properties. This pure host and the
- * effectful executor's `applyStdlibMethod` (statement-executor.ts) move in
- * lockstep — a gate on one alone leaves the other leaking.
- */
-function evaluateStdlibMethod(
-  receiver: ThetaValue,
-  method: string,
-  args: readonly ThetaValue[],
-): ThetaValue {
-  if (typeof receiver === "string") {
-    return evaluateStringMember(receiver, method, args);
-  }
-  if (Array.isArray(receiver)) {
-    return evaluateArrayMember(receiver, method, args);
-  }
-  if (typeof receiver === "object" && receiver !== null) {
-    if (!isObjectValue(receiver)) {
-      throw nonObjectReceiverRejection(`.${method}()`, receiver);
-    }
-    return evaluateObjectMember(receiver as { readonly [k: string]: ThetaValue }, method, args);
-  }
-  throw nonObjectReceiverRejection(`.${method}()`, receiver);
-}
-
-/**
  * Evaluate a pure binary / unary-modelled expression against the environment,
  * reusing the V2c structural-equality relation for `==` / `!=`. `&&` / `||`
  * short-circuit; arithmetic and ordering use native IEEE-754 semantics (no
@@ -594,16 +557,7 @@ function evaluateBinaryExpression(
       if (typeof left !== "number" || typeof right !== "number") {
         throw new BinaryNonNumericError(op, left, right);
       }
-      switch (op) {
-        case "-":
-          return left - right;
-        case "*":
-          return left * right;
-        case "/":
-          return left / right;
-        case "%":
-          return left % right;
-      }
+      return applyNumericArithmetic(op, left, right);
     }
     case "<":
     case "<=":

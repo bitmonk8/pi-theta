@@ -37,11 +37,11 @@ type GatedReceiverKind =
  * A gated receiver rejection (bug 0027 §Fix, widened by bug 0393 §Fix,
  * code-registry-runtime.md `theta/runtime/non-object-receiver`): raised by
  * the widened `evaluateIndexAccess` guard below, `evaluateMemberAccess`'s
- * enum/`Result` guard, both stdlib-method hosts' object-arm gate
- * (`applyStdlibMethod` in statement-executor.ts, `evaluateStdlibMethod` in
- * production-theta-producer.ts) ahead of their `evaluateObjectMember` call,
- * and those same two hosts' terminal fall-through for a receiver kind with
- * no built-in method surface (a `number`, a `boolean`, or `null`) — all six
+ * enum/`Result` guard, the shared stdlib-method dispatcher's object-arm gate
+ * (`applyStdlibMethod` in executor-operators.ts, serving both hosts) ahead of
+ * its `evaluateObjectMember` call,
+ * and that same dispatcher's terminal fall-through for a receiver kind with
+ * no built-in method surface (a `number`, a `boolean`, or `null`) — all four
  * through {@link nonObjectReceiverRejection}, which is what keeps this code
  * off receiver kinds the registry row does not register.
  * Deliberately NOT a `ThetaPanic` subclass: the six-source panic list
@@ -91,7 +91,7 @@ function gatedReceiverKind(value: ThetaValue): GatedReceiverKind | undefined {
 
 /**
  * The single construction point for a gated-read rejection of `read` on
- * `receiver`; all six gated sites route through it.
+ * `receiver`; all four gated sites route through it.
  *
  * A receiver {@link gatedReceiverKind} cannot classify keeps its PRE-0027
  * disposition — a raw `Error` the runtime-defect surface classifies
@@ -102,9 +102,9 @@ function gatedReceiverKind(value: ThetaValue): GatedReceiverKind | undefined {
  * {@link gatedReceiverKind} cannot classify at all — a host value outside the
  * theta 1.0 value model (e.g. raw JS `undefined`). `null` is NOT such a
  * value: bug 0393 §Fix widened {@link gatedReceiverKind} to classify it as
- * the sixth `GatedReceiverKind` member, so a `null` receiver reaching one of
- * the two stdlib-method-call fall-throughs (`applyStdlibMethod`,
- * `evaluateStdlibMethod`) carries the REGISTERED
+ * the sixth `GatedReceiverKind` member, so a `null` receiver reaching the
+ * stdlib-method-call fall-through (`applyStdlibMethod`,
+ * executor-operators.ts) carries the REGISTERED
  * `theta/runtime/non-object-receiver` code, not this raw-`Error` arm. A
  * `null` receiver at `evaluateIndexAccess` / `evaluateMemberAccess` never
  * reaches this function at all — the dedicated `NullIndexAccessPanic` /

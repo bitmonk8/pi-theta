@@ -51,15 +51,36 @@ export function applyCompound(
   if (typeof current !== "number" || typeof delta !== "number") {
     throw new CompoundNonNumericError(op, current, delta);
   }
+  // `x <op>= e` is `x = x <op> e` (bindings.md §compound-assignment-desugar):
+  // strip the trailing `=` and apply the one shared arithmetic switch.
+  return applyNumericArithmetic(op.slice(0, 1) as "-" | "*" | "/" | "%", current, delta);
+}
+
+/**
+ * Apply one of the four numeric-only arithmetic operators to two numbers —
+ * native IEEE-754 semantics with non-panicking div/mod (`n / 0` → `Infinity`,
+ * `n % 0` → `NaN`; expressions.md §"Other arithmetic"). The ONE arithmetic
+ * switch shared by the compound-assignment application (`applyCompound`), the
+ * binary scalar disposition (`applyBinaryScalar`), and the pure host
+ * (`pure-expression-evaluator.ts`), so the two expression forms and the two
+ * hosts cannot drift apart on arithmetic semantics. Each caller keeps its own
+ * per-site non-numeric guard ahead of this (bug 0314 / bug 0332 / bug 0338
+ * belts, with per-site error classes).
+ */
+export function applyNumericArithmetic(
+  op: "-" | "*" | "/" | "%",
+  left: number,
+  right: number,
+): number {
   switch (op) {
-    case "-=":
-      return current - delta;
-    case "*=":
-      return current * delta;
-    case "/=":
-      return current / delta;
-    case "%=":
-      return current % delta;
+    case "-":
+      return left - right;
+    case "*":
+      return left * right;
+    case "/":
+      return left / right;
+    case "%":
+      return left % right;
   }
 }
 
@@ -112,16 +133,7 @@ export function applyBinaryScalar(op: string, left: ThetaValue, right: ThetaValu
       if (typeof left !== "number" || typeof right !== "number") {
         throw new BinaryNonNumericError(op, left, right);
       }
-      switch (op) {
-        case "-":
-          return left - right;
-        case "*":
-          return left * right;
-        case "/":
-          return left / right;
-        case "%":
-          return left % right;
-      }
+      return applyNumericArithmetic(op, left, right);
     }
     case "<":
     case "<=":
@@ -158,8 +170,8 @@ export function applyBinaryScalar(op: string, left: ThetaValue, right: ThetaValu
 }
 
 /**
- * Dispatch a stdlib method on resolved operands by the receiver's runtime type —
- * mirrors the pure host's `evaluateStdlibMethod`, reusing the same exported
+ * Dispatch a stdlib method on resolved operands by the receiver's runtime type
+ * (expressions.md §"Built-in methods and properties"), reusing the exported
  * member surfaces (`stdlib-string` / `stdlib-array` / `stdlib-object`); a
  * receiver kind with no built-in method surface — a `number`, a `boolean`, or
  * `null` — is rejected loudly with `theta/runtime/non-object-receiver` (bug
@@ -170,10 +182,10 @@ export function applyBinaryScalar(op: string, left: ThetaValue, right: ThetaValu
  * value satisfies the object arm's `typeof` test but is gated ahead of
  * `evaluateObjectMember` (bug 0027 §Fix): neither is an object value in the
  * language's sense, so the call rejects with `theta/runtime/non-object-receiver`
- * rather than answering the carrier's own enumerable properties. This
- * effectful executor and the pure host's `evaluateStdlibMethod`
- * (production-theta-producer.ts) move in lockstep — a gate on one alone leaves
- * the other leaking.
+ * rather than answering the carrier's own enumerable properties. The ONE
+ * dispatch gate shared by the effectful executor (`statement-executor.ts`) and
+ * the pure host (`pure-expression-evaluator.ts`), so the two hosts cannot
+ * drift apart on receiver classification.
  */
 export function applyStdlibMethod(receiver: ThetaValue, method: string, args: readonly ThetaValue[]): ThetaValue {
   if (typeof receiver === "string") {

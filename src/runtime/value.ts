@@ -211,8 +211,8 @@ function privateBrandOf(value: ThetaValue, tag: symbol): unknown {
  *
  * The single classification point every runtime surface that classifies an
  * object value routes through ahead of the object path, so a classification
- * change has one definition site: `applyStdlibMethod` (statement-executor.ts)
- * and `evaluateStdlibMethod` (production-theta-producer.ts) ahead of their
+ * change has one definition site: `applyStdlibMethod` (executor-operators.ts,
+ * the dispatcher both hosts share) ahead of its
  * `evaluateObjectMember` call; the widened non-object guard in
  * `evaluateIndexAccess` and the enum/`Result` guard in `evaluateMemberAccess`
  * (both runtime-panics.ts); and `matchPattern`'s object arm (match-result.ts).

@@ -18,9 +18,8 @@
 // This surface PRESUPPOSES an object-value receiver. An enum value and a
 // `Result` value both satisfy JS `typeof "object"`, but neither is an object
 // value in the language's sense (runtime-value-model.md's enum / `Result`
-// rows) — both entry points that reach this module (`applyStdlibMethod` in
-// statement-executor.ts, `evaluateStdlibMethod` in
-// production-theta-producer.ts) gate such a receiver ahead of
+// rows) — the one entry point that reaches this module (`applyStdlibMethod`
+// in executor-operators.ts, serving both hosts) gates such a receiver ahead of
 // `evaluateObjectMember`, rejecting it with the registered
 // `theta/runtime/non-object-receiver` code (bug 0027 §Fix) before it ever
 // reaches this module. `evaluateObjectMember`'s `default` arm below is

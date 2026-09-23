@@ -262,12 +262,11 @@ export function routeToolCallLateSettlement(
 
 /**
  * The settlement of an abandonable Pi-returned Promise the runtime might drop
- * under cancellation. This section is the seam's generic form, witnessed by the
- * cancellation-core tests; no production module imports it. The owning sites
- * that production wires (`V14f`, `V13f`, `V15h`) each carry their own per-site
- * attach + route pair (`tool-call-swallowing-handler.ts`,
- * `query-swallowing-handler.ts`, `invoke-swallowing-handler.ts`) rather than
- * routing through this one.
+ * under cancellation. This section is the seam's ONE generic form: the owning
+ * sites (`V14f`, `V13f`, `V15h`) re-export it under per-site names
+ * (`tool-call-swallowing-handler.ts`, `query-swallowing-handler.ts`,
+ * `invoke-swallowing-handler.ts`), so production wiring routes through this
+ * single attach + route pair.
  */
 export type AbandonableSettlement =
   | { readonly kind: "resolved"; readonly value: unknown }

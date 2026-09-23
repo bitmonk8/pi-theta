@@ -42,10 +42,9 @@ import {
 } from "./executor-defects";
 export * from "./executor-defects";
 import { evalParFor } from "./par-for-executor";
-export { evalParFor } from "./par-for-executor";
 import { evalSubagentFnCall } from "./subagent-fn-call";
-export { evalSubagentFnCall } from "./subagent-fn-call";
 import { applyBinaryScalar, applyCompound, applyStdlibMethod } from "./executor-operators";
+import { evaluateExpressionList } from "./executor-expression-list";
 import { asResultValue, evalMatch, evalTry } from "./executor-result-flow";
 import type {
   BodyExecution,
@@ -478,15 +477,11 @@ export async function evalExpr(
   // non-`value` flow (a `?`-propagation, an effect `fail`, or a cancel)
   // short-circuits and carries that terminal flow verbatim.
   if (expr.kind === "array") {
-    const values: ThetaValue[] = [];
-    for (const element of expr.elements) {
-      const evaluated = await evalExpr(element, env, deps);
-      if (evaluated.flow !== "value") {
-        return evaluated;
-      }
-      values.push(evaluated.value);
+    const elements = await evaluateExpressionList(expr.elements, (element) => evalExpr(element, env, deps));
+    if (!elements.ok) {
+      return elements.flow;
     }
-    return { flow: "value", value: values };
+    return { flow: "value", value: elements.values };
   }
   if (expr.kind === "object") {
     const obj: Record<string, ThetaValue> = {};
@@ -571,15 +566,11 @@ export async function evalExpr(
     if (receiver.flow !== "value") {
       return receiver;
     }
-    const args: ThetaValue[] = [];
-    for (const arg of expr.args) {
-      const evaluated = await evalExpr(arg, env, deps);
-      if (evaluated.flow !== "value") {
-        return evaluated;
-      }
-      args.push(evaluated.value);
+    const args = await evaluateExpressionList(expr.args, (arg) => evalExpr(arg, env, deps));
+    if (!args.ok) {
+      return args.flow;
     }
-    return { flow: "value", value: applyStdlibMethod(receiver.value, expr.method, args) };
+    return { flow: "value", value: applyStdlibMethod(receiver.value, expr.method, args.values) };
   }
   // `Ok(arg)` / `Err(arg)`: the constructor argument is the same class of nested
   // position — an inline composite / effect handed to the sync pure host hits the

@@ -222,6 +222,14 @@ function mapSubagentFnFlow(flow: EvalResult, fn: FnDecl): EvalResult {
     }
     case "cancel":
       return { flow: "cancel" };
+    default: {
+      // Exhaustiveness tether (paired with `mapSubagentFnChildOutcome`'s
+      // outcome switch): a new `EvalResult` flow kind is a compile error here
+      // until this boundary projection maps it, so the two execution regimes'
+      // observables cannot drift apart silently (FN-6; GOV-15).
+      const exhaustive: never = flow;
+      return exhaustive;
+    }
   }
 }
 
@@ -248,8 +256,19 @@ function mapSubagentFnChildOutcome(
   fnName: string,
   signal: AbortSignal,
 ): EvalResult {
-  if (outcome.kind === "cancelled") {
-    return { flow: "cancel" };
+  switch (outcome.kind) {
+    case "cancelled":
+      return { flow: "cancel" };
+    case "value":
+      break;
+    default: {
+      // Exhaustiveness tether (paired with `mapSubagentFnFlow`'s flow
+      // switch): a new `SubagentFnChildOutcome` kind is a compile error here
+      // until this boundary projection maps it, so the two execution regimes'
+      // observables cannot drift apart silently (FN-6; GOV-15).
+      const exhaustive: never = outcome;
+      return exhaustive;
+    }
   }
   const { result } = outcome;
   if (result.ok) {

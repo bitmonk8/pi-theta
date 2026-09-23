@@ -390,10 +390,31 @@ function parseFnTail(candidate: unknown): FnTail | undefined {
 }
 
 /**
+ * Compile-time schema tether between the child-side writers and the
+ * parent-side reader (the `HANDLED_PROGRESS_FIELDS` / result-frames
+ * precedent): every field of each envelope arm, keyed by arm, named once.
+ * `satisfies` fails `tsc` in THIS file the moment `EnvelopeOk` /
+ * `EnvelopeErr` grows a field that is not named here — forcing the writers
+ * (`serializeOkEnvelope` / `serializeErrEnvelope`) and the reader
+ * (`parseEnvelopeLine` with its sidecar validators) to be updated in the
+ * same change, since the reader consumes an untyped
+ * `Record<string, unknown>` the compiler cannot tether directly. Pins the
+ * SET of fields only; each field's own validation is unchanged below.
+ */
+const HANDLED_ENVELOPE_FIELDS = {
+  ok: { v: true, ok: true, enum_tags: true, fn_tail: true },
+  err: { v: true, err: true, err_provenance: true, fn_tail: true },
+} satisfies {
+  readonly ok: Record<keyof EnvelopeOk, true>;
+  readonly err: Record<keyof EnvelopeErr, true>;
+};
+
+/**
  * Parse one reserved-key envelope line against the pinned schema. A version the
  * parent does not recognise yields `schema-skew` (detected, not tolerated); a
  * reserved-key line that does not parse against the pinned schema yields
- * `parse-failed`; otherwise the `ok` / `err` arm.
+ * `parse-failed`; otherwise the `ok` / `err` arm. The field set each arm
+ * carries is pinned by {@link HANDLED_ENVELOPE_FIELDS} above.
  */
 export function parseEnvelopeLine(line: string): EnvelopeParse {
   let parsed: unknown;
