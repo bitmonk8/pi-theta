@@ -630,7 +630,7 @@ async function resolveEnumMemberRead(
  * Decompose a `binary` node on the executor so an operand subtree holding a
  * control/effect form dispatches through `evalExpr`. The evaluation order and
  * short-circuit are the pure host's `evaluateBinaryExpression`
- * (production-theta-producer.ts) verbatim: `!` / unary `-` (the parser models
+ * (pure-expression-evaluator.ts) verbatim: `!` / unary `-` (the parser models
  * both as a binary; unary `-` has a synthetic `null` left) evaluate only the
  * right operand and are checked before the left is evaluated; `&&` / `||`
  * evaluate the right operand only when the left does not decide the result (so
