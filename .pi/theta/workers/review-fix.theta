@@ -1,7 +1,7 @@
 ---
 description: "Review the uncommitted fixes of one cluster - are the issues resolved, was anything damaged"
 mode: subagent
-model: "anthropic/claude-fable-5"
+model: "anthropic/claude-opus-5-5"
 tools: read, grep, bash
 tool_loop:
   max_rounds: 80
