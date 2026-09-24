@@ -155,7 +155,11 @@ status surfaces; the entry-channel sink additionally invalidates the card
 component + `tui.requestRender()` on the same cadence while (a) any heat
 entry is younger than `FADE_MS`, or (b) any child is running. 4 s fade at
 200 ms ticks = 20 frames over a 64-step LUT — visually continuous. When
-idle, ticking stops; the final render is static.
+idle, ticking stops; the final render is static. *(Erratum, bug 0490,
+2026-09-24: ticking stopping does not by itself put the static form on
+screen — an idle bus requests no repaint, so the last painted frame stayed
+live. The static final frame is owed by an explicit eviction repaint; see
+[theta-run-entries.md#pic-75-eviction-repaint](../spec_topics/pi-integration-contract/theta-run-entries.md#pic-75-eviction-repaint).)*
 
 ### Terminal heat-summary entry (gated)
 

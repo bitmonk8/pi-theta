@@ -1,16 +1,134 @@
-# Bug 0490 — a subagent invoke whose child settles Ok never resumes the calling drive: the child is marked done in the status tree, its work product is on disk, and the parent sits idle at the invoke statement indefinitely
+# Bug 0490 — a completed top-level drive's run card freezes in the running form: the eviction tick requests no repaint, so an Ok prompt-mode drive that finished reads as a drive wedged at its last invoke
 
-- **Status:** open — undiagnosed; two-for-two reproduction on the same
-  drive shape, evidence below. No synthesised settlement fires and no
-  system note is emitted; the wedge is silent and unbounded.
-- **Sev/Diff estimate:** S2/D3 — S2: a deterministic-looking wedge of a
-  whole orchestration drive after all its expensive work completed (the
-  2026-09-24 benches burned ~30 min of five-model lane work per run, twice,
-  then wedged at the final cheap step; the operator read both as hangs and
-  interrupted). Unbounded: measured 38 min parent-idle with no timeout on
-  the path. D3: the settle path is asynchronous and placement-coupled; no
-  candidate is yet confirmed.
-- **Where (evidence, then candidates):**
+- **Status:** fixed (0.490.0). Filed as "a subagent invoke whose child
+  settles Ok never resumes the calling drive"; reclassified on diagnosis
+  (2026-09-24): run 2 of the bench-d4 drive is evidenced as COMPLETED (see
+  "Evidence for completion" — no lost wakeup); run 1's completion is
+  inferred from the identical signature, not observed (no frame or CPU
+  sample of run 1 was captured). The original filing, bisection and
+  superseded suspects are kept below as the record.
+- **Sev/Diff:** S2/D1 — S2: the operator read two completed ~30-minute
+  drives as hangs and interrupted/re-ran them, and a second diagnosis
+  session chased a non-existent runtime wedge. D1: one sink (two repaint arms) plus one renderer guard.
+
+## Root cause
+
+A prompt-mode drive's final `Ok` value is not surfaced (slash-invocation.md
+§prompt mode; success-side null-policy — no note), and the terminal
+`theta-run-summary` is opt-in, default off (RFC 0015 decision 7 re-ruling,
+0.488.8). The `theta-run` card is therefore the ONLY surface of an Ok drive's
+end, and PIC-75 specifies it degrades to the static compact form once the bus
+evicts the node. The degradation never reached the screen:
+
+1. `invocationEnded` sets `endedAtMs`; the node lingers `DONE_LINGER_MS`
+   (2 s) while the bus keeps ticking for the fading heat. Every repaint in
+   that window renders the LIVE form — `buildCardLines` has no ended state
+   for the top-level node (`⟳` header, elapsed off `nowMs`, `▶` on the MRU
+   site = the final effect line, since a pure tail expression is not a
+   checkpoint and publishes no trace).
+2. The eviction tick finds an empty snapshot and calls the sinks' `clear()`
+   (`bus.ts` `#renderTick`). The run-card sink's `clear()` was a no-op
+   ("an idle bus simply stops requesting renders"), and its `render()` arm
+   requested repaints only while `animationOwed` (fresh heat / running
+   child) — a departure alone never repainted.
+3. pi-tui repaints only on request, so the last painted frame — the live
+   form of the ended drive — stayed on screen indefinitely.
+
+## Evidence for completion (run 2, wave qbench20260924084634)
+
+The card capture taken by the diagnosing session (session toolResult
+2026-09-24T07:33:28Z, i.e. 09:33:28 local):
+
+```
+⟳ /bench-d4 · 37m52s · cp 56 · iters 5 · 0 children
+… ▶ on line 110: let verdict = bench_d4_judge(bench_dir, man, timings)?
+roster: ✓ bench-d4-judge   3m59s  done
+```
+
+Timeline: the drive's `ts` was 08:46:34 local, so a LIVE card at 09:33:28
+would have read 46m54s. 37m52s puts the last painted frame at about
+09:24:26 — the judge's end (terra lane dir mtime 09:20:23 + 3m59s;
+`report.md` mtime 09:24:01) plus the linger. The header froze with the
+frame; the "38 min at the checkpoint" in the original filing below is that
+frozen header misread (the drive's total elapsed, not idle time — the
+parent had been idle about 9 min when the capture was taken).
+
+The decisive observable is the roster row. `HEAT_FADE_MS` (4000) exceeds
+`DONE_LINGER_MS` (2000): had the parent still been running when the judge
+child was evicted, the parent's fresh heat would have kept repaints going
+and the next frame would have dropped the `✓ bench-d4-judge` row. The
+frozen frame still shows it, so the parent node left the bus in the same
+tick as the child — it ended within one 200 ms tick of the child.
+`ticket.finish()` is the only `invocationEnded` call site, so the dispatch
+settled; no note sits below the card, so the outcome was Ok (an Err or
+cancel emits one). `▶` on line 110 is what a completed drive shows: line 112
+is the block tail, evaluated without a `"stmt"` trace. The judge's herdr
+tab closed cleanly (Ok self-shutdown) and no bug-0484 settlement fired
+(nothing was pending).
+
+The CPU sample (11.640625 s → 11.640625 s over 5 s) does NOT discriminate:
+a not-ended node ticks every 200 ms via `#hasRunningWork` with no repaint,
+and 25 repaint-free ticks fit inside one CPU-time quantum (745/64 s). The
+fast-child repros "passed" because they were judged by bash resume
+markers, not by the card.
+
+The Err-path `recordInvokeHop` hardening proposed under "Prime suspect"
+below is dropped: nothing in the record reaches that seam, and no defect
+there is evidenced.
+
+## Fix
+
+Two mechanisms (spec:
+[theta-run-entries.md#pic-75-eviction-repaint](../spec_topics/pi-integration-contract/theta-run-entries.md#pic-75-eviction-repaint);
+RFC 0015 §Animation carries an erratum):
+
+1. `createRunCardController`'s sink (run-card-renderer.ts) remembers the
+   node ids of its previous call and requests ONE repaint when `render()`
+   sees a previously-seen id gone; on EVERY `clear()` (the bus clears on an
+   empty-snapshot tick, on verbosity dropping to `off`, and on dispose);
+   and on the first `render()` after any `clear()` — the ids a clear drops
+   are no longer comparable and nodes that start and end during `off` are
+   never seen, so after an `off` window an eviction reaching the sink
+   through either arm (bus empty → `clear()`; other nodes still tracked →
+   `render()`) repaints. A ticking bus with no departure requests nothing.
+2. The live card component (render/run-card-component.ts) draws the static
+   form for its own node once `endedAtMs` is at least `DONE_LINGER_MS` old,
+   even while the bus still tracks it. Inside the linger the live form
+   (done-flash fade) stands.
+
+Under `theta.progress: off` no sink is called, so nothing requests a
+repaint: the static form appears at the first repaint after the linger
+(operator input, a new message) — item 2 makes that repaint draw static
+rather than a live card with its elapsed advancing (the bus never sweeps
+under `off`) — but until then the last painted frame can be the running
+form. Recorded as a scoped residual, not fixed.
+
+Witness: `tests/b0490-completed-drive-card-freezes-live.test.ts` — a
+painted-frame harness (every `requestRender` repaints the component, as
+pi-tui does; `repaint()` models an incidental pi-tui pass). Eight cells:
+clear arm (last drive departs → static); render arm (departure while a
+second stale-heat drive keeps the bus ticking); no-departure (ticking bus,
+zero extra paints — red under "repaint on every render"); single-drive
+verbosity round trip (red under a seen-nodes-guarded clear); two-drive
+round trip, eviction through `render()` (red without the post-clear
+repaint); drive started and ended entirely during `off` (same); `off`
+incidental repaint → static (red without the component guard);
+inside-linger live form (red if the guard ignores the linger). Red before
+the fix: the last frame read `⟳ /bench · 2s · …` 60 s after the drive
+ended.
+
+Residual (recorded, not fixed here): the live form still renders an ended
+top-level node as running during the 2 s linger, and the static form carries
+no outcome (`invocationEnded` has none — the PIC-75 ended-children
+limitation applies to the top-level node too). A terminal header state or an
+Ok completion cue is an RFC 0015 design question, not this defect. No
+composition-level witness drives a real theta through the TUI composition
+to eviction (`tests/execution-status-supersession.test.ts` composes
+`ctx.mode: "tui"` and could host one); no live harness composes TUI mode.
+`docs/how-to/watch-a-running-theta.md` still documents the sinks retired in
+0.488.6 and not the run card (predates this bug).
+
+# Original filing (superseded diagnosis — kept as the record)
 
 ## Evidence (waves qbench20260924081428 and qbench20260924084634)
 
@@ -31,7 +149,9 @@ Both runs wedged at exactly this statement (execution-status checkpoint
   `✓ bench-d4-judge 3m59s done`, its report was fully written to
   `quality/bench/qbench20260924084634/report.md`, its herdr tab closed
   (Ok-outcome self-shutdown), and no `FAILED` retitle appeared.
-- The parent never resumed: 38 min at the checkpoint, `0 children`,
+- The parent never resumed: 38 min at the checkpoint *(reclassification
+  note: misread — 37m52s was the frozen card header, the drive's total
+  elapsed; see "Evidence for completion" above)*, `0 children`,
   parent node process idle (11.6 s cumulative CPU, zero delta over a 5 s
   sample — a lost wakeup, not a spin).
 - No bug-0484 synthesised settlement (`HEARTBEAT_SILENCE` /

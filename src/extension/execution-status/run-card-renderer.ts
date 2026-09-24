@@ -23,9 +23,14 @@
 // `CustomEntryComponent.invalidate()` reach-in is needed (that host method is
 // reserved for expand-toggles and host-side invalidation, which re-invoke the
 // renderer; the per-file styled-line cache therefore lives on the card-state
-// store here, keyed by invocationId, per spike Deviation 4). When the
-// predicate goes false the bus's tick machinery itself goes quiet and the
-// final render is static.
+// store here, keyed by invocationId, per spike Deviation 4). A third
+// trigger owns the FINAL frame (bug 0490, theta-run-entries.md
+// #pic-75-eviction-repaint): when the predicate goes false the SINK goes
+// quiet (the bus may keep ticking for a running node) and nothing repaints
+// the card on its own, so the sink requests one repaint when a
+// node it saw departs (evicted after its linger), whenever the bus clears
+// it, and on the first render after a clear (evictions following an `off`
+// window) — that repaint is what puts the static degradation on screen.
 //
 // Blend-base acquisition (spike Deviation 2, recorded design): the verified
 // OSC 11 path is pi-tui's `TUI.queryTerminalBackgroundColor({timeoutMs})`,
@@ -242,19 +247,53 @@ export function createRunCardController(deps: RunCardControllerDeps): RunCardCon
     staticFallback,
   });
 
+  // Bug 0490: the ids the previous sink call saw. A node leaving the bus
+  // (linger expired → evicted) owes ONE repaint so its card's static
+  // degradation reaches the screen — without it the last painted frame is
+  // the live form (`⟳`, `▶` on the final effect line) indefinitely, and a
+  // completed drive reads as a wedged one.
+  let seenIds = new Set<string>();
+  // Set by every `clear()`: the ids it drops are no longer comparable, and
+  // nodes that start and end while the bus is `off` are never seen at all,
+  // so the next `render()` repaints unconditionally once — an eviction that
+  // arrives through `render()` (other nodes still tracked) after an `off`
+  // window is otherwise invisible to the departure check.
+  let repaintOnNextRender = false;
+
   const sink: StatusSink = {
     id: "run-card",
     render(snapshot, _view, _verbosity, nowMs): void {
+      const ids = new Set(snapshot.nodes.map((node) => node.invocationId));
+      let departed = repaintOnNextRender;
+      repaintOnNextRender = false;
+      if (!departed) {
+        for (const id of seenIds) {
+          if (!ids.has(id)) {
+            departed = true;
+            break;
+          }
+        }
+      }
+      seenIds = ids;
       if (tui === undefined) {
         return;
       }
-      if (animationOwed(snapshot, nowMs)) {
+      if (departed || animationOwed(snapshot, nowMs)) {
         requestRender();
       }
     },
     clear(): void {
       // Nothing pinned: the card is a transcript entry, not a footer/widget
-      // surface — an idle bus simply stops requesting renders.
+      // surface. The bus clears on an empty-snapshot tick (after the last
+      // eviction, or any dirty mark with no node present), on verbosity
+      // dropping to `off`, and on dispose; each owes one repaint (bug 0490),
+      // unconditional on what this sink last saw — the `off` clear resets
+      // `seenIds`, and a later eviction clear must still repaint. No storm:
+      // an empty bus schedules no ticks, so clears are bounded by
+      // publications and verbosity changes.
+      seenIds = new Set();
+      repaintOnNextRender = true;
+      requestRender();
     },
   };
 

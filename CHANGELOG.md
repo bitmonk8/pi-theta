@@ -4,6 +4,30 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.490.0]
+
+### Fixed
+- **Bug 0490 — a completed drive's run card froze in the running form.**
+  Reclassified from the filed "settled child invoke never resumes the
+  caller": the bench-d4 run 2 drive had completed Ok (run 1 inferred from
+  the identical signature). When a top-level drive ends, its bus node
+  lingers `DONE_LINGER_MS` and is evicted; the eviction tick called the
+  run-card sink's `clear()`, a no-op, so nothing repainted and the last
+  frame stayed the live form (`⟳` header, `▶` on the final invoke line,
+  frozen elapsed). With no Ok note in prompt mode and the run summary
+  default-off, that frame was the only surface. Now (1) the sink requests
+  one repaint when a node it saw departs, on every `clear()`, and on the
+  first render after a `clear()` (so evictions after an `off` window
+  repaint), putting the PIC-75 static degradation
+  (`theta /<name> · started <HH:MM:SS>`) on screen on a ticking bus;
+  (2) the card renders its own ended node past the linger statically even
+  while the bus still tracks it. Under `theta.progress: off` nothing
+  requests a repaint; the static form appears at the next incidental
+  repaint (recorded residual). Spec: `theta-run-entries.md#pic-75-eviction-repaint`; RFC
+  0015 §Animation erratum. Witness:
+  `tests/b0490-completed-drive-card-freezes-live.test.ts` (eight cells, each
+  mutant-proven red against one arm).
+
 ## [0.489.0]
 
 ### Fixed

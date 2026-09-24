@@ -444,7 +444,7 @@ describe("D5 — tick sink (rides the EXST-6 cadence)", () => {
     expect(t.count()).toBe(1);
   });
 
-  it("id is 'run-card' and clear() is a no-op (nothing pinned)", () => {
+  it("id is 'run-card' and clear() never throws (nothing pinned; its bug-0490 eviction repaint is witnessed in b0490-*.test.ts)", () => {
     const h = harness();
     expect(h.controller.sink.id).toBe("run-card");
     expect(() => h.controller.sink.clear()).not.toThrow();

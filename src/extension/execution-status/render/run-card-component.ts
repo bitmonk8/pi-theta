@@ -14,7 +14,7 @@
 import type { Component } from "@earendil-works/pi-tui";
 import type { Clock } from "../../../seams/clock";
 import type { ExecutionStatusBus, ThetaRunSeed } from "../types";
-import { RUN_CARD_VIEWPORT_LINES } from "../types";
+import { DONE_LINGER_MS, RUN_CARD_VIEWPORT_LINES } from "../types";
 import type { ThetaRunEntryRenderer } from "../entry-channel";
 import { baseFileName } from "./format";
 import {
@@ -153,6 +153,13 @@ class RunCardComponent implements Component {
       return this.#renderStatic(width);
     }
     const now = clock.now();
+    if (node.endedAtMs !== undefined && now - node.endedAtMs >= DONE_LINGER_MS) {
+      // Bug 0490: logically evicted. The bus sweeps ended nodes only on a
+      // tick, and under `theta.progress: off` it never ticks, so the node
+      // stays tracked; without this guard any incidental repaint would draw
+      // the live form of a finished drive with its elapsed still advancing.
+      return this.#renderStatic(width);
+    }
     const state = this.#deps.cardStateFor(this.#seed.invocationId);
 
     // Current site (D7 set-shaped clamp): the NEWEST in-flight effect wins —
