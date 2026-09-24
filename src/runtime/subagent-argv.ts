@@ -217,8 +217,9 @@ export interface SubagentArgvInput {
   /**
    * RFC-0012 §7: the presentation the argv is assembled for. `"headless"`
    * (the default, and the only form under `pipe`) is the `--mode json -p
-   * "/<slug>" --no-session` print form; `"visible"` is the interactive TUI
-   * form `--name <label> [--no-session] "/<slug>"` — the slug as a bare
+   * "/<slug>" (--session <child-log> | --no-session)` print form; `"visible"`
+   * is the interactive TUI form
+   * `--name <label> (--session <child-log> | --no-session | <neither>) "/<slug>"` — the slug as a bare
    * trailing positional (the pin's `parseArgs` has no `--` separator arm).
    */
   readonly presentation?: SubagentPlacementPresentation;
@@ -226,10 +227,23 @@ export interface SubagentArgvInput {
   readonly label?: string;
   /**
    * RFC-0012 §7: omit `--no-session` so the operator can `/resume` the visible
-   * child afterwards (the backend's `persistSession` capability). Ignored
-   * under the headless form, which always carries `--no-session`.
+   * child afterwards (the backend's `persistSession` capability). Superseded
+   * by `sessionPath` when present (bug 0489); ignored under the headless
+   * form, which carries `--session <path>` or `--no-session`.
    */
   readonly persistSession?: boolean;
+  /**
+   * Operator session-log policy: an explicit child session file path →
+   * `--session <path>` on BOTH presentations, superseding `persistSession`
+   * and `--no-session`. Derived by the composition root (parent-session-
+   * nested: `<parent-dir>/<parent-base>/<ts>_theta-<label>.jsonl`, or
+   * `<parent>.d/…` for a suffix-less parent; the
+   * label sanitised and prefix-capped with its `#…` suffix preserved);
+   * absent → the legacy `--no-session` forms (parent itself sessionless, or
+   * a harness that never wired the seam). Bug 0489: no opt-out — if a
+   * model is used, its session log is persisted.
+   */
+  readonly sessionPath?: string;
   /**
    * RFC-0012 §2: the parent-private launch file path → `--theta-launch <path>`
    * (the `--theta` flag's sibling). Present on every non-`pipe` launch, absent
@@ -242,7 +256,7 @@ export interface SubagentArgvInput {
  * RFC-0006 (subagent.md #subagent-launch-contract). Assemble the json-mode child
  * argv (after the executable + entry-script args). The compliant assembly is:
  *   [<no-extension-discovery> -e <pin>] [--theta <dirs>]
- *   --mode json -p "/<slug>" --no-session --system-prompt <sp>
+ *   --mode json -p "/<slug>" (--session <child-log> | --no-session) --system-prompt <sp>
  *   (--tools <csv> | --no-tools) --provider <p> --model <id>
  *   <ambient-isolation> (<approve> | <no-approve>)
  * The angle-bracketed groups come from `dialect` — see `HostCliDialect` for why
@@ -324,24 +338,32 @@ export function assembleSubagentArgv(
     // RFC-0012 §7 visible form: the interactive TUI with the slash command as
     // the initial message (`InteractiveMode.run` → `AgentSession.prompt` →
     // `_tryExecuteExtensionCommand`, verified at the pin). `--name` titles the
-    // session; `--no-session` stays unless the backend asked to persist the
+    // session; below, a bug-0489 derived path wins outright, else
+    // `--no-session` stays unless the backend asked to persist the
     // session for a later `/resume`. The slug is pushed LAST as a bare
     // positional — see `assembleVisibleTail` for why it must trail.
     argv.push("--name", input.label ?? input.slug);
-    if (input.persistSession !== true) {
+    // Session-log policy ladder: an explicit derived path wins; else the
+    // backend's `persistSession` omits the flag (child picks its default
+    // path); else the RFC-0012 §7 baseline `--no-session`.
+    if (input.sessionPath !== undefined) {
+      argv.push("--session", input.sessionPath);
+    } else if (input.persistSession !== true) {
       argv.push("--no-session");
     }
     argv.push("--system-prompt", input.systemPrompt === "" ? "" : `\n${input.systemPrompt}`);
   } else {
-    argv.push(
-      "--mode",
-      "json",
-      "-p",
-      `/${input.slug}`,
-      "--no-session",
-      "--system-prompt",
-      input.systemPrompt === "" ? "" : `\n${input.systemPrompt}`,
-    );
+    argv.push("--mode", "json", "-p", `/${input.slug}`);
+    // Headless form: `--session <derived>` when the operator session-log
+    // policy supplies a path; the RFC-0012 §7 baseline `--no-session`
+    // otherwise (parent sessionless, or seam not wired — bug 0489 has no
+    // opt-out).
+    if (input.sessionPath !== undefined) {
+      argv.push("--session", input.sessionPath);
+    } else {
+      argv.push("--no-session");
+    }
+    argv.push("--system-prompt", input.systemPrompt === "" ? "" : `\n${input.systemPrompt}`);
   }
   // `--no-tools` when the callable set holds no HOST tool AND no respond name
   // is carried (empty ≠ omission — omission would re-enable the host's default

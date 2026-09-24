@@ -2,8 +2,9 @@
 
 A running theta renders nothing between its binder echo and its final note by
 design ([Execution Status](../spec_topics/execution-status.md)) — code-side
-tool calls add no conversation turn and subagent-mode callees are
-content-unobservable by construction. This how-to is for the operator
+tool calls add no conversation turn and subagent-mode callees
+surface no content on any ancestor transcript (their transcripts persist
+only as offline operator session logs, bug 0489). This how-to is for the operator
 watching a theta run **right now**: what the built-in sinks show, how to
 change the view shape for this session only, and what to expect on a degraded
 host.

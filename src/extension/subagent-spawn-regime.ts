@@ -193,7 +193,7 @@ export class SubagentSpawnRegime {
   /**
    * RFC-0006 (PIC-58/59/60/62/63). Parent-side subagent-mode binding. Under this
    * RFC the WHOLE callee runs in a spawned child `pi --theta … --mode json -p
-   * "/<slug>" --no-session` process; the parent no longer drives a remote
+   * "/<slug>" (--session <child-log> | --no-session)` process (bug 0489); the parent no longer drives a remote
    * session. The returned binding's `drive()` (PIC-59) launches the child,
    * marshals params structurally (PIC-60), awaits the single `theta_result`
    * stdout envelope, and maps `ok`/`err` to `Ok`/`Err` — the parent runs no
@@ -486,6 +486,28 @@ export class SubagentSpawnRegime {
         "subagent child launch is unavailable: no placement seam / executable host wired",
       );
     }
+    // Operator session-log policy (bug 0489): derive the child's session-log
+    // path BEFORE the lease is taken, so a policy failure — a throwing
+    // sessionManager read after /reload, an un-creatable nest directory —
+    // holds no lease and routes through the same cleanup as an unavailable
+    // seam. A silent `--no-session` child is never the fallback: only an
+    // absent seam or a sessionless parent (policy returns `undefined`)
+    // degrades to the legacy forms.
+    let childSessionPath: string | undefined;
+    try {
+      childSessionPath = this.#input.subagentChildSessionPath?.(input.label);
+    } catch (policyThrow: unknown) { // allow-broad-catch: session-log-derivation-failure — pi-integration-contract/subagent.md#subagent-session-log-derivation-failure (any policy failure is a loud launch failure: params cleaned, registry entry finished, PIC-65 internal-error routing; never a silently unlogged child)
+      paramsCleanup();
+      finishInvocation();
+      const reason = `subagent child session-log path derivation failed: ${policyThrow instanceof Error ? policyThrow.message : String(policyThrow)}`;
+      // #subagent-session-log-derivation-failure: same PIC-65 routing as the
+      // spawn-failure arm below — the structured internal-error diagnostic is
+      // the operator's triage surface; the throw is the invoke boundary's.
+      routeSubagentSpawnFailure(new Error(reason), theta.sourcePath ?? theta.slashName, {
+        emitDiagnostic,
+      });
+      throw new SubagentSpawnFailedError(reason);
+    }
     // RFC 0012 §6: the lease holds this launch's visible slot (the cap) until
     // teardown releases it; a failed launch releases it at once.
     const placementLease = placementResolver({
@@ -516,6 +538,11 @@ export class SubagentSpawnRegime {
           // `persistSession` — the operator then gets a resumable session
           // file; the parent never reads it, so theta semantics are unchanged.
           persistSession: placement.capabilities?.persistSession === true,
+          // Operator session-log policy (bug 0489): the pre-lease derived
+          // parent-nested session path supersedes both `persistSession` and
+          // `--no-session` on either presentation; `undefined` (absent seam,
+          // sessionless parent) preserves the RFC 0012 §7 baseline above.
+          ...(childSessionPath === undefined ? {} : { sessionPath: childSessionPath }),
         },
         label: input.label,
         entry: input.entry,
@@ -822,7 +849,7 @@ export class SubagentSpawnRegime {
    * frontmatter contract), and emit the single `theta_result` stdout envelope on
    * EVERY exit path — `Ok`, every `Err`, and a panic routed as internal-error
    * (PIC-59). A headless child's transcript is process-private
-   * (`--no-session`); a VISIBLE child (RFC 0012 §7) drives an interactive TUI
+   * (persisted only as an offline operator session log, bug 0489); a VISIBLE child (RFC 0012 §7) drives an interactive TUI
    * session, whose run card the dispatch entry closes with the returned
    * PIC-76 outcome projection.
    */

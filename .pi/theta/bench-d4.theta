@@ -1,0 +1,112 @@
+---
+description: "Benchmark the D4 duplication lens across candidate models on one pending shard - each model reviews the same shard in isolation, filings are quarantined under quality/bench/, a judge scores precision/recall per model"
+argument-hint: "[manifest (empty = first pending D4 shard)] [budget]"
+mode: prompt
+bind_model: "anthropic/claude-sonnet-5"
+tools:
+  - bash
+  - ./workers/bench-d4-fable51.theta
+  - ./workers/bench-d4-opus55.theta
+  - ./workers/bench-d4-astra.theta
+  - ./workers/bench-d4-sol.theta
+  - ./workers/bench-d4-terra.theta
+  - ./workers/bench-d4-judge.theta
+params:
+  manifest: string = ""
+  budget: integer = 10
+---
+// Convention (mirrors quality-loop.theta): branch on COUNTS, never on empty
+// output - the host bash tool renders empty stdout as a placeholder string.
+// Integer results are never string-concatenated (mixed-plus is a parse
+// error); every count spliced into a report line comes from bash as text.
+
+let ts_raw = bash({ command: "date +%Y%m%d%H%M%S" })?
+let ts = ts_raw.trim()
+
+// ------------------------------------------------------------------ manifest
+// store.mjs `shard` only writes manifests under quality/tmp/ (gitignored);
+// review state moves only via `mark-reviewed`, which this bench never calls -
+// a benched shard stays due for the real /quality-loop.
+let mut man = manifest
+if man == "" {
+  let sharded = bash({ command: "node tools/quality/store.mjs shard --lens D4 --wave qbench" + ts + " --target-loc 0 --max-shards 1 | head -1" })?
+  if !sharded.includes("shard-") {
+    return "bench-d4: nothing is pending D4 review (store.mjs shard emitted no manifest) - pass an explicit manifest to bench a chosen file set"
+  }
+  man = sharded.trim()
+}
+let man_check = bash({ command: "test -f \"" + man + "\" && echo MANIFEST_OK || echo MANIFEST_MISSING" })?
+if man_check.includes("MANIFEST_MISSING") {
+  return "bench-d4: manifest not found: " + man
+}
+
+let bench_dir = "quality/bench/qbench" + ts
+bash({ command: "mkdir -p " + bench_dir })?
+
+schema Lane {
+  slug: string,
+  model: string
+}
+let lanes: array<Lane> = [
+  Lane { slug: "fable51", model: "anthropic/claude-fable-5-1" },
+  Lane { slug: "opus55", model: "anthropic/claude-opus-5-5" },
+  Lane { slug: "astra", model: "unity-completions/gpt-6-astra" },
+  Lane { slug: "sol", model: "unity-completions/gpt-5.6-sol" },
+  Lane { slug: "terra", model: "unity-completions/gpt-5.6-terra" }
+]
+
+// ---------------------------------------------------------------- bench runs
+// SEQUENTIAL by design: every worker files into quality/intake/ (the lens
+// contract is reused verbatim), so each run's filings are swept into the
+// quarantine directory before the next model starts - the real triage store
+// never sees a bench filing, and no run reads a sibling's output as "prior".
+let mut timings = ""
+let mut failures = ""
+for lane in lanes {
+  let wave = "qbench" + ts + "-" + lane.slug
+  let t0_raw = bash({ command: "date +%s" })?
+  let t0 = t0_raw.trim()
+  let mut notes = ""
+  if lane.slug == "fable51" {
+    notes = match bench_d4_fable51(man, wave, budget) {
+      Ok(s) => s.notes,
+      Err(e) => "LANE_FAILED: " + e.kind + " - " + e.message,
+    }
+  }
+  if lane.slug == "opus55" {
+    notes = match bench_d4_opus55(man, wave, budget) {
+      Ok(s) => s.notes,
+      Err(e) => "LANE_FAILED: " + e.kind + " - " + e.message,
+    }
+  }
+  if lane.slug == "astra" {
+    notes = match bench_d4_astra(man, wave, budget) {
+      Ok(s) => s.notes,
+      Err(e) => "LANE_FAILED: " + e.kind + " - " + e.message,
+    }
+  }
+  if lane.slug == "sol" {
+    notes = match bench_d4_sol(man, wave, budget) {
+      Ok(s) => s.notes,
+      Err(e) => "LANE_FAILED: " + e.kind + " - " + e.message,
+    }
+  }
+  if lane.slug == "terra" {
+    notes = match bench_d4_terra(man, wave, budget) {
+      Ok(s) => s.notes,
+      Err(e) => "LANE_FAILED: " + e.kind + " - " + e.message,
+    }
+  }
+  let secs_raw = bash({ command: "echo $(( $(date +%s) - " + t0 + " ))" })?
+  // Quarantine this run's filings (nothing filed -> mv no-ops, count is 0).
+  let moved_raw = bash({ command: "mkdir -p " + bench_dir + "/" + lane.slug + "; mv quality/intake/" + wave + "-d4-* " + bench_dir + "/" + lane.slug + "/ 2>/dev/null; ls -1 " + bench_dir + "/" + lane.slug + " 2>/dev/null | wc -l" })?
+  timings = timings + lane.slug + " (" + lane.model + "): " + secs_raw.trim() + "s, filed " + moved_raw.trim() + " -> " + notes + "\n"
+  if notes.includes("LANE_FAILED") {
+    failures = failures + lane.slug + " "
+  }
+}
+
+// -------------------------------------------------------------------- judge
+let verdict = bench_d4_judge(bench_dir, man, timings)?
+
+"bench-d4 complete.\nshard: " + man + "\nquarantine: " + bench_dir + "\nreport: " + verdict.report_path + "\n\n" + verdict.table + "\n\nnotes: " + verdict.notes + (failures == "" ? "" : "\nFAILED lanes (scored filed=0): " + failures)

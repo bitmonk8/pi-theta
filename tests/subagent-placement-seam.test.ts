@@ -349,8 +349,8 @@ describe("RFC-0012 §7 — headless vs visible argv forms", () => {
       PI_CLI_DIALECT,
     );
     expect(argv).not.toContain("--no-session");
-    // The headless form ignores the knob: `--no-session` is part of the pinned
-    // print form (the transcript is ephemeral by contract).
+    // The headless form ignores the persistSession knob: without a derived
+    // sessionPath (bug 0489) it keeps the pinned `--no-session` print form.
     const headless = assembleSubagentArgv({ ...base, persistSession: true }, PI_CLI_DIALECT);
     expect(headless).toContain("--no-session");
   });

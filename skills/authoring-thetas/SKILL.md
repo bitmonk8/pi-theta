@@ -34,7 +34,7 @@ intro                                                 # tail expression = final 
 - **`mode: prompt`** drives the caller's current conversation (assistant text
   streams into the transcript).
 - **`mode: subagent`** spawns a fresh, isolated conversation; its transcript is
-  private and discarded, only the final value crosses back.
+  private (persisted only as an operator session log), only the final value crosses back.
 
 ## Queries — how you talk to the model
 

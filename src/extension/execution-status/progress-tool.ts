@@ -14,8 +14,9 @@
 //     under a non-`pipe` placement, one result-channel frame — RFC 0012 §3),
 //     and — RFC 0015 (operator ruling 2026-09-23) — one local bus publication
 //     AFTER the wire emission (the visible child's run card reads the child's
-//     own bus node). No UI, no entry (a headless child's `--no-session`
-//     transcript is ephemeral; its bus has no card sink, so the local publish
+//     own bus node). No UI, no entry (a headless child's
+//     transcript never surfaces live (bug 0489 persists it as an offline
+//     operator log); its bus has no card sink, so the local publish
 //     renders nothing there).
 //
 // The EXST-14 clamps (strip control/ANSI, 200-char message, 64-char scope,

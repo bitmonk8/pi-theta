@@ -146,7 +146,7 @@ export interface HostLoopDispatchDeps {
  * result back, unregister the provider, and restore the session model. Zero
  * model tokens are spent and no executable definition is ever obtained by theta
  * code. Its transcript / model-switch costs land in whichever session backs the
- * dispatch — the child's private, discarded session (subagent mode) or the
+ * dispatch — the child's private session (subagent mode; persisted as an operator log, bug 0489) or the
  * user's live session (prompt mode, the stated accepted cost).
  */
 export async function dispatchViaHostLoop(

@@ -61,6 +61,7 @@ import {
   createProductionExecutableHost,
   createProductionLaunchFileFs,
   createProductionParamsFs,
+  createChildSessionPathPolicy,
   createProductionSpawnFn,
   readParentPid,
   readProductionChildControlPlane,
@@ -1624,6 +1625,16 @@ function buildProducerDeps({
     subagentExecutableHost,
     subagentParentEnv: controlPlaneEnv,
     subagentParentPid: readParentPid(),
+    // Bug 0489: operator session-log policy — every model-driving child
+    // persists its session log, nested under this process's own session file
+    // (pi-config `subagent` convention). Thunk-read per launch: the session
+    // FILE PATH is per-session state (pi pins it at `newSession()`); the
+    // thunk reads it at launch time instead of snapshotting one value at
+    // compose time. Clock injected per PIC-12.
+    subagentChildSessionPath: createChildSessionPathPolicy(
+      () => ctx.sessionManager.getSessionFile(),
+      () => root.clock.wallNow(),
+    ),
     // RFC-0012 §2/§10: the launch-file facts with no env equivalent — the
     // entry this process runs, and (a non-`pipe` child) the channel + the
     // presentation the child-side regime honours.

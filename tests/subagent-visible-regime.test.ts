@@ -18,6 +18,7 @@ import { resolvingHost } from "./helpers/fake-json-child";
 import { describe, expect, it } from "vitest";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
+import { SubagentSpawnFailedError } from "../src/extension/production-producer-deps";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
 import { parseEnvelopeLine } from "../src/runtime/subagent-envelope";
@@ -412,15 +413,42 @@ async function launchThrough(
     readonly root?: RuntimeRoot;
     /** M14: a fake bus wired into the PARENT-side producer deps — the parent process never emits on it. */
     readonly outcomeEvents?: { emit(channel: string, data: unknown): void };
+    /** Bug 0489: the operator session-log policy seam under test. */
+    readonly childSessionPath?: (label: string) => string | undefined;
+    /** Bug 0489 B5: caller-owned observation state — mutated as the launch
+     *  progresses, so it survives a rejecting spawn (the return value does
+     *  not). */
+    readonly observe?: {
+      leaseResolves?: { count: number };
+      ended?: string[];
+      diagnostics?: { code: string | undefined; message: string | undefined }[];
+    };
   },
 ): Promise<{
   requests: SubagentPlacementRequest[];
   placed: { id: string; backend: string; handle: string }[];
+  leaseResolves: () => number;
+  endedInvocations: string[];
 }> {
   const requests: SubagentPlacementRequest[] = [];
   const bound = backend.name === "pipe" ? pipeLikeBackend(requests) : { ...backend, place: (r: SubagentPlacementRequest): PlacedChild | Promise<PlacedChild> => (requests.push(r), backend.place(r)) };
   const lease: PlacementLease = { backend: bound, release: (): void => {} };
+  // Bug 0489 B5: pre-lease observability — resolver-consult count (0 under the
+  // throwing-seam arm proves the seam ran BEFORE the lease) and the bus's
+  // ended-invocation record (the finishInvocation witness).
+  let leaseResolves = 0;
+  const endedInvocations: string[] = opts?.observe?.ended ?? [];
   const { bus, placed } = recordingBus();
+  const busWithEnds: ExecutionStatusBus = {
+    ...bus,
+    invocationEnded: (id: string): void => {
+      endedInvocations.push(id);
+      if (opts?.observe?.leaseResolves !== undefined) {
+        opts.observe.leaseResolves.count = leaseResolves;
+      }
+      bus.invocationEnded(id);
+    },
+  };
   const deps = createProductionProducerDeps({
     pi: noopPi(),
     root: opts?.root ?? rootDouble(),
@@ -428,10 +456,18 @@ async function launchThrough(
     subagentParentEnv: {},
     subagentParentPid: 1,
     subagentExecutableHost: resolvingHost(),
-    subagentPlacement: (): PlacementLease => lease,
+    subagentPlacement: (): PlacementLease => (leaseResolves++, lease),
     subagentOpenWire: openWire,
-    statusBus: bus,
+    statusBus: busWithEnds,
+    ...(opts?.observe?.diagnostics !== undefined
+      ? {
+          emitDiagnostic: (d: { code?: string; message?: string }): void => {
+            opts.observe!.diagnostics!.push({ code: d.code, message: d.message });
+          },
+        }
+      : {}),
     ...(opts?.outcomeEvents !== undefined ? { subagentOutcomeEvents: opts.outcomeEvents } : {}),
+    ...(opts?.childSessionPath !== undefined ? { subagentChildSessionPath: opts.childSessionPath } : {}),
   });
   const binding = await deps.spawnSubagentConversation({
     theta: subagentTheta('"x"'),
@@ -443,7 +479,7 @@ async function launchThrough(
   });
   await binding.teardown?.();
   binding.finishInvocation?.();
-  return { requests, placed };
+  return { requests, placed, leaseResolves: (): number => leaseResolves, endedInvocations };
 }
 
 /**
@@ -603,5 +639,93 @@ describe("F4 (0.477.0) — the launch label carries the invocation id's first ei
     };
     const placed = pipe.place(request) as PlacedChild;
     expect(placed.handle).toBe("worker#3f9c2a1b");
+  });
+});
+
+describe("bug 0489 — the regime threads the operator session-log seam into the launch argv", () => {
+  const derived = (label: string): string => `/logs/parent-base/${label}.jsonl`;
+
+  it("B1: a visible launch carries --session <seam(label)> and no --no-session; the seam is called with the id8-suffixed label", async () => {
+    const seen: string[] = [];
+    const { requests } = await launchThrough(visibleBackend([], { visible: true, inheritsEnv: true }), {
+      childSessionPath: (label): string => (seen.push(label), derived(label)),
+    });
+    expect(seen).toHaveLength(1);
+    // The id8 hex SHAPE is pinned by the "F4 (0.477.0)" describe above (a
+    // hex-minting root); the default harness root mints readable ids, so this
+    // cell asserts only the slug#suffix form the seam receives.
+    expect(seen[0]).toMatch(/^worker#/);
+    const args = requests[0]!.args;
+    expect(args[args.indexOf("--session") + 1]).toBe(derived(seen[0]!));
+    expect(args).not.toContain("--no-session");
+  });
+
+  it("B2: a pipe (headless) launch carries the same --session VALUE and no --no-session", async () => {
+    const seen: string[] = [];
+    const { requests } = await launchThrough(pipeLikeBackend([]), {
+      childSessionPath: (label): string => (seen.push(label), derived(label)),
+    });
+    const args = requests[0]!.args;
+    expect(args[args.indexOf("--session") + 1]).toBe(derived(seen[0]!));
+    expect(args).not.toContain("--no-session");
+  });
+
+  it("B3: the seam supersedes persistSession: true (the derived path wins over flag omission)", async () => {
+    const { requests } = await launchThrough(
+      visibleBackend([], { visible: true, inheritsEnv: true, persistSession: true }),
+      { childSessionPath: derived },
+    );
+    const args = requests[0]!.args;
+    expect(args).toContain("--session");
+    expect(args).not.toContain("--no-session");
+  });
+
+  it("B4: a seam answering undefined leaves the argv on the legacy form (--no-session present, --session absent)", async () => {
+    const { requests } = await launchThrough(visibleBackend([], { visible: true, inheritsEnv: true }), {
+      childSessionPath: (): undefined => undefined,
+    });
+    const args = requests[0]!.args;
+    expect(args).toContain("--no-session");
+    expect(args).not.toContain("--session");
+  });
+
+  it("B5: a THROWING seam fails the launch loudly PRE-LEASE — zero resolver consults, no placed request, registry entry finished, internal-error diagnostic routed, SubagentSpawnFailedError", async () => {
+    const requests: SubagentPlacementRequest[] = [];
+    const observe = {
+      leaseResolves: { count: -1 },
+      ended: [] as string[],
+      diagnostics: [] as { code: string | undefined; message: string | undefined }[],
+    };
+    await expect(
+      launchThrough(
+        { ...visibleBackend(requests, { visible: true, inheritsEnv: true }) },
+        {
+          childSessionPath: (): string => {
+            throw new Error("sessionManager gone (post-/reload read)");
+          },
+          observe,
+        },
+      ),
+    ).rejects.toBeInstanceOf(SubagentSpawnFailedError);
+    // Pre-lease: at the moment the registry entry finished, the placement
+    // resolver had never been consulted.
+    expect(observe.leaseResolves.count).toBe(0);
+    // finishInvocation ran on the throw arm.
+    expect(observe.ended).toHaveLength(1);
+    // PIC-65 routing: the structured internal-error diagnostic was emitted.
+    const internal = observe.diagnostics.filter(
+      (d) => d.code === "theta/runtime/internal-error",
+    );
+    expect(internal).toHaveLength(1);
+    expect(internal[0]!.message).toContain("session-log path derivation failed");
+    expect(requests).toHaveLength(0);
+  });
+
+  it("B5b: the successful-launch contrast — one resolver consult, one ended invocation", async () => {
+    const ok = await launchThrough(visibleBackend([], { visible: true, inheritsEnv: true }), {
+      childSessionPath: (): undefined => undefined,
+    });
+    expect(ok.leaseResolves()).toBe(1);
+    expect(ok.endedInvocations).toHaveLength(1);
   });
 });

@@ -27,8 +27,8 @@
 //      model installed.
 //
 // Costs (a fabricated turn + a temporary model switch) land in whichever
-// session backs the dispatch, per PIC-64: the child's private, discarded
-// `--no-session` session in subagent mode; the user's live session in prompt
+// session backs the dispatch, per PIC-64: the child's private
+// session in subagent mode (persisted as an operator log, bug 0489); the user's live session in prompt
 // mode (the stated, accepted cost of the zero-token code channel).
 //
 // SURFACE NAMING (inventory-closure audit). The Pi surfaces are consumed through

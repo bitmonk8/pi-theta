@@ -3,7 +3,8 @@
 You want a parent theta to run a subagent-mode child in its own isolated
 conversation and get a **typed** value back — not a string, and not the child's
 transcript. The child's final value crosses the boundary as the `Ok` payload; its
-conversation stays private and is discarded when the child returns.
+conversation stays private to the theta and is never re-read after the child
+returns (it persists only as an operator session log, bug 0489).
 
 ## Steps
 

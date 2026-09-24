@@ -1,0 +1,68 @@
+---
+description: "Judge one bench-d4 wave - union the candidate filings of all benched models, verify each against the code, score per-model precision/recall, write the report"
+mode: subagent
+model: "anthropic/claude-fable-5-1"
+tools: read, grep, bash, write
+tool_loop:
+  max_rounds: 120
+params:
+  bench_dir: string
+  manifest: string
+  timings: string
+system: "You are the adjudicator of a duplication-lens model benchmark. You re-verify candidate findings against the current code with first-hand reads - a filing is correct only if its cited copies exist at the cited lines and the claimed relationship (clone/drift/parallel, load-bearing) holds. You are strict, evidence-first, and you never modify anything outside the benchmark report file."
+---
+let files = read({ path: manifest })?
+let listing = bash({ command: "for d in " + bench_dir + "/*/; do echo \"== $d\"; ls -1 \"$d\" 2>/dev/null; done" })?
+let clones = bash({ command: "node tools/quality/clone-scan.mjs map --files " + manifest })?
+
+schema BenchVerdict {
+  report_path: string,
+  table: string,
+  notes: string
+}
+
+let verdict: BenchVerdict = @`BENCH ADJUDICATION - D4 duplication lens, one shard, several models.
+
+Shard under review (repo-relative paths):
+${files}
+
+Each subdirectory of ${bench_dir} holds the candidate findings ONE model
+filed over exactly this shard (directory name = model slug). Directory
+listing:
+${listing}
+
+The mechanical clone map for the shard (shared input every model saw):
+${clones}
+
+Wall-clock timings per model (seconds), measured by the driver:
+${timings}
+
+Method - follow exactly:
+1. Read EVERY finding file in every model directory.
+2. Build the union of DISTINCT defensible findings: cluster filings that
+   cite the same underlying duplication/drift/parallel relationship
+   (regardless of wording); for each cluster, re-verify the claim against
+   the code at the cited path:line spans (read them). A cluster whose claim
+   does not hold (wrong lines, dead copy, spec-anchored repeat, incidental
+   similarity filed as load-bearing, tests/ territory) is marked INVALID and
+   is excluded from the union.
+3. Per model score:
+   - filed: files it wrote
+   - correct: its filings that map to a VALID union cluster
+   - precision = correct / filed (1.00 when filed = 0)
+   - recall = number of distinct VALID union clusters the model covered /
+     total VALID union clusters
+   - reliability = precision x recall
+4. Write the report to ${bench_dir}/report.md: the scoring table
+   (model | filed | correct | precision | recall | reliability | sec), the
+   union cluster inventory (each cluster: one line, which models found it,
+   VALID/INVALID + why), and per-model observations (systematic
+   over/under-filing, evidence quality). Cite this shard and the wave id in
+   the header.
+
+Reply with the requested schema:
+- report_path: "${bench_dir}/report.md"
+- table: the scoring table as plain text (one line per model)
+- notes: one line - union size, strongest and weakest model, any caveat
+  (e.g. a model that errored and has no directory).`?
+verdict

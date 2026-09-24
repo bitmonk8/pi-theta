@@ -17,7 +17,7 @@ params:
 // through the child's own host agent loop (PIC-64 rung 2 — host-loop
 // dispatch): the code-supplied arguments are used verbatim, zero model tokens
 // are spent, and the result returns to code like any tool call. The
-// fabricated dispatch turn stays in the child's private, discarded session —
+// fabricated dispatch turn stays in the child's private session —
 // nothing reaches the user's transcript. (The same call from a PROMPT-mode
 // theta also works — since 0.11.0 — but dispatches through the user's live
 // session; see prompt-extension-tool.theta.)

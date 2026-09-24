@@ -38,7 +38,7 @@
 
 import { describe, expect, it } from "vitest";
 import { tmpdir } from "node:os";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   FEATURE_THETA_DIR,
@@ -337,10 +337,15 @@ describe("H9a-T (e) subagent spawn drives to a success terminal (Convention: Pha
 
     await requireLiveHost();
     const cwd = scratchCwd();
+    // Bug 0489 composition witness: pin the OUTER session file so the child's
+    // operator session log has a deterministic nest — the production
+    // composition derives it from `ctx.sessionManager.getSessionFile()`.
+    const outerSession = join(cwd, "outer.jsonl");
     const result = await spawnPiPrint({
       thetaDir: FEATURE_THETA_DIR,
       slashInvocation: `/${spec.stem}`,
       cwd,
+      extraArgs: ["--session", outerSession],
     });
 
     // Subagent success: the run completes without error and emits no code outside
@@ -363,6 +368,22 @@ describe("H9a-T (e) subagent spawn drives to a success terminal (Convention: Pha
       `${spec.label}: a subagent success terminal must not emit ` +
         `theta/runtime/internal-error. codes: ${JSON.stringify(codes)}`,
     ).toBe(false);
+
+    // Bug 0489 — the child's session log persisted, nested under the outer
+    // session file's own directory (`<dir>/<base>/<ts>_theta-<label>.jsonl`).
+    // End-to-end composition witness: reds if the composition stops wiring
+    // `subagentChildSessionPath` from the session manager.
+    const nest = join(cwd, "outer");
+    const childLogs = existsSync(nest)
+      ? readdirSync(nest).filter(
+          (f) => f.includes(`_theta-${spec.stem}#`) && f.endsWith(".jsonl"),
+        )
+      : [];
+    expect(
+      childLogs.length,
+      `${spec.label}: expected exactly one persisted child session log under ` +
+        `${nest} (bug 0489); found: ${JSON.stringify(childLogs)}`,
+    ).toBe(1);
   });
 });
 

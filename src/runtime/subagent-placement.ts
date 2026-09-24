@@ -115,9 +115,11 @@ export interface PlacedChildCapabilities {
   /** `true` when a human can see and attach to the child (drives `presentation`). */
   readonly visible: boolean;
   /**
-   * `true` asks the launcher to OMIT `--no-session` so the operator can
-   * `/resume` the child's session afterwards. Theta semantics are unchanged —
-   * the parent never reads the child's session.
+   * `true` asks the launcher to omit `--no-session` when NO derived session
+   * path exists, so the operator can `/resume` the child's session at its
+   * default location. Bug 0489's derived `--session <child-log>` supersedes
+   * this knob whenever the parent has a session file to nest under. Theta
+   * semantics are unchanged — the parent never reads the child's session.
    */
   readonly persistSession?: boolean;
 }

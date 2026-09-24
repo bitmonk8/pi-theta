@@ -180,6 +180,17 @@ export interface ProductionProducerInput {
   readonly subagentParentEnv?: Readonly<Record<string, string | undefined>>;
   readonly subagentParentPid?: number;
   /**
+   * Operator session-log policy: derive a child session file path for one
+   * launch (label → nested path under the parent's own session file, nest
+   * directory created), or `undefined` ONLY when the parent itself has no
+   * session file to nest under. Bug 0489: there is no opt-out — if a model
+   * is used, its session log is persisted; any other derivation failure
+   * THROWS and the regime fails the launch loudly. Absent seam → children
+   * launch `--no-session` (the pre-policy behaviour every harness that does
+   * not wire it gets).
+   */
+  readonly subagentChildSessionPath?: (label: string) => string | undefined;
+  /**
    * RFC-0012 §2/§10: THIS process's child control-plane view — the launch
    * entry it runs as its root invocation (`theta` or a named `subagent fn`)
    * and, for a child a non-`pipe` placement spawned, the launch-file facts
@@ -263,7 +274,7 @@ export interface ProductionProducerInput {
    * turn, read the result back, restore the model. Wired at the composition
    * root over the live host agent loop (a live-only mechanism) in BOTH modes;
    * only the backing session differs (the user's live session in prompt mode,
-   * the child's private discarded session in subagent mode). Absent here → the
+   * the child's private session in subagent mode). Absent here → the
    * ladder is fail-closed pending the upstream `getToolDefinition` exposure.
    * The `signal` is the code-side tool call's abort signal (the theta abort),
    * threaded so a thetaAbort mid-fabricated-turn resolves the settle barrier

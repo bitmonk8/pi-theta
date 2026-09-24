@@ -52,7 +52,7 @@ carries the same cost in your transcript: the body's isolation covers its own
 conversation — its queries, its transcript, its return value — not the
 dispatch channel. If transcript cards in your session are unacceptable,
 put the calls in a subagent-mode theta instead: the identical mechanics run in
-the child's private, discarded session ([How to use an extension tool in a
+the child's private session ([How to use an extension tool in a
 subagent](./use-an-extension-tool-in-a-subagent.md)).
 
 There is no new permission gate. The capability is bounded by the two existing

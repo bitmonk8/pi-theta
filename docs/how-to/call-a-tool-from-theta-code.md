@@ -11,7 +11,7 @@ does not appear in the transcript. That is the distinction from an `@`...``
 query. One exception to the transcript silence: a code-side call to an
 *extension-registered* tool routes through a host agent loop and appends a
 fabricated tool-call turn to the backing session's transcript — the child's
-discarded one in subagent mode, your own in prompt mode — still zero tokens;
+private one in subagent mode, your own in prompt mode — still zero tokens;
 see the Result section below. A call made inside a `subagent fn` inline body
 carries the same cost in the same place: the body's isolation covers its own
 conversation, not the dispatch channel.

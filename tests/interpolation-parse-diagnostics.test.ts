@@ -1145,16 +1145,15 @@ describe("bug 0122 (f) — the rendered turn: a refused source renders nothing",
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SEEDED_INVALID_DIR = "tests/fixtures/h7b-invalid/";
 
-/** Templates measured at the D4/D8-lens commit; interpolations re-measured at the fixer gate_cmd plumbing (one ${gate_cmd} added to fix-cluster.theta's rule) (lens-d4-duplication.theta and lens-d8-simplification.theta added): bump in the SAME commit that adds/removes a file.
- * Re-measured again (docs/examples/compact-loop.theta added: one `@`-query,
- * one `${wave}` interpolation, a bare identifier — no rejected token class, no
- * truncation): 41 -> 42 theta files, 53 -> 54 templates, 125 -> 126
- * interpolations. */
-const EXPECTED_SHIPPED_THETA = 42;
+/** Census pins — bump in the SAME commit that adds/removes a committed theta
+ * source. Last re-measured at the bench-d4 kit (bug 0489 sibling): 7 new
+ * `.pi/theta` thetas (driver + 5 model lanes + judge), 42 -> 49 theta files,
+ * 55 -> 61 templates, 129 -> 186 interpolations. */
+const EXPECTED_SHIPPED_THETA = 49;
 const EXPECTED_SHIPPED_THETALIB = 3;
 /** Measured at the D4/D8-lens commit: the corpus's own count of `@`-templates and interpolations. */
-const EXPECTED_TEMPLATES = 55;
-const EXPECTED_INTERPOLATIONS = 129;
+const EXPECTED_TEMPLATES = 61;
+const EXPECTED_INTERPOLATIONS = 186;
 
 /**
  * The token classes expressions.md:25–40 refuses, as raw substrings. A committed

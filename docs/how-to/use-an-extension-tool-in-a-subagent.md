@@ -103,7 +103,7 @@ params:
   findings_dir: string
 ---
 // Code-side reach: dispatched in the child via host-loop dispatch — zero
-// model tokens, confined to the child's private, discarded session.
+// model tokens, confined to the child's private session (persisted as an operator log, bug 0489).
 let check = finding_store({ op: "validate", findingsDir: findings_dir })?
 
 // Model-facing reach: the MODEL may also call `finding_store` during this
@@ -133,8 +133,8 @@ process-slot footprint are OS-owned; theta imposes no process-count cap.
 
 A code-side extension-tool call adds one host-loop turn in the child per call
 (fast — the authored `tool_use` runs with no network round-trip). Its only side
-effects — a fabricated turn in the child's discarded transcript and a temporary
-child-session model switch — are confined to the child's private `--no-session`
+effects — a fabricated turn in the child's transcript and a temporary
+child-session model switch — are confined to the child's private
 session; nothing reaches the user's session or transcript. That confinement is
 the child process's, so it covers calls made inside a `subagent fn` inline body
 too; in a prompt-mode theta the same calls land in the user's live session

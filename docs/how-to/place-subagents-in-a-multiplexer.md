@@ -102,7 +102,9 @@ Under a placement whose backend declares `visible: true`, the child launches
 as an interactive TUI titled `<slug>#<id>` (`<slug>#<fn>#<id>` for a
 `subagent fn` call; `<id>` = the invocation id's first eight hex characters)
 and runs the slash command as its initial message — the same callee,
-the same regime, a different presentation. `--no-session` applies unless
+the same regime, a different presentation. The session-log flag follows bug 0489's ladder:
+`--session <child-log>` when the parent has a session file to nest under,
+else `--no-session` unless
 the backend declares `persistSession: true`. After an `Ok` envelope the child
 calls `ctx.shutdown()` and its pane closes; after an `Err` envelope it does
 not — the pane lingers with the live session so a human can read or continue

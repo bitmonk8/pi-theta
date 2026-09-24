@@ -39,7 +39,8 @@ governs what you can observe on `pi -p` stdout:
   your existing session. Assistant tokens stream into the transcript, so a
   prompt-mode theta's trailing turn is visible on stdout.
 - **[Subagent mode](./reference/discovery-cli.md#slash-command-invocation)**
-  spawns a fresh, isolated conversation whose transcript is private and discarded
+  spawns a fresh, isolated conversation whose transcript stays private to the
+  theta (persisted only as an operator session log, bug 0489; never re-read)
   when the theta returns. A subagent theta's [final
   value](./reference/errors-and-results.md#final-value-fn-5) reaches programmatic
   callers and propagates across the subagent boundary, but it is **not** printed
@@ -324,7 +325,7 @@ reach a success terminal outcome (exit 0, no runtime panic).
 | 5 | `typed-return` | subagent (invokes `sentiment.theta`) | None on success (typed final value propagated across the subagent boundary, not to stdout) | pass (exit 0) |
 
 Constraint recorded (not a defect): subagent-mode thetas run an isolated,
-discarded conversation; their final value reaches programmatic callers and
+private conversation (persisted as an operator log); their final value reaches programmatic callers and
 propagates across the subagent boundary but is not observable on `pi -p` stdout.
 Prompt mode (Step 1) surfaces its trailing turn on stdout. See
 [final value (FN-5)](./reference/errors-and-results.md#final-value-fn-5) and the

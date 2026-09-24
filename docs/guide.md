@@ -94,8 +94,9 @@ all see the same mode for a given theta.
   final query whose text contains it.
 - In **subagent mode**, a fresh, isolated conversation is spawned for the theta.
   Each query runs as a turn in it. When the theta finishes, only its return value
-  propagates back to the caller; the intermediate transcript is private and is
-  not retained after the theta returns.
+  propagates back to the caller; the intermediate transcript is private to
+  the theta and never re-read by the runtime after the theta returns (it
+  persists as an offline operator session log, bug 0489).
 
 The mode selects *which* conversation the turns happen against — not whether the
 theta is allowed to round-trip with the model. Both modes drive a conversation
@@ -274,7 +275,7 @@ conversation, not this dispatch channel. This transcript pollution and model
 switching is the documented, accepted cost of the zero-token deterministic
 side-effect channel; no model tokens are spent and per-call latency is
 negligible next to a real model turn. In subagent mode the identical costs are
-confined to the child's private, discarded `--no-session` session. Neither
+confined to the child's private session (persisted as an operator log, bug 0489). Neither
 mode adds a permission gate: the capability is bounded by the theta's own
 `tools:` declaration and the operator's extension-install and trust decisions.
 
@@ -319,7 +320,7 @@ extension tool in a subagent](./how-to/use-an-extension-tool-in-a-subagent.md).
   `docs/spec_topics/overview-and-orientation.md` §Overview (terminal-outcomes
   aggregator) and `docs/spec_topics/errors-and-results.md`.
 - Prompt vs. subagent mode, mode as a per-file author choice, final value not
-  surfaced to the user in prompt mode, private discarded subagent transcript:
+  surfaced to the user in prompt mode, private subagent transcript (persisted as an operator log, bug 0489):
   `docs/spec_topics/overview.md` §"Scope of a theta file",
   `docs/spec_topics/glossary.md` (*prompt mode* / *subagent mode*). Cross-mode
   composition: `docs/spec_topics/invocation.md` §"Cross-mode semantics".

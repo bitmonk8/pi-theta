@@ -38,8 +38,10 @@ drafting, live validation exposed four production defects, since fixed:
 Validation hygiene: ambient `pi --theta` discovery may load a STALE global git
 extension (`~/.pi/agent/git/.../pi-theta`) behind the working tree. Validate the
 working-tree build explicitly (`pi -ne -e ./extensions --theta docs/examples ...`).
-Subagent-mode final values are not observable on `pi -p` stdout (private
-transcript discarded on return) — this is by design, not a defect.
+Subagent-mode final values are not observable on `pi -p` stdout (the child
+transcript is private to the theta — persisted only as an offline operator
+session log, bug 0489, never surfaced live) — this is by design, not a
+defect.
 
 ## Reference coverage
 

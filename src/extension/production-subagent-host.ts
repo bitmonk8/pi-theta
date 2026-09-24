@@ -16,6 +16,7 @@ import { spawn as nodeSpawn } from "node:child_process";
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmdirSync,
@@ -24,7 +25,7 @@ import {
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent"; // allow-pi-surface: PIC#subagent-launch-contract — the host-identity signal selecting the child-argv flag dialect
 import type {
@@ -187,6 +188,63 @@ export function authenticateControlPlane(
 /** The parent process id carried to the child (control-plane authentication key; also the reserved, unimplemented orphan-prevention watchdog input). */
 export function readParentPid(): number {
   return process.pid;
+}
+
+/**
+ * Bug 0489 — operator session-log policy: if a model is used, its session
+ * log is persisted. Derive one child's session file path, nested under the
+ * parent's own session file so the non-recursive /resume picker never lists
+ * children and the path itself encodes parentage (the pi-config `subagent`
+ * convention):
+ *
+ *   <dir(parent)>/<basename(parent, ".jsonl")>/<ts>_theta-<label>.jsonl
+ *   (a parent without the `.jsonl` suffix nests at `<parent>.d/` instead)
+ *
+ * The nest directory is pre-created here: at the current pins pi's
+ * `SessionManager` creates a missing parent directory itself when no session
+ * dir is configured, but a configured session dir (`--session-dir`,
+ * `PI_CODING_AGENT_SESSION_DIR`, the `sessionDir` setting) changes that
+ * derivation — the explicit mkdir keeps the child's `--session` FILE path
+ * writable under every configuration. The
+ * label keeps its trailing `#<id8>` (and a `subagent fn` label's `#<fn>#`
+ * segment) through sanitisation AND truncation — the id8 is the uniqueness
+ * key correlating the log with the pane title and the /theta-status node,
+ * so the 60-char cap trims only the slug prefix, never the suffix.
+ *
+ * Returns `undefined` — the caller falls back to the legacy `--no-session`
+ * — ONLY for a parent with no session file of its own (nothing to nest
+ * under). Every other failure (a throwing session read, an un-creatable
+ * nest directory) THROWS and is routed by the spawn regime through the
+ * launch-failure arm: a silent unlogged child is never the fallback.
+ */
+export function createChildSessionPathPolicy(
+  getParentSessionFile: () => string | undefined,
+  wallNow: () => number,
+): (label: string) => string | undefined {
+  return (label: string): string | undefined => {
+    const parent = getParentSessionFile();
+    if (parent === undefined || parent === "") return undefined;
+    // The nest must NEVER collide with the parent's own session-file path: a
+    // parent without the conventional `.jsonl` suffix (pi accepts any
+    // path-shaped `--session` value) would otherwise nest AT its own path —
+    // mkdir would either turn the un-flushed parent file's path into a
+    // directory (breaking the parent's own log) or throw EEXIST on a resumed
+    // one. Such a parent nests at `<parent>.d/` instead (review round 2, F3).
+    const base = basename(parent, ".jsonl");
+    const nest =
+      base === basename(parent)
+        ? `${parent}.d`
+        : join(dirname(parent), base);
+    mkdirSync(nest, { recursive: true }); // allow-sync: bug 0489 one-shot per-launch nest-directory creation on the launch path, not event-loop I/O
+    const ts = new Date(wallNow()).toISOString().replace(/[:.]/g, "-");
+    const sanitized = label.replace(/[^A-Za-z0-9_.#-]+/g, "-");
+    const hashAt = sanitized.indexOf("#");
+    const suffix = hashAt >= 0 ? sanitized.slice(hashAt) : "";
+    const prefix = hashAt >= 0 ? sanitized.slice(0, hashAt) : sanitized;
+    const room = Math.max(60 - suffix.length, 1);
+    const safeLabel = prefix.slice(0, room) + suffix;
+    return join(nest, `${ts}_theta-${safeLabel}.jsonl`);
+  };
 }
 
 /**

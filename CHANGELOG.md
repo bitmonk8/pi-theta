@@ -4,6 +4,41 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.489.0]
+
+### Fixed
+- **Bug 0489 — subagent children persist session logs by default.**
+  Operator policy (2026-09-24): if a model is used, its session log must be
+  persisted — no opt-out. Every subagent child launch now carries
+  `--session <child-log>` on both presentations, with the path nested under
+  the parent's own session file per the pi-config `subagent` convention
+  (`<dir(parent)>/<basename(parent, ".jsonl")>/<ts>_theta-<label>.jsonl`; a suffix-less parent nests at `<parent>.d/` → invisible
+  to the non-recursive /resume picker, parentage encoded in the path, nests
+  recursively for grandchildren). New seam: `SubagentArgvInput.sessionPath`
+  (supersedes `persistSession` / `--no-session`),
+  `ProductionProducerInput.subagentChildSessionPath` (per-launch thunk),
+  `createChildSessionPathPolicy` in production-subagent-host (nest mkdir,
+  label sanitisation preserving the `#…` uniqueness suffix through the
+  60-char cap, injected wall-clock, sessionless-parent → `undefined` →
+  legacy `--no-session` fallback; ANY other derivation failure → loud
+  launch failure via the regime's pre-lease guard, never a silently
+  unlogged child). The transcript stays private to the theta —
+  the runtime never re-reads it; persistence is for the operator. Coverage
+  caveat: off-session model calls (the typed-query forced respond, the
+  binder) appear in no session log. Spec:
+  subagent.md launch contract / §7 visible presentation / isolation +
+  query-mechanics paragraphs (+ SLSH-2, capability item 3, bump items
+  (o)/(aj), functions.md, tool-calls.md, EXST-15, runtime-event-channel,
+  PIC-70). Witnesses: tests/b0489-child-session-log-persistence.test.ts
+  (argv ladder + derivation incl. suffix-preserving truncation and loud
+  derivation failure), tests/subagent-visible-regime.test.ts B1–B5b
+  (regime threading, supersession, and the pre-lease throw arm: zero
+  resolver consults, registry entry finished, internal-error diagnostic
+  routed — each assertion mutant-proven red), and the H9a
+  (e) acceptance assertion on the real persisted child log (composition,
+  live suite); census pins bumped for the 7 bench-d4 thetas landed
+  alongside.
+
 ## [0.488.8]
 
 ### Changed
