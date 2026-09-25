@@ -1177,6 +1177,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           provider: String((queryModel ?? deps.ctx.model)?.api ?? "unknown"),
           ...(queryModel !== undefined ? { queryModel } : {}),
           ...(queryModelRef !== undefined ? { queryModelRef } : {}),
+          // Bug 0491: the theta's `thinking:` pin for the PIC-17 thinking window.
+          ...(deps.theta.frontmatter.thinking !== undefined
+            ? { queryThinking: deps.theta.frontmatter.thinking }
+            : {}),
           ...(respond !== undefined ? { respond } : {}),
           thetaName: deps.theta.slashName,
           emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),

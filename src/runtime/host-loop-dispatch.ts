@@ -129,7 +129,7 @@ export interface HostLoopDispatchDeps {
   /** Run the host agent-loop turn that executes the authored call and appends the tool result. */
   readonly runHostTurn: () => Promise<HostToolResult>;
   /**
-   * Restore the session model (and any active-set snapshot) after the temporary
+   * Restore the session model (and any active-set and thinking-level snapshot) after the temporary
    * host-loop-dispatch model switch. Awaited in the dispatch `finally` because
    * the real restore is `await pi.setModel(original)` — a synchronous `() =>
    * void` fake still satisfies `void | Promise<void>`, so the leaf tests are

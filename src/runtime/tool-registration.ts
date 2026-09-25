@@ -20,6 +20,10 @@
 // of the shared user session, so the theta-resolved model is swapped in with
 // `pi.setModel` for exactly the turn and the session's own model restored after
 // it, under the same single-re-attempt restore protocol with its own code.
+// `withThinkingWindow` (PIC-17 thinking window, bug 0491) wraps the model
+// window: it snapshots the session thinking level before any model swap,
+// applies the theta's `thinking:` pin after it, and restores the snapshot after
+// the model restore (the host's model switch re-derives the level).
 // `deriveToolLabel` derives the materialised `ToolDefinition.label`;
 // `registerToolInCache` implements the PIC-44 registration cache.
 
@@ -31,6 +35,8 @@ import { renderUnderlyingError } from "../diagnostics/placeholder";
 const ACTIVE_SET_RESTORE_FAILED = "theta/runtime/active-set-restore-failed";
 /** PIC-8-model (b): the model window's restore re-attempt also failed (bug 0479). */
 export const MODEL_RESTORE_FAILED_CODE = "theta/runtime/model-restore-failed";
+/** Bug 0491: the PIC-17 thinking window's restore failed twice (tool-registration-lifetime.md #pic-17-thinking-window). */
+export const THINKING_RESTORE_FAILED_CODE = "theta/runtime/thinking-restore-failed";
 const REGISTRATION_CACHE_COLLISION = "theta/runtime/registration-cache-collision";
 
 /** Coerce a caught (post-probe SDK-shape-drift) throw to an `Error`. */
@@ -342,6 +348,111 @@ async function restoreSessionModel<M extends ModelWindowModel>(
   // the `emitDiagnostic` call above).
   deps.emitSystemNote({
     content: `theta: failed to restore the session model after /${deps.thetaName}; the user session may have an unexpected model active. Use /model to reset.`,
+    display: true,
+  });
+}
+
+// --- Thinking window (bug 0491) ---------------------------------------------
+
+/**
+ * The narrow `pi` subset the thinking window touches. Both members are
+ * optional in this shape so a host (or test double) without the thinking API
+ * keeps an un-pinned window inert rather than failing every prompt-mode turn;
+ * a PRESENT pin on such a host fails loudly instead of being dropped.
+ */
+export interface ThinkingWindowPi {
+  getThinkingLevel?(): string;
+  /** The host clamps the level to the active model's supported levels. */
+  setThinkingLevel?(level: never): void;
+}
+
+/** Construction dependencies for one thinking window (one query turn). */
+export interface ThinkingWindowDeps {
+  readonly pi: ThinkingWindowPi;
+  /** The bare theta name substituted into `/<name>` in the restore-failure note. */
+  readonly thetaName: string;
+  /** The theta's `thinking:` pin; `undefined` = no pin (nothing is swapped in). */
+  readonly target: string | undefined;
+  readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
+  readonly emitSystemNote: (note: ActiveSetAdvisoryNote) => void;
+}
+
+/**
+ * The prompt-mode thinking window (tool-registration-lifetime.md
+ * #pic-17-thinking-window). It wraps the PIC-17 model window because the host's
+ * model switch re-derives the thinking level for the model it switches to:
+ *
+ * 1. Snapshot the session's thinking level BEFORE any model swap.
+ * 2. `run` receives `applyPin`, which the model window's body calls after the
+ *    model swap-in: it sets the pinned level when one is declared and differs.
+ * 3. In `finally`, AFTER the model window has restored the model, set the
+ *    session level back to the snapshot whenever it differs, so neither the
+ *    pin nor a `model:`-only swap leaves the user session on another level.
+ *
+ * The restore never masks the outcome `finally` protects: a failure gets one
+ * re-attempt, then `theta/runtime/thinking-restore-failed` (E) plus a display
+ * note, and the turn's value (or throw) propagates unchanged.
+ */
+export async function withThinkingWindow<T>(
+  deps: ThinkingWindowDeps,
+  run: (applyPin: () => void) => Promise<T>,
+): Promise<T> {
+  const { pi, target } = deps;
+  const hostHasThinking = typeof pi.getThinkingLevel === "function" && typeof pi.setThinkingLevel === "function";
+  if (!hostHasThinking) {
+    if (target !== undefined) {
+      throw new Error(
+        `/${deps.thetaName} declares 'thinking: ${target}' but the host exposes no thinking-level control`,
+      );
+    }
+    return run(() => {});
+  }
+  const get = (): string => pi.getThinkingLevel!();
+  const set = (level: string): void => pi.setThinkingLevel!(level as never);
+  const snapshot = get();
+  const applyPin = (): void => {
+    if (target !== undefined && get() !== target) {
+      set(target);
+    }
+  };
+  try {
+    return await run(applyPin);
+  } finally {
+    restoreThinkingLevel(deps, snapshot, get, set);
+  }
+}
+
+function restoreThinkingLevel(
+  deps: ThinkingWindowDeps,
+  snapshot: string,
+  get: () => string,
+  set: (level: string) => void,
+): void {
+  const attempt = (): { readonly ok: true } | { readonly ok: false; readonly reason: string } => {
+    try {
+      if (get() !== snapshot) {
+        set(snapshot);
+      }
+      return { ok: true };
+    } catch (thrown: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
+      return { ok: false, reason: renderUnderlyingError(thrown) };
+    }
+  };
+  if (attempt().ok) {
+    return;
+  }
+  const second = attempt();
+  if (second.ok) {
+    return;
+  }
+  deps.emitDiagnostic({
+    severity: "error",
+    code: THINKING_RESTORE_FAILED_CODE,
+    message: `failed to restore session thinking level after /${deps.thetaName}: ${second.reason}`,
+    hint: snapshot,
+  });
+  deps.emitSystemNote({
+    content: `theta: failed to restore the session thinking level after /${deps.thetaName}; the user session may have an unexpected thinking level active (was '${snapshot}').`,
     display: true,
   });
 }

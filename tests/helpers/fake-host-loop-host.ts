@@ -81,12 +81,34 @@ export interface FakeHostLoopHostOptions {
    * restore-in-finally pin) instead of scheduling the fabricated turn.
    */
   readonly sendThrows?: Error;
+  /**
+   * Bug 0491: emulate the host's thinking-level control. Present ⇒ the `pi`
+   * carrier exposes get/setThinkingLevel. `host` selects the model-switch rule:
+   *   - "current" (pi ≥ 0.84.3, the default): the `perModel` level for the
+   *     target id, else the settings default, else the current level — clamped to
+   *     the target's supported levels; nothing is persisted.
+   *   - "legacy" (pi < 0.84.3): the level is kept when the OUTGOING model
+   *     reasons, else the settings default is taken; a non-reasoning target
+   *     clamps to `off`; every changing set persists the level as the
+   *     settings default (`settingsWrites`) unless it is `off` on a
+   *     non-reasoning model.
+   */
+  readonly thinking?: {
+    readonly initial: string;
+    readonly perModel?: Readonly<Record<string, string>>;
+    readonly host?: "current" | "legacy";
+    /** The global default; `null` = unset (a ≥ 0.84.3 switch then keeps the current level). Default "medium". */
+    readonly settingsDefault?: string | null;
+  };
 }
 
 /** A registered bridge provider's stream function (the only member the fake invokes). */
 interface RegisteredProvider {
   streamSimple: (m: Model<Api>, c: Context) => AsyncIterable<unknown>;
 }
+
+/** pi-ai `ThinkingLevel` order (the clamp walks it up, then down). */
+const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 /**
  * The shared fake host simulating the host agent loop behind PIC-64 rung-2
@@ -112,6 +134,16 @@ export class FakeHostLoopHost {
   #fireSettled: boolean;
   #resultToolName: string | undefined;
   #sendThrows: Error | undefined;
+  #thinking: FakeHostLoopHostOptions["thinking"];
+  #thinkingLevel: string;
+  #settingsDefault: string | undefined;
+  /** Every setThinkingLevel call, in order. */
+  readonly thinkingCalls: string[] = [];
+  /** Legacy host only: every persisted `defaultThinkingLevel` write. */
+  readonly settingsWrites: string[] = [];
+  /** Every level change the session saw, from any cause (a `thinking_level_change`). */
+  readonly levelChanges: string[] = [];
+  #registeredModels = new Map<string, Record<string, unknown>>();
 
   constructor(
     private readonly toolExecutor: (name: string, args: unknown) => FakeToolResult,
@@ -121,6 +153,62 @@ export class FakeHostLoopHost {
     this.#fireSettled = options?.fireSettled ?? true;
     this.#resultToolName = options?.resultToolName;
     this.#sendThrows = options?.sendThrows;
+    this.#thinking = options?.thinking;
+    this.#thinkingLevel = options?.thinking?.initial ?? "off";
+    const d = options?.thinking?.settingsDefault;
+    this.#settingsDefault = d === null ? undefined : (d ?? "medium");
+  }
+
+  #reasons(model: Model<Api>): boolean {
+    return (model as { reasoning?: boolean }).reasoning === true;
+  }
+
+  /** pi-ai `getSupportedThinkingLevels`: a `null` map entry drops a level; xhigh/max need an entry. */
+  #supported(model: Model<Api>): string[] {
+    if (!this.#reasons(model)) {
+      return ["off"];
+    }
+    const map = (model as { thinkingLevelMap?: Record<string, string | null> }).thinkingLevelMap;
+    return LEVELS.filter((l) => {
+      const mapped = map?.[l];
+      if (mapped === null) return false;
+      if (l === "xhigh" || l === "max") return mapped !== undefined;
+      return true;
+    });
+  }
+
+  /** pi-ai `clampThinkingLevel`: the level if supported, else the next higher, else the next lower. */
+  #clamp(model: Model<Api>, level: string): string {
+    const ok = this.#supported(model);
+    if (ok.includes(level)) return level;
+    const i = LEVELS.indexOf(level);
+    for (let j = i; j < LEVELS.length; j++) if (ok.includes(LEVELS[j]!)) return LEVELS[j]!;
+    for (let j = i - 1; j >= 0; j--) if (ok.includes(LEVELS[j]!)) return LEVELS[j]!;
+    return ok[0] ?? "off";
+  }
+
+  /** Apply a level the way the host's internal setThinkingLevel does (clamp + legacy persistence). */
+  #applyLevel(level: string): void {
+    const effective = this.#clamp(this.#model, level);
+    if (effective === this.#thinkingLevel) {
+      return;
+    }
+    this.#thinkingLevel = effective;
+    this.levelChanges.push(effective);
+    if (this.#thinking?.host === "legacy" && (this.#reasons(this.#model) || effective !== "off")) {
+      this.settingsWrites.push(effective);
+      this.#settingsDefault = effective;
+    }
+  }
+
+  get thinkingLevel(): string {
+    return this.#thinkingLevel;
+  }
+
+  setThinkingLevel(level: string): void {
+    this.op.push(`setThinkingLevel:${level}`);
+    this.thinkingCalls.push(level);
+    this.#applyLevel(level);
   }
 
   /** The verbatim arguments the bridge authored into the `tool_use` (verbatim-propagation pin). */
@@ -152,7 +240,11 @@ export class FakeHostLoopHost {
 
   /** `modelRegistry.find` semantics: resolves only under a registered provider name. */
   findRegisteredModel(provider: string, id: string): Model<Api> | undefined {
-    return this.#providers.has(provider) ? fakeModel(id, provider) : undefined;
+    if (!this.#providers.has(provider)) {
+      return undefined;
+    }
+    // The registered model config (reasoning, thinkingLevelMap) over the fake base.
+    return { ...fakeModel(id, provider), ...(this.#registeredModels.get(`${provider}/${id}`) ?? {}) } as unknown as Model<Api>;
   }
 
   // ── The narrow host-loop surface members both legs delegate to ────────────
@@ -161,6 +253,9 @@ export class FakeHostLoopHost {
     this.op.push(`register:${name}`);
     this.registeredApis.push(config.api);
     this.#providers.set(name, { streamSimple: config.streamSimple as never });
+    for (const m of ((config as { models?: Record<string, unknown>[] }).models ?? [])) {
+      this.#registeredModels.set(`${name}/${String(m.id)}`, m);
+    }
   }
 
   unregisterProvider(name: string): void {
@@ -180,7 +275,18 @@ export class FakeHostLoopHost {
 
   setModel(model: Model<Api>): Promise<boolean> {
     this.op.push(`setModel:${model.id}`);
+    if (this.#thinking?.host === "legacy") {
+      // Derived from the OUTGOING model, before the switch (pi < 0.84.3).
+      const derived = this.#reasons(this.#model) ? this.#thinkingLevel : (this.#settingsDefault ?? "medium");
+      this.#model = model;
+      this.#applyLevel(derived);
+      return Promise.resolve(true);
+    }
     this.#model = model;
+    if (this.#thinking !== undefined) {
+      // pi ≥ 0.84.3: per-model level, else the settings default, else current.
+      this.#applyLevel(this.#thinking.perModel?.[model.id] ?? this.#settingsDefault ?? this.#thinkingLevel);
+    }
     return Promise.resolve(true);
   }
 
@@ -216,6 +322,12 @@ export class FakeHostLoopHost {
       setActiveTools: (names): void => this.setActiveTools(names),
       getActiveTools: (): string[] => this.getActiveTools(),
       setModel: (model): Promise<boolean> => this.setModel(model),
+      ...(this.#thinking !== undefined
+        ? {
+            getThinkingLevel: (): string => this.#thinkingLevel,
+            setThinkingLevel: ((level: string): void => this.setThinkingLevel(level)) as never,
+          }
+        : {}),
       sendUserMessage: (content): void => this.sendUserMessage(content),
       on: (event, handler): void => this.on(event, handler),
     };

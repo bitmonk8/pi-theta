@@ -1,7 +1,8 @@
 ---
 description: "D4 duplication & drift reviewer - reviews one shard of production source files through the clone/drift/parallel lens, files candidate findings into quality/intake/"
 mode: subagent
-model: "unity-completions/kimi-k2.7-code"
+model: "anthropic/claude-opus-5-5"
+thinking: xhigh
 tools: read, grep, bash, write
 tool_loop:
   max_rounds: 100
@@ -109,7 +110,7 @@ Write each finding as one file:
 quality/intake/${wave}-d4-NN-<short-slug>.md where NN is 01, 02, ... in
 filing order and <short-slug> is a few lowercase words joined by hyphens.
 Follow this template exactly (frontmatter fields included; set lens: D4,
-wave: ${wave}, reported_by: lens-d4-duplication (unity-completions/kimi-k2.7-code),
+wave: ${wave}, reported_by: lens-d4-duplication (anthropic/claude-opus-5-5),
 status: intake, verdict: pending, id: pending):
 ${template}
 

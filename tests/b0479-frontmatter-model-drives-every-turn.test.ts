@@ -31,15 +31,14 @@ import type {
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import { parse, rootDouble, sessionBranch } from "./helpers/scripted-live-session-harness";
 import {
-  SYSTEM_NOTE_CHANNEL,
-  type SystemNoteChannelDeps,
-} from "../src/extension/system-note-channel";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
+  PINNED_MODEL,
+  PINNED_REF,
+  QUERY_REPLY,
+  SESSION_MODEL,
+  driveQuery,
+  registryOf,
+} from "./helpers/prompt-window-session-harness";
 import type { QueryError } from "../src/runtime/query-error";
 import type { Expr, ThetaBody } from "../src/parser/theta-document";
 import {
@@ -54,38 +53,6 @@ import {
 // ===========================================================================
 // Shared fixtures
 // ===========================================================================
-
-/** A registry model double — the shape `matchAvailableModel` and the launcher read. */
-interface ModelDouble {
-  readonly id: string;
-  readonly provider: string;
-  readonly api: string;
-  readonly strictCapable: boolean;
-}
-
-/** The invoking session's own model (what `ctx.model` reports). */
-const SESSION_MODEL: ModelDouble = {
-  id: "claude-test",
-  provider: "anthropic",
-  api: "anthropic-messages",
-  strictCapable: true,
-};
-/** The theta's pinned model — same provider, different id, so only the id tells them apart. */
-const PINNED_MODEL: ModelDouble = {
-  id: "claude-pinned",
-  provider: "anthropic",
-  api: "anthropic-messages",
-  strictCapable: true,
-};
-const PINNED_REF = `${PINNED_MODEL.provider}/${PINNED_MODEL.id}`;
-
-function registryOf(...models: readonly ModelDouble[]): ModelRegistry {
-  return {
-    getAvailable: (): readonly ModelDouble[] => [...models],
-    find: (provider: string, id: string): ModelDouble | undefined =>
-      models.find((m) => m.provider === provider && m.id === id),
-  } as unknown as ModelRegistry;
-}
 
 /** `--provider <p> --model <id>` as the child argv carries it (subagent-launcher.ts `assembleChildArgv`). */
 function marshalledModel(args: readonly string[]): { provider: string; model: string } {
@@ -177,200 +144,17 @@ describe("bug 0479 (A) — a subagent child launches with the THETA's model, not
 // (B) PROMPT-MODE FREE PHASE — PIC-17 model window over the live drive.
 // ===========================================================================
 
-const QUERY_REPLY = "604";
-const QUERY_SNAPSHOT = ["ambient-x", "ambient-y"];
 const MODEL_RESTORE_FAILED = "theta/runtime/model-restore-failed";
 /** PIC-8-model (c): the verbatim template with `<name>` substituted for the probe theta. */
 const MODEL_RESTORE_NOTE_VERBATIM =
   "theta: failed to restore the session model after /probe; the user session may have an unexpected model active. Use /model to reset.";
-
-function oneQueryTheta(modelLine: string | undefined): string {
-  return ["---", "mode: prompt", ...(modelLine === undefined ? [] : [modelLine]), "---", "let v = @`Ping`?", "v", ""].join(
-    "\n",
-  );
-}
-
-interface SessionEntryDouble {
-  readonly type: "message";
-  readonly id: string;
-  readonly parentId: string | undefined;
-  readonly message: Record<string, unknown>;
-}
-
-interface RecordedNote {
-  readonly content: string;
-  readonly display: boolean;
-}
-
-/**
- * The instant-settle user-session double (the b0372 shape): `sendUserMessage`
- * commits the user entry AND the reply in the same tick, so the drive's fast
- * path binds the reply without `isIdle()` ever reading false. It also tracks
- * the session's CURRENT model so a `setModel` swap is observable both as a
- * call log and as the model the reply is attributed to.
- */
-class InstantSettleSession {
-  readonly entries: SessionEntryDouble[] = [];
-  readonly notes: RecordedNote[] = [];
-  /** Every `pi.setModel` call, in order (the window's swap-in and restore). */
-  readonly setModelCalls: ModelDouble[] = [];
-  /** The model each driven turn ran under (the session model at send time). */
-  readonly turnModels: string[] = [];
-  currentModel: ModelDouble;
-
-  constructor(
-    readonly reply: string,
-    initialModel: ModelDouble,
-    /** Scripted `setModel` answers per call; `true` once exhausted. `"throw"` throws. */
-    private readonly setModelScript: readonly (boolean | "throw")[] = [],
-  ) {
-    this.currentModel = initialModel;
-  }
-
-  sendUserMessage(text: string): void {
-    this.turnModels.push(`${this.currentModel.provider}/${this.currentModel.id}`);
-    this.#appendUser(text);
-    this.#appendAssistant(this.reply);
-  }
-
-  setModel(model: ModelDouble): Promise<boolean> {
-    const n = this.setModelCalls.length;
-    this.setModelCalls.push(model);
-    const scripted = this.setModelScript[n] ?? true;
-    if (scripted === "throw") {
-      return Promise.reject(new Error(`setModel rejected (scripted call ${n})`));
-    }
-    if (scripted) {
-      this.currentModel = model;
-    }
-    return Promise.resolve(scripted);
-  }
-
-  isIdle(): boolean {
-    return true;
-  }
-
-  sendMessage(message: { customType?: string; content?: string; display?: boolean }): void {
-    if (message.customType === SYSTEM_NOTE_CHANNEL) {
-      this.notes.push({ content: String(message.content ?? ""), display: message.display === true });
-    }
-  }
-
-  #appendUser(text: string): void {
-    this.#append({ role: "user", content: [{ type: "text", text }], timestamp: 0 });
-  }
-
-  #appendAssistant(text: string): void {
-    this.#append({
-      role: "assistant",
-      content: [{ type: "text", text }],
-      api: this.currentModel.api,
-      provider: this.currentModel.provider,
-      model: this.currentModel.id,
-      stopReason: "stop",
-      timestamp: 0,
-    });
-  }
-
-  #append(message: Record<string, unknown>): void {
-    const id = `e${this.entries.length + 1}`;
-    const parentId = this.entries.length === 0 ? undefined : `e${this.entries.length}`;
-    this.entries.push({ type: "message", id, parentId, message });
-  }
-}
-
-function piDouble(session: InstantSettleSession): ExtensionAPI {
-  return {
-    sendUserMessage: (content: string): void => session.sendUserMessage(content),
-    getActiveTools: (): string[] => [...QUERY_SNAPSHOT],
-    setActiveTools: (): void => {},
-    setModel: (model: ModelDouble): Promise<boolean> => session.setModel(model),
-    registerTool: (): void => {},
-    on: (): void => {},
-    sendMessage: (message: { customType?: string; content?: string; display?: boolean }): void =>
-      session.sendMessage(message),
-  } as unknown as ExtensionAPI;
-}
-
-function ctxDouble(session: InstantSettleSession): ExtensionCommandContext {
-  return {
-    // A live getter: the window's step-1a snapshot reads the CURRENT session
-    // model, and after a swap the host would report the swapped model here.
-    get model(): ModelDouble {
-      return session.currentModel;
-    },
-    signal: undefined,
-    isIdle: (): boolean => session.isIdle(),
-    waitForIdle: (): Promise<void> => Promise.resolve(),
-    sessionManager: {
-      getEntries: (): readonly SessionEntryDouble[] => [...session.entries],
-      getLeafId: (): undefined => undefined,
-      getBranch: (): readonly SessionEntryDouble[] => sessionBranch(session.entries),
-    },
-  } as unknown as ExtensionCommandContext;
-}
-
-interface QueryDriveResult {
-  readonly execution: BodyExecution;
-  readonly session: InstantSettleSession;
-  readonly diagnostics: Diagnostic[];
-  readonly caught: unknown;
-}
-
-async function driveQuery(input: {
-  readonly modelLine: string | undefined;
-  readonly setModelScript?: readonly (boolean | "throw")[];
-  readonly registry?: ModelRegistry;
-}): Promise<QueryDriveResult> {
-  const doc = parse(oneQueryTheta(input.modelLine));
-  const theta: ThetaCompositionInput = {
-    slashName: "probe",
-    sourcePath: "/theta/probe.theta",
-    frontmatter: doc.frontmatter!,
-    body: doc.body,
-  };
-  const session = new InstantSettleSession(QUERY_REPLY, SESSION_MODEL, input.setModelScript ?? []);
-  const diagnostics: Diagnostic[] = [];
-  const systemNoteChannel: SystemNoteChannelDeps = {
-    pi: {
-      sendMessage: (message): void => {
-        if (message.customType === SYSTEM_NOTE_CHANNEL) {
-          session.notes.push({ content: String(message.content ?? ""), display: message.display === true });
-        }
-      },
-    },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (d): void => {
-      diagnostics.push(d);
-    },
-  };
-  const deps = createProductionProducerDeps({
-    pi: piDouble(session),
-    root: rootDouble(),
-    modelRegistry: input.registry ?? registryOf(SESSION_MODEL, PINNED_MODEL),
-    emitDiagnostic: (d): void => {
-      diagnostics.push(d);
-    },
-    systemNoteChannel,
-  });
-  const binding = deps.bindPromptConversation({ theta, args: "", ctx: ctxDouble(session) });
-  expect(binding.drivenAgainst, "the harness must bind the LIVE prompt-mode drive").toBe("prompt-user-session");
-  let execution: BodyExecution | undefined;
-  let caught: unknown;
-  try {
-    execution = await executeBody(theta.body, binding.executeDeps);
-  } catch (thrown) {
-    caught = thrown;
-  }
-  return { execution: execution as BodyExecution, session, diagnostics, caught };
-}
 
 const PINNED_LINE = `model: "${PINNED_REF}"`;
 const SESSION_LINE = `model: "${SESSION_MODEL.provider}/${SESSION_MODEL.id}"`;
 
 describe("bug 0479 (B) — a prompt-mode free-phase turn runs under the theta's `model:` (PIC-17 model window)", () => {
   it("B1: a differing `model:` swaps the session model in before the send and restores it after; the turn ran on the pin and the reply binds", async () => {
-    const r = await driveQuery({ modelLine: PINNED_LINE });
+    const r = await driveQuery({ frontmatterLines: [PINNED_LINE] });
     expect(r.caught, `unexpected throw: ${String(r.caught)}`).toBeUndefined();
     expect(r.execution.outcome, `error: ${JSON.stringify(r.execution?.error)}`).toBe("success");
     expect(r.execution.result.value).toBe(QUERY_REPLY);
@@ -387,7 +171,7 @@ describe("bug 0479 (B) — a prompt-mode free-phase turn runs under the theta's 
   });
 
   it("B2: a `model:` equal to the session model makes NO setModel call (the window is inert)", async () => {
-    const r = await driveQuery({ modelLine: SESSION_LINE });
+    const r = await driveQuery({ frontmatterLines: [SESSION_LINE] });
     expect(r.execution.outcome, `error: ${JSON.stringify(r.execution?.error)}`).toBe("success");
     expect(r.execution.result.value).toBe(QUERY_REPLY);
     expect(r.session.setModelCalls).toEqual([]);
@@ -395,14 +179,14 @@ describe("bug 0479 (B) — a prompt-mode free-phase turn runs under the theta's 
   });
 
   it("B3 (control): no `model:` inherits the session model with NO setModel call", async () => {
-    const r = await driveQuery({ modelLine: undefined });
+    const r = await driveQuery({ frontmatterLines: [undefined] });
     expect(r.execution.outcome, `error: ${JSON.stringify(r.execution?.error)}`).toBe("success");
     expect(r.execution.result.value).toBe(QUERY_REPLY);
     expect(r.session.setModelCalls).toEqual([]);
   });
 
   it("B4: the host declining the swap-in (setModel → false) refuses the query BEFORE any turn with a transport Err naming the pinned model's api", async () => {
-    const r = await driveQuery({ modelLine: PINNED_LINE, setModelScript: [false] });
+    const r = await driveQuery({ frontmatterLines: [PINNED_LINE], setModelScript: [false] });
     expect(r.caught, `unexpected throw: ${String(r.caught)}`).toBeUndefined();
     // No turn was issued — no provider spend on the wrong model.
     expect(r.session.turnModels).toEqual([]);
@@ -418,7 +202,7 @@ describe("bug 0479 (B) — a prompt-mode free-phase turn runs under the theta's 
 
   it("B5: a restore that fails once is re-attempted once and succeeds — no diagnostic, no note", async () => {
     // Call 0 = swap-in (ok), call 1 = restore (declined), call 2 = re-attempt (ok).
-    const r = await driveQuery({ modelLine: PINNED_LINE, setModelScript: [true, false, true] });
+    const r = await driveQuery({ frontmatterLines: [PINNED_LINE], setModelScript: [true, false, true] });
     expect(r.caught, `unexpected throw: ${String(r.caught)}`).toBeUndefined();
     expect(r.execution.outcome, `error: ${JSON.stringify(r.execution?.error)}`).toBe("success");
     expect(r.execution.result.value).toBe(QUERY_REPLY);
@@ -430,7 +214,7 @@ describe("bug 0479 (B) — a prompt-mode free-phase turn runs under the theta's 
 
   it("B6: a restore that fails twice fires model-restore-failed (E, hint = the snapshot reference) + the verbatim display note, and the reply still binds unmasked", async () => {
     // Call 0 = swap-in (ok), call 1 = restore (throws), call 2 = re-attempt (declined).
-    const r = await driveQuery({ modelLine: PINNED_LINE, setModelScript: [true, "throw", false] });
+    const r = await driveQuery({ frontmatterLines: [PINNED_LINE], setModelScript: [true, "throw", false] });
     expect(r.caught, `the restore failure must be diagnosed and swallowed, not propagated: ${String(r.caught)}`).toBeUndefined();
     expect(r.execution.outcome, `error: ${JSON.stringify(r.execution?.error)}`).toBe("success");
     expect(r.execution.result.value).toBe(QUERY_REPLY);
@@ -449,7 +233,7 @@ describe("bug 0479 (B) — a prompt-mode free-phase turn runs under the theta's 
 
   it("B7: a present `model:` that no longer resolves at dispatch refuses the query BEFORE any turn (provider 'unknown', no setModel, no send) — never a run on the session model", async () => {
     const r = await driveQuery({
-      modelLine: 'model: "anthropic/claude-vanished"',
+      frontmatterLines: ['model: "anthropic/claude-vanished"'],
       // The registry holds the session model only: the pin resolved at load
       // (the parse-time matcher double admits anything) but is gone at dispatch.
       registry: registryOf(SESSION_MODEL),

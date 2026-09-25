@@ -237,6 +237,19 @@ describe("RFC-0012 §10 — parent side: a subagent fn call is a child launch of
     expect(spawn.args).not.toContain("claude-test");
   });
 
+  it("bug 0491 / FN-7: an enclosing `thinking:` pin rides the subagent fn launch as --thinking (inherited, not overridable)", async () => {
+    const src = ["---", "thinking: xhigh", "mode: prompt", "---", "subagent fn step(x: string) {", "  x", "}", 'step("a")'].join("\n");
+    const outcome = await driveCaller({ src, reply: okLine("a"), cwd: "/work/project" });
+    const spawn = outcome.spawns[0]!;
+    expect(spawn.args[spawn.args.indexOf("--thinking") + 1]).toBe("xhigh");
+  });
+
+  it("bug 0491 (control): no enclosing `thinking:` \u2192 the subagent fn launch carries no --thinking", async () => {
+    const src = ["---", "mode: prompt", "---", "subagent fn step(x: string) {", "  x", "}", 'step("a")'].join("\n");
+    const outcome = await driveCaller({ src, reply: okLine("a"), cwd: "/work/project" });
+    expect(outcome.spawns[0]!.args).not.toContain("--thinking");
+  });
+
   it("RFC 0009 Erratum B: a call-site `with { cwd }` on a subagent fn call is the child's working directory, resolved against ctx.cwd", async () => {
     const src = ["subagent fn step(x: string) {", "  x", "}", 'step("a") with { cwd: "sub/tree" }'].join("\n");
     const outcome = await driveCaller({ src, reply: okLine("a"), cwd: "/work/project" });

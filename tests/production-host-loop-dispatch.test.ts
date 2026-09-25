@@ -446,3 +446,95 @@ describe("PIC-64 rung 1 — probeGetToolDefinitionSurface (typeof-derived availa
     }
   });
 });
+
+describe("bug 0491 — the host-loop bridge preserves the session thinking level", () => {
+  const REASONING_MODEL = {
+    ...fakeModel("real-model", "real-provider"),
+    reasoning: true,
+    thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+  } as unknown as Model<Api>;
+
+  it("a code-side extension call leaves the session on its pre-dispatch level (the host re-derives a default/per-model level on the swap legs)", async () => {
+    const host = new FakeChildHost(OK_EXECUTOR, {
+      startModel: REASONING_MODEL,
+      thinking: { initial: "low", perModel: { "real-model": "high" } },
+    });
+    const dispatch = createProductionHostLoopDispatch(host.host());
+    await dispatch({ toolName: "finding_store", args: {} }, new AbortController().signal);
+    expect(host.thinkingLevel).toBe("low");
+    // The restore runs AFTER the model restore (which re-derived `high`).
+    const op = host.op;
+    expect(op.lastIndexOf("setModel:real-model")).toBeLessThan(op.lastIndexOf("setThinkingLevel:low"));
+    expect(host.thinkingCalls).toEqual(["low"]);
+    // pi ≥ 0.84.3 cost: bridge leg → default (medium), restore leg → per-model (high), restore → low.
+    expect(host.levelChanges).toEqual(["medium", "high", "low"]);
+  });
+
+  it("an aborted dispatch restores the level too", async () => {
+    const host = new FakeChildHost(OK_EXECUTOR, {
+      startModel: REASONING_MODEL,
+      fireSettled: false,
+      // A settings default that differs from the session level, so the swap legs
+      // move the level and only the abort-path restore can bring it back.
+      thinking: { initial: "medium", settingsDefault: "low" },
+    });
+    const dispatch = createProductionHostLoopDispatch(host.host());
+    const ac = new AbortController();
+    const pending = dispatch({ toolName: "finding_store", args: {} }, ac.signal);
+    await Promise.resolve();
+    ac.abort();
+    await pending;
+    expect(host.thinkingLevel).toBe("medium");
+  });
+
+  it("(control) a host without the thinking API dispatches unchanged — no thinking calls", async () => {
+    const host = new FakeChildHost(OK_EXECUTOR, { startModel: REASONING_MODEL });
+    const dispatch = createProductionHostLoopDispatch(host.host());
+    await dispatch({ toolName: "finding_store", args: {} }, new AbortController().signal);
+    expect(host.thinkingCalls).toEqual([]);
+  });
+});
+
+describe("bug 0491 — on a pi < 0.84.3 host the bridge swap persists nothing (that host writes defaultThinkingLevel on every level change)", () => {
+  const REASONING_MODEL = {
+    ...fakeModel("real-model", "real-provider"),
+    reasoning: true,
+    thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+  } as unknown as Model<Api>;
+
+  it("a session at a level different from the settings default: the dispatch leaves the level AND the persisted default untouched", async () => {
+    const host = new FakeChildHost(OK_EXECUTOR, {
+      startModel: REASONING_MODEL,
+      thinking: { initial: "xhigh", host: "legacy", settingsDefault: "medium" },
+    });
+    const dispatch = createProductionHostLoopDispatch(host.host());
+    await dispatch({ toolName: "finding_store", args: {} }, new AbortController().signal);
+    expect(host.thinkingLevel).toBe("xhigh");
+    expect(host.settingsWrites, "no defaultThinkingLevel write").toEqual([]);
+    expect(host.thinkingCalls, "nothing changed, so nothing to restore").toEqual([]);
+  });
+  it("a NON-reasoning session model (level off): the bridge mirrors it, so no level change and no write", async () => {
+    const host = new FakeChildHost(OK_EXECUTOR, {
+      startModel: fakeModel("real-model", "real-provider"),
+      thinking: { initial: "off", host: "legacy", settingsDefault: "medium" },
+    });
+    const dispatch = createProductionHostLoopDispatch(host.host());
+    await dispatch({ toolName: "finding_store", args: {} }, new AbortController().signal);
+    expect(host.thinkingLevel).toBe("off");
+    expect(host.settingsWrites).toEqual([]);
+    expect(host.levelChanges).toEqual([]);
+  });
+});
+
+describe("bug 0491 — on a pi ≥ 0.84.3 host a non-reasoning session model sees no level change on either leg", () => {
+  it("non-reasoning session at off: the bridge (mirroring it) stays off on both legs; nothing to restore", async () => {
+    const host = new FakeChildHost(OK_EXECUTOR, {
+      startModel: fakeModel("real-model", "real-provider"),
+      thinking: { initial: "off", settingsDefault: "medium" },
+    });
+    const dispatch = createProductionHostLoopDispatch(host.host());
+    await dispatch({ toolName: "finding_store", args: {} }, new AbortController().signal);
+    expect(host.levelChanges).toEqual([]);
+    expect(host.thinkingCalls).toEqual([]);
+  });
+});

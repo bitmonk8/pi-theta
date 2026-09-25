@@ -16,6 +16,19 @@ import { type BypassParamsField } from "../binder/binder-envelope";
 export type ThetaMode = "prompt" | "subagent";
 
 /**
+ * The `thinking:` value set (bug 0491) — the host's thinking-level vocabulary
+ * (pi-agent-core `ThinkingLevel`), in ascending order. The host clamps a
+ * level to what the resolved model supports.
+ */
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
+
+/** Whether `value` is one of the `thinking:` levels. */
+export function isThinkingLevel(value: unknown): value is ThinkingLevel {
+  return typeof value === "string" && (THINKING_LEVELS as readonly string[]).includes(value);
+}
+
+/**
  * The outcome of resolving a present `model:` reference against the available
  * model set, per the [binder-model parse rule]:
  *   - `resolved`  — exactly one available model matches.
@@ -87,6 +100,12 @@ export interface ParsedFrontmatter {
   readonly mode: ThetaMode;
   /** The present `model:` reference, when one was declared and resolved. */
   readonly model?: string;
+  /**
+   * The present `thinking:` level (bug 0491), when declared. Pins the thinking
+   * level every query of the theta runs at, the way `model:` pins the model;
+   * absent ⇒ the host's own resolution applies (no pin).
+   */
+  readonly thinking?: ThinkingLevel;
   /**
    * The `bind_model:` reference verbatim, when declared. The binder pass over
    * `params:` uses it (chain step 1); absent when no `bind_model:` is declared.

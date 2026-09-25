@@ -22,9 +22,9 @@
 //      `waitForIdle()` alone returns before the fabricated turn even starts),
 //      send the encoded request, await settle, then read the appended toolResult
 //      back from the session transcript.
-//   3. `restoreModel()` — restore the session model and the active set, ALWAYS
-//      (the seam's `finally`), so a thetaAbort mid-turn never leaves the bridge
-//      model installed.
+//   3. `restoreModel()` — restore the session model, the active set and the
+//      thinking level (bug 0491), ALWAYS (the seam's `finally`), so a thetaAbort
+//      mid-turn never leaves the bridge model installed.
 //
 // Costs (a fabricated turn + a temporary model switch) land in whichever
 // session backs the dispatch, per PIC-64: the child's private
@@ -103,6 +103,8 @@ interface BridgeModelConfig {
   id: string;
   name: string;
   reasoning: boolean;
+  /** Bug 0491: which thinking levels the host treats as supported (see the registration). */
+  thinkingLevelMap?: Partial<Record<"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max", string | null>>;
   input: ("text" | "image")[];
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
   contextWindow: number;
@@ -131,6 +133,16 @@ export interface HostLoopPi {
   setActiveTools(names: string[]): void;
   getActiveTools(): string[];
   setModel(model: Model<Api>): Promise<boolean>;
+  /**
+   * Bug 0491: the host's thinking-level control. The bridge registers with the
+   * session model's reasoning capability, so on a pi < 0.84.3 host the swap
+   * leaves the level unchanged (and nothing is persisted). A pi ≥ 0.84.3 host
+   * re-derives a default / per-model level on BOTH legs of the swap, so the
+   * dispatch snapshots the level at entry and restores it after the model
+   * restore. Optional: a host without the members skips it.
+   */
+  getThinkingLevel?(): string;
+  setThinkingLevel?(level: never): void;
   sendUserMessage(content: string): void;
   on(event: "agent_settled", handler: () => void): void;
 }
@@ -417,6 +429,13 @@ export function createProductionHostLoopDispatch(
     // returns the session to its exact pre-dispatch state on every path.
     const originalModel = host.ctx.model;
     let ambientTools: string[] | undefined;
+    // Bug 0491: the session thinking level at dispatch entry (undefined when
+    // the host exposes no thinking-level control). Taken here, beside the model
+    // snapshot, so every path that runs the model restore can also restore it.
+    const ambientThinking: string | undefined =
+      typeof host.pi.getThinkingLevel === "function" ? host.pi.getThinkingLevel() : undefined;
+    // Bug 0491: the bridge mirrors this (see the registration below).
+    const sessionReasons = (originalModel as { reasoning?: boolean } | undefined)?.reasoning === true;
     let active = true;
 
     const deps: HostLoopDispatchDeps = {
@@ -478,7 +497,16 @@ export function createProductionHostLoopDispatch(
             {
               id: BRIDGE_MODEL_ID,
               name: "Theta Host-Loop Bridge",
-              reasoning: false,
+              // Bug 0491: the bridge MIRRORS the session model's reasoning
+              // capability. On pi < 0.84.3 (which derives the level from the
+              // OUTGOING model and persists every change as the global
+              // `defaultThinkingLevel`) a reasoning session then keeps its level on
+              // both legs (every level supported via the map) and a non-reasoning
+              // session stays `off`: no change, no write. On pi ≥ 0.84.3 the legs
+              // re-derive a level and the restore in `restoreModel` returns it.
+              // The bridge's stream function ignores reasoning.
+              reasoning: sessionReasons,
+              ...(sessionReasons ? { thinkingLevelMap: { xhigh: "xhigh", max: "max" } } : {}),
               input: ["text"],
               cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
               contextWindow: 200000,
@@ -551,6 +579,16 @@ export function createProductionHostLoopDispatch(
         }
         if (originalModel !== undefined) {
           await host.pi.setModel(originalModel);
+        }
+        // Bug 0491: AFTER the model restore (which re-derived the level), put the
+        // session back on the level it had before the bridge swap.
+        if (
+          ambientThinking !== undefined &&
+          typeof host.pi.getThinkingLevel === "function" &&
+          typeof host.pi.setThinkingLevel === "function" &&
+          host.pi.getThinkingLevel() !== ambientThinking
+        ) {
+          host.pi.setThinkingLevel(ambientThinking as never);
         }
       },
     };

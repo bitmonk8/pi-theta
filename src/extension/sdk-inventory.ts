@@ -289,6 +289,11 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     { id: "pi.registerProvider", kind: "pi-member" },
     { id: "pi.unregisterProvider", kind: "pi-member" },
     { id: "pi.setModel", kind: "pi-member" },
+    // Bug 0491: the PIC-17 thinking window (prompt mode) and the PIC-64 bridge
+    // snapshot and restore the session thinking level through these, via the
+    // narrow `LivePromptQueryPi` / `HostLoopPi` carriers.
+    { id: "pi.getThinkingLevel", kind: "pi-member" },
+    { id: "pi.setThinkingLevel", kind: "pi-member" },
     // RFC-0012 §5: the shared inter-extension event bus the placement-backend
     // registration protocol rides (`pi-theta:subagent-placement:discover:v1` /
     // `:offer:v1`). OPTIONAL-capability class (capability-probe.md): presence-

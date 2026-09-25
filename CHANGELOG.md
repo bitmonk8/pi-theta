@@ -4,6 +4,65 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.491.0]
+
+### Added
+- **Bug 0491 — `thinking:` frontmatter pins a theta's thinking level.**
+  `thinking: off | minimal | low | medium | high | xhigh | max` (pi's
+  `ThinkingLevel`) applies to every query of the theta the way `model:` does;
+  the host clamps it to the resolved model's supported levels. Absent, nothing
+  changes (the host's own resolution applies). Subagent mode marshals it as
+  `--thinking <level>` right after `--model`; a `subagent fn` / `.thetalib`
+  helper inherits the enclosing theta's value. Prompt mode applies it through
+  the new PIC-17 thinking window around the model window. The off-session
+  forced respond turn is unaffected. Any other value is the new load error
+  `theta/load/unknown-thinking-value` (the theta is not registered).
+  New registry codes: `theta/load/unknown-thinking-value`,
+  `theta/runtime/thinking-restore-failed`.
+
+### Fixed
+- **A prompt-mode `model:` pin no longer changes the session thinking level.**
+  pi's `setModel` re-derives the thinking level for the model it switches to,
+  so the PIC-17 model window's restore could leave the user session on the
+  restored model's per-model level instead of the level the user had set. The
+  thinking window snapshots the level before any model swap and restores it
+  after the model restore (one re-attempt, then
+  `theta/runtime/thinking-restore-failed` + a display note; the turn's outcome
+  is never masked).
+- Spec: `frontmatter-fields-a.md#frontmatter-thinking`,
+  `tool-registration-lifetime.md#pic-17-thinking-window`, subagent launch
+  contract row, both registry tables + the reference mirror. Witness:
+  `tests/b0491-frontmatter-thinking-pin.test.ts` (parse, argv, real spawn
+  regime, window unit cells, prompt-mode cells over the real producer; each
+  mechanism mutant-proven red). The b0479 prompt-mode harness moved to
+  `tests/helpers/prompt-window-session-harness.ts` and gained a thinking-level
+  host emulation.
+- **The PIC-64 host-loop bridge preserves the session thinking level.** A
+  code-side extension-tool call switches the session to the bridge model and
+  back. With the bridge registered non-reasoning, the switch in forced the level
+  to `off` and the switch back re-derived a per-model or default level, so a
+  session-only level was lost. The bridge model now mirrors the session model's
+  reasoning capability (reasoning-capable with every level supported when the
+  session model reasons), so a pi < 0.84.3 host (which persists every level
+  change as the global `defaultThinkingLevel`) sees no change and writes
+  nothing; and the dispatch snapshots the level at entry and restores it after
+  the model restore for pi ≥ 0.84.3 hosts, which re-derive a level on each
+  switch (`production-host-loop-dispatch.ts`; witnessed in
+  `tests/production-host-loop-dispatch.test.ts` over a fake host emulating both
+  host generations, with a mutant per registration shape).
+
+### Changed
+- The D4 lens (`lens-d4-duplication.theta`) is repinned to
+  `anthropic/claude-opus-5-5` at `thinking: xhigh` (and its `reported_by`
+  line), per the 2026-09-25 model × effort benchmark
+  (`quality/benchmarks/2026-09-25-d4-model-effort.md`: 140 audited runs over
+  28 model/effort configs; 0.40 mean recall at ~$6.80 and ~19 min per shard;
+  the previous pin, `unity-completions/kimi-k2.7-code`, was not part of that
+  benchmark). `quality/README.md` now names the current worker and lens pins.
+- `thinking` is tagged theta 1.6 in the frontmatter vocabulary (an additive
+  field landed through a bug by operator ruling); the "theta 1.0 vocabulary"
+  statements now read as the 1.0 fields plus later minors' additive fields.
+
 ## [0.490.0]
 
 ### Fixed

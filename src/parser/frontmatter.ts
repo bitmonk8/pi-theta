@@ -61,6 +61,8 @@ import {
 } from "./frontmatter-yaml";
 import {
   type ThetaMode,
+  THINKING_LEVELS,
+  isThinkingLevel,
   type ModelReferenceMatcher,
   type ParsedToolLoop,
   type ParsedRespondRepair,
@@ -105,6 +107,10 @@ interface RecognisedFields {
   readonly bindContextRange: SourceRange | undefined;
   readonly bindContextPresent: boolean;
   readonly bindContextValueKind: string | undefined;
+  readonly thinkingValue: string | undefined;
+  readonly thinkingRange: SourceRange | undefined;
+  readonly thinkingPresent: boolean;
+  readonly thinkingValueKind: string | undefined;
   readonly descriptionValue: string | undefined;
   readonly bindModelValue: string | undefined;
   readonly bindModelUnresolvable: boolean;
@@ -283,6 +289,23 @@ function collectBindContextField(
 }
 
 /**
+ * The `thinking:` arm (bug 0491). Same present-but-bad shape as `bind_context:`:
+ * presence is recorded so the closed-set refusal keys on presence, and a
+ * non-scalar value's bounded kind token is kept so the refusal can name it.
+ */
+function collectThinkingField(
+  value: Node | null | undefined,
+  valueRange: SourceRange | undefined,
+  fields: MutableRecognisedFields,
+): void {
+  fields.thinkingPresent = true;
+  const v = presentScalarOrKind(value, renderNonScalarBindContextKind);
+  fields.thinkingValue = v.value;
+  fields.thinkingValueKind = v.kind;
+  fields.thinkingRange = valueRange;
+}
+
+/**
  * The `tools:` arm. FRNT-2/FRNT-3 callable set: a scalar (`tools: grep`) or a
  * sequence (`tools:\n  - ./sentiment.theta`) of Pi-tool names /
  * `.theta`-callable paths. Surfaced verbatim; the H8b resolvers classify each
@@ -409,6 +432,10 @@ function collectRecognisedFields(
       bindContextRange: undefined,
       bindContextPresent: false,
       bindContextValueKind: undefined,
+      thinkingValue: undefined,
+      thinkingRange: undefined,
+      thinkingPresent: false,
+      thinkingValueKind: undefined,
       descriptionValue: undefined,
       bindModelValue: undefined,
       bindModelUnresolvable: false,
@@ -479,6 +506,10 @@ function collectRecognisedFields(
       }
       if (key === "bind_context") {
         collectBindContextField(item.value, valueRange, fields);
+        continue;
+      }
+      if (key === "thinking") {
+        collectThinkingField(item.value, valueRange, fields);
         continue;
       }
       if (key === "tools") {
@@ -660,6 +691,10 @@ function checkRecognisedFields(
     bindContextRange,
     bindContextPresent,
     bindContextValueKind,
+    thinkingValue,
+    thinkingRange,
+    thinkingPresent,
+    thinkingValueKind,
     descriptionValue,
     bindEchoValue,
     bindEchoPresent,
@@ -755,6 +790,16 @@ function checkRecognisedFields(
     bindContextPresent && bindContextValue !== "none" && bindContextValue !== "session",
     bindContextValue, bindContextValueKind, bindContextRange,
     "theta/load/unknown-bind-context-value", "bind_context", "'none' or 'session'",
+    file, diagnostics,
+  );
+
+  // Bug 0491: a present `thinking:` value outside the host's thinking-level set
+  // (incl. non-string scalars and non-scalars) is the unknown-thinking-value
+  // load error; the theta is not registered.
+  pushUnknownValueDiagnostic(
+    thinkingPresent && !isThinkingLevel(thinkingValue),
+    thinkingValue, thinkingValueKind, thinkingRange,
+    "theta/load/unknown-thinking-value", "thinking", `${THINKING_LEVELS.slice(0, -1).map((l) => `'${l}'`).join(", ")}, or '${THINKING_LEVELS[THINKING_LEVELS.length - 1]}'`,
     file, diagnostics,
   );
 
@@ -988,6 +1033,7 @@ export function parseFrontmatter(
   const {
     modeValue,
     bindContextValue,
+    thinkingValue,
     descriptionValue,
     bindModelValue,
     bindModelUnresolvable,
@@ -1089,6 +1135,9 @@ export function parseFrontmatter(
   const frontmatter: ParsedFrontmatter = {
     mode: modeValue as ThetaMode,
     ...(resolvedModel !== undefined ? { model: resolvedModel } : {}),
+    // Bug 0491: only a recognised level reaches here (any other present value
+    // refused the load above).
+    ...(isThinkingLevel(thinkingValue) ? { thinking: thinkingValue } : {}),
     ...(bindModelValue !== undefined ? { bindModel: bindModelValue } : {}),
     ...(bindModelUnresolvable ? { bindModelUnresolvable: true as const } : {}),
     ...(bindEchoValue !== undefined ? { bindEcho: bindEchoValue } : {}),

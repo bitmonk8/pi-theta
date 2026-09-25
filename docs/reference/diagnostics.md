@@ -225,6 +225,7 @@ trigger.
 | `theta/load/unknown-mode-value` | E | load | `unknown 'mode:' value '<value>'; expected 'prompt' or 'subagent'` |
 | `theta/load/unknown-methodology-value` | E | load | `unknown 'respond_repair.methodology:' value '<value>'; expected 'validator_error', 'schema_repeat', or 'none'` |
 | `theta/load/unknown-bind-context-value` | E | load | `unknown 'bind_context:' value '<value>'; expected 'none' or 'session'` |
+| `theta/load/unknown-thinking-value` | E | load | `unknown 'thinking:' value '<value>'; expected 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', or 'max'` |
 | `theta/load/unknown-bind-echo-value` | E | load | `unknown 'bind_echo:' value '<value>'; expected true or false` |
 | `theta/load/malformed-tool-entry` | E | load | `malformed 'tools:' entry '<value>'; expected a Pi tool name or a .theta path, optionally followed by an 'as' clause` |
 | `theta/load/malformed-tools-field` | E | load | `malformed 'tools:' field; expected a comma-separated list of entries or a YAML sequence` |
@@ -315,6 +316,7 @@ is delivered via `console.error` (not the persistent channel).
 | `theta/runtime/validator-cache-collision` | E | runtime | `validator-cache collision on slug <slug>: two distinct schema documents hash alike`. |
 | `theta/runtime/active-set-restore-failed` | E | runtime | `failed to restore tool active-set after /<name>: <error>`. |
 | `theta/runtime/model-restore-failed` | E | runtime | `failed to restore session model after /<name>: <error>`. |
+| `theta/runtime/thinking-restore-failed` | E | runtime | `failed to restore session thinking level after /<name>: <error>`. |
 | `theta/runtime/cancelled-by-session-shutdown` | E | runtime | `theta /<name> cancelled by session shutdown (<reason>)`. |
 | `theta/runtime/reload-teardown-timeout` | E | runtime | `reload teardown timed out after <ms>ms; <N> invocation(s) still in flight: <list>`. |
 | `theta/runtime/custom-type-unsafe` | E | runtime | `custom-message type is not transcript-safe: '<value>'`. |

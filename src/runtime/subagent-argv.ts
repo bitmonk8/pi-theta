@@ -206,6 +206,12 @@ export interface SubagentArgvInput {
   /** Resolved model id → `--model <id>`. */
   readonly model: string;
   /**
+   * The theta's `thinking:` pin (bug 0491) → `--thinking <level>` right after
+   * `--model`. Absent ⇒ no flag: the child resolves its level from its own
+   * settings (per-model level, else the default), as before.
+   */
+  readonly thinking?: string;
+  /**
    * Project-local trust inference (`inferChildTrust`) → the dialect's
    * `projectTrust` flags iff true, else its `noProjectTrust` flags. Named for
    * the control it governs — trusting the child with PROJECT-LOCAL FILES — and
@@ -257,7 +263,7 @@ export interface SubagentArgvInput {
  * argv (after the executable + entry-script args). The compliant assembly is:
  *   [<no-extension-discovery> -e <pin>] [--theta <dirs>]
  *   --mode json -p "/<slug>" (--session <child-log> | --no-session) --system-prompt <sp>
- *   (--tools <csv> | --no-tools) --provider <p> --model <id>
+ *   (--tools <csv> | --no-tools) --provider <p> --model <id> [--thinking <level>]
  *   <ambient-isolation> (<approve> | <no-approve>)
  * The angle-bracketed groups come from `dialect` — see `HostCliDialect` for why
  * the launch contract is intent-level rather than a fixed flag list.
@@ -381,6 +387,9 @@ export function assembleSubagentArgv(
     argv.push("--tools", dedupePreservingFirst([...input.hostTools, ...respondNames]).join(","));
   }
   argv.push("--provider", input.provider, "--model", input.model);
+  if (input.thinking !== undefined) {
+    argv.push("--thinking", input.thinking);
+  }
   argv.push(...dialect.ambientIsolation);
   argv.push(...(input.projectTrust ? dialect.projectTrust : dialect.noProjectTrust));
   if (input.presentation === "visible") {

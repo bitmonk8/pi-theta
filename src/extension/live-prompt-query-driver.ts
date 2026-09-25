@@ -15,7 +15,14 @@ import type { CommittedSideEffect } from "../runtime/no-rollback";
 import type { ContextOverflowError, TransportError } from "../runtime/query-error";
 import { forwardSlashCommandCancel, abortForAgentEnd, makeCancelledError } from "../runtime/cancellation-core";
 import { parseStructuredPayload, payloadForRespond, type FollowUpDriveFailure, type FollowUpRespondOutcome } from "../runtime/typed-query-validation";
-import { withActiveSetGate, withModelWindow, type ActiveSetGateDeps, type ModelWindowDeps } from "../runtime/tool-registration";
+import {
+  withActiveSetGate,
+  withModelWindow,
+  withThinkingWindow,
+  type ActiveSetGateDeps,
+  type ModelWindowDeps,
+  type ThinkingWindowDeps,
+} from "../runtime/tool-registration";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import { PromptToolLoopGovernor, type PromptToolLoopExhaustion } from "./prompt-tool-loop-governor";
 import type { ActiveRespondCapture, RespondTurnContext } from "./respond-capture";
@@ -29,11 +36,18 @@ import { dispatchForcedRespondTurn } from "./off-session-respond-dispatch";
  * (4)) — it would let any `this.#pi.<member>` reach escape audit coverage. A
  * `Pick`-narrowed structural cap consumes exactly the members used and is not a
  * carrier binding, mirroring production-host-loop-dispatch.ts's `HostLoopPi`.
- * `getActiveTools`/`setActiveTools` are threaded whole into `ActiveSetGateDeps`.
+ * `getActiveTools`/`setActiveTools` are threaded whole into `ActiveSetGateDeps`;
+ * `getThinkingLevel`/`setThinkingLevel` into `ThinkingWindowDeps` (bug 0491).
  */
 type LivePromptQueryPi = Pick<
   ExtensionAPI,
-  "sendMessage" | "sendUserMessage" | "getActiveTools" | "setActiveTools" | "setModel"
+  | "sendMessage"
+  | "sendUserMessage"
+  | "getActiveTools"
+  | "setActiveTools"
+  | "setModel"
+  | "getThinkingLevel"
+  | "setThinkingLevel"
 >;
 /**
  * Bug 0373 §Fix: the narrow ExtensionCommandContext subset the model stores (see
@@ -90,6 +104,8 @@ class LivePromptQueryModel implements QueryModelDriver {
   readonly #queryModel: Model<Api> | undefined;
   /** The authored `model:` reference, for the unresolvable-at-dispatch refusal message. */
   readonly #queryModelRef: string | undefined;
+  /** Bug 0491: the theta's `thinking:` pin (absent = no pin). */
+  readonly #queryThinking: string | undefined;
   /** The exhaustion snapshot captured after the bounded free-phase turn settled. */
   #exhaustion: PromptToolLoopExhaustion | undefined = undefined;
   /** PIC-50: a `TransportError` synthesised from a `sendUserMessage` sync-throw. */
@@ -147,9 +163,12 @@ class LivePromptQueryModel implements QueryModelDriver {
     readonly queryModel?: Model<Api>;
     /** Bug 0479: the authored `model:` reference (present iff frontmatter carries one). */
     readonly queryModelRef?: string;
+    /** Bug 0491: the theta's `thinking:` pin (absent = no pin; the session level stands). */
+    readonly queryThinking?: string;
   }) {
     this.#queryModel = deps.queryModel;
     this.#queryModelRef = deps.queryModelRef;
+    this.#queryThinking = deps.queryThinking;
     this.#pi = deps.pi;
     this.#ctx = deps.ctx;
     this.#clock = deps.clock;
@@ -754,8 +773,22 @@ class LivePromptQueryModel implements QueryModelDriver {
         sendSystemNote(note, this.#resolveSystemNoteChannel());
       },
     };
+    // PIC-17 thinking window (bug 0491): wraps the model window because the
+    // host's model switch re-derives the thinking level. The session level is
+    // snapshotted before any model swap, the pin applied after it, and the
+    // snapshot restored after the model restore.
+    const thinkingWindowDeps: ThinkingWindowDeps = {
+      pi: this.#pi,
+      thetaName: this.#thetaName,
+      target: this.#queryThinking,
+      emitDiagnostic: this.#emitDiagnostic,
+      emitSystemNote: (note): void => {
+        sendSystemNote(note, this.#resolveSystemNoteChannel());
+      },
+    };
     try {
-      const window = await withActiveSetGate(activeSetGateDeps, () => withModelWindow(modelWindowDeps, async () => {
+      const window = await withActiveSetGate(activeSetGateDeps, () => withThinkingWindow(thinkingWindowDeps, (applyThinkingPin) => withModelWindow(modelWindowDeps, async () => {
+        applyThinkingPin();
         // Bug 0010 (QRY-14 early respond): arm the producer's one-shot capture
         // slot for the duration of the driven turn, so a mid-turn respond-tool
         // call validates and captures against THIS query's lowered schema. The
@@ -919,7 +952,7 @@ class LivePromptQueryModel implements QueryModelDriver {
             }
           }
         }
-      }));
+      })));
       // The host declined the swap-in (`pi.setModel` resolved `false`:
       // authentication is not configured for the pinned model's provider): no
       // turn was issued, so the query is a transport `Err` naming the model —

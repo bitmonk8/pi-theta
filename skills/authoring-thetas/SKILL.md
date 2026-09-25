@@ -21,6 +21,8 @@ tail expression, or the operand of `return`).
 ---
 mode: subagent          # REQUIRED: prompt | subagent
 description: One line    # optional; shown for the slash command
+model: anthropic/claude-opus-5-5   # optional; pins the model for every query
+thinking: high           # optional; pins the thinking level: off|minimal|low|medium|high|xhigh|max
 params:                  # optional; typed inputs
   topic: string
 tools:                   # optional callable set (empty if absent)

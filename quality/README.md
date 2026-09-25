@@ -67,10 +67,11 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
    path-contiguous APPROXIMATION of a subsystem, not a subsystem boundary.
 4. **Review** — one lens worker per shard in parallel (D2 cruft:
    `anthropic/claude-sonnet-5`, per the experiments' D2 pick at quarter-surface
-   scopes; D4 duplication & drift: `unity-completions/kimi-k2.7-code`; D7 test
+   scopes; D4 duplication & drift: `anthropic/claude-opus-5-5` at `thinking: xhigh`,
+   per the 2026-09-25 model x effort benchmark; D7 test
    quality: `anthropic/claude-sonnet-5`, per the x03 quarter-surface data; D8
-   simplification: `unity-completions/gemini-3.7-flash`; D9 placement &
-   breakdown: `anthropic/claude-fable-5`). Candidates land in `intake/`, shaped by
+   simplification: `anthropic/claude-opus-5-5`; D9 placement &
+   breakdown: `anthropic/claude-opus-5-5`). Candidates land in `intake/`, shaped by
    `TEMPLATE.md`. Reviewed files are marked in `state.json` at the reviewed
    sha — fix commits re-dirty them, so the next cycle re-reviews exactly what
    changed. Each worker's closing notes (D9's KEEP-WHOLE dispositions, every
@@ -78,7 +79,7 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
    persisted as one `REVIEW_LOG.md` row per shard (`store.mjs log-review`);
    the orchestrator otherwise reads only the filed count.
 5. **Triage** — every candidate independently re-verified
-   (`anthropic/claude-fable-5-1`). `confirmed` → minted
+   (`anthropic/claude-opus-5-5`). `confirmed` → minted
    `PTQ-NNNN` in `issues/`; rejections → one `TRIAGE_LOG.md` row, file deleted;
    `questionable` stays in `intake/` as the human queue.
 6. **Fix** — open issues clustered by fix surface (D2/D7/D4: the first two
@@ -93,7 +94,7 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
    an uncapped fixer gate in eight concurrent lanes drove the load average
    past 90 on 32 cores and turned sibling gates red with timeouts
    (wave qw20260914130212 dropped a correct, twice-confirmed D9 lane that way).
-7. **Fix review** — `anthropic/claude-fable-5` verifies each issue is actually resolved
+7. **Fix review** — `anthropic/claude-opus-5-5` verifies each issue is actually resolved
    and nothing else was damaged, in the tree; a green, reviewed lane's commit
    is cherry-picked onto the integrated head sequentially, in cluster order.
    A conflicting cherry-pick gets ONE rebase-and-retry in a fresh worktree at
@@ -145,7 +146,7 @@ matter what a model does.
 
 ## D9 — placement & breakdown
 
-D9 (`lens-d9-placement.theta`, `anthropic/claude-fable-5`) reviews every file
+D9 (`lens-d9-placement.theta`, `anthropic/claude-opus-5-5`) reviews every file
 under `src/` for three classes at once:
 
 - **breakdown** — a file or function over the size thresholds without an
@@ -237,7 +238,7 @@ through (deadness).
 
 ## D4 — duplication & drift
 
-D4 (`lens-d4-duplication.theta`, `unity-completions/kimi-k2.7-code`) reviews
+D4 (`lens-d4-duplication.theta`, `anthropic/claude-opus-5-5` at `thinking: xhigh`) reviews
 every file under `src/` for three classes:
 
 - **clone** — a copy-paste block (type-1 exact or type-2 identifier/literal-
@@ -275,7 +276,7 @@ rebase-and-retry (step 7b) exists for.
 
 ## D8 — simplification
 
-D8 (`lens-d8-simplification.theta`, `unity-completions/gemini-3.7-flash`)
+D8 (`lens-d8-simplification.theta`, `anthropic/claude-opus-5-5`)
 reviews every file under `src/` for four classes, each an ACCOUNTING never a
 fix (a simpler shape may be named as an explicitly unproven hypothesis; "no
 simpler shape identified yet" is legal):
@@ -330,16 +331,15 @@ predicate) + a triage step-4 scope block + a fix-brief rules block.
 | lens | reviews | model | fix contract |
 |---|---|---|---|
 | D2 | cruft in `src/` | `anthropic/claude-sonnet-5` | autonomous |
-| D4 | duplication & drift in `src/` | `unity-completions/kimi-k2.7-code` | clone/drift autonomous; parallel intake-ratified |
+| D4 | duplication & drift in `src/` | `anthropic/claude-opus-5-5` (`thinking: xhigh`) | clone/drift autonomous; parallel intake-ratified |
 | D7 | test quality in `tests/` | `anthropic/claude-sonnet-5` | autonomous |
-| D8 | simplification in `src/` | `unity-completions/gemini-3.7-flash` | intake-ratified |
-| D9 | placement & breakdown in `src/` | `anthropic/claude-fable-5` | intake-ratified |
+| D8 | simplification in `src/` | `anthropic/claude-opus-5-5` | intake-ratified |
+| D9 | placement & breakdown in `src/` | `anthropic/claude-opus-5-5` | intake-ratified |
 
 D1/D6 → fable only, when added.
 
-Workers: triage `anthropic/claude-fable-5-1`, fixer `unity-responses/gpt-6-astra`
-(the `openai-responses` API — admitted to the typed-query gate by bug 0480,
-pi-theta ≥ 0.480.0), fix review `anthropic/claude-fable-5`.
+Workers: triage, fixer and fix review all `anthropic/claude-opus-5-5` (the
+2026-09-24 operator model migration).
 Every pin here and in the lens table is honoured only on pi-theta ≥ 0.479.0
 (bug 0479): before it the subagent launch marshalled the invoking session's
 model, so every worker of every earlier wave ran on that session model. The

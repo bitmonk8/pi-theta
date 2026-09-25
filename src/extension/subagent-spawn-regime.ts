@@ -531,6 +531,9 @@ export class SubagentSpawnRegime {
           noHostTools: input.noHostTools,
           provider: String(model.provider),
           model: model.id,
+          // Bug 0491: the theta's `thinking:` pin rides the launch as
+          // `--thinking <level>`; absent keeps the child's own resolution.
+          ...(theta.frontmatter.thinking !== undefined ? { thinking: theta.frontmatter.thinking } : {}),
           projectTrust: input.projectTrust,
           presentation,
           label: input.label,
