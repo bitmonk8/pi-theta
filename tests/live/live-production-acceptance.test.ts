@@ -56,6 +56,7 @@ import { readRegistry } from "../helpers/registry-oracle";
 import { PARSE_REGISTRY_PATH, registryMessageOf } from "../helpers/load-row-harness";
 import { assertNoFailClosedEnding } from "../helpers/live-transcript";
 import { INTERPOLATED_RESULT_CODE } from "../../src/render/query-render";
+import { toPosixFileSpelling } from "../../src/diagnostics/diagnostic";
 
 // Drive discriminators are ANSWERS to task questions over the theta's own
 // computed text -- deterministic content a degraded plain-prompt run cannot
@@ -1515,10 +1516,14 @@ describe("H8a-T — cell 62 (bug 0113): a settings thetaPaths glob whose static-
 const INTERPOLATED_RESULT_REGISTRY = readRegistry(["parse"]);
 
 /**
- * The panic-framing `theta-system-note` text `composeThetaFixture.run`'s
- * outer catch composes for a bare `ThetaPanic` (`theta /<name> aborted:
- * <message>`, theta-composition-producer.ts) — the message half is the
- * registry row, read not copied (DIAG-4), mirroring this file's existing
+ * The panic-framing `theta-system-note` text's FIRST LINE — the note carries
+ * bug 0476's `at <file>:<line>:<col>` / `in interpolation ${…}` suffix lines
+ * after it (docs/reference/errors-and-results.md §"Panic site suffix (bug
+ * 0476 amendment)"), asserted separately by {@link expectInterpolatedResultAbortNote}
+ * below. This first line is `composeThetaFixture.run`'s outer catch framing
+ * for a bare `ThetaPanic` (`theta /<name> aborted: <message>`,
+ * theta-composition-producer.ts) — the message half is the registry row,
+ * read not copied (DIAG-4), mirroring this file's existing
  * `invokePathEscapeFragment` helper for the bug 0110 cell above.
  */
 function interpolatedResultAbortedNote(slashName: string): string {
@@ -1532,6 +1537,80 @@ function interpolatedResultAbortedNote(slashName: string): string {
       "asserts is not registered (DIAG-2)",
   ).toBeTypeOf("string");
   return `theta /${slashName} aborted: ${message as string}`;
+}
+
+/**
+ * Locate the 1-based line of a fixture's `@`-query so the suffix assertion
+ * below derives the expected line from the fixture text itself: the pin
+ * follows fixture edits without a hand-maintained line number. Only a query
+ * written at column 1 of its line matches, which is the precondition the
+ * suffix assertion's fixed column rests on.
+ */
+function queryLineOf(thetaText: string): number {
+  const lines = thetaText.split("\n");
+  const index = lines.findIndex((line) => line.startsWith("@`"));
+  expect(
+    index,
+    "no `@`-query written at column 1 found in the fixture text — the " +
+      "suffix assertion's column-1 pin does not hold for this fixture. " +
+      "Fixture: " + JSON.stringify(thetaText),
+  ).toBeGreaterThanOrEqual(0);
+  return index + 1;
+}
+
+/**
+ * Assert a `theta-system-note` list against bug 0476's full panic-note shape
+ * for `theta/parse/interpolated-result`: line 1 is the framing
+ * `theta /<name> aborted: <Message>` carrying the registered Message, then
+ * the `at <file>:<line>:<col>` and `in interpolation ${<source>}
+ * (<file>:<line>:<col>)` suffix lines (docs/reference/errors-and-results.md
+ * §"Panic site suffix (bug 0476 amendment)") as lines 2 and 3, each prefixed
+ * `\n  ` on `content`. The pinned location is the enclosing query's own `@`
+ * column — parseQuery's `QueryExpr` range starts at the `@` token
+ * (src/parser/body-parser.ts), and the panic is retargeted to that query's
+ * range (`retargetInterpolationPanic`, src/runtime/runtime-panics.ts) rather
+ * than a coordinate local to the re-parsed interpolation substring. The
+ * column is 1 because {@link queryLineOf} only accepts a query written at
+ * column 1 of its line.
+ */
+function expectInterpolatedResultAbortNote(
+  notes: readonly string[],
+  args: { readonly slashName: string; readonly thetaPath: string; readonly thetaText: string; readonly source: string },
+  context: string,
+): void {
+  const queryLine = queryLineOf(args.thetaText);
+  const notesJson = JSON.stringify(notes);
+  expect(
+    notes,
+    `${context} — expected exactly one theta-system-note. System notes: ` +
+      notesJson,
+  ).toHaveLength(1);
+  const lines = (notes[0] as string).split("\n");
+  expect(
+    lines,
+    `${context} — bug 0476's panic note carries the first-line framing plus ` +
+      "two suffix lines (`at …` / `in interpolation …`). System notes: " +
+      notesJson,
+  ).toHaveLength(3);
+  const posixPath = toPosixFileSpelling(args.thetaPath);
+  const location = `${posixPath}:${queryLine}:1`;
+  expect(
+    lines[0],
+    `${context} — the note's first line must be the framing ` +
+      "`theta /<name> aborted: <Message>` carrying the registered " +
+      "theta/parse/interpolated-result Message (DIAG-4). System notes: " +
+      notesJson,
+  ).toBe(interpolatedResultAbortedNote(args.slashName));
+  expect(
+    lines[1],
+    `${context} — bug 0476's "at <file>:<line>:<col>" panic-site suffix line ` +
+      "is missing or wrongly located. System notes: " + notesJson,
+  ).toBe(`  at ${location}`);
+  expect(
+    lines[2],
+    `${context} — bug 0476's "in interpolation \${…}" suffix line is missing ` +
+      "or wrongly located. System notes: " + notesJson,
+  ).toBe(`  in interpolation \${${args.source}} (${location})`);
 }
 
 /** Half (a) — a `Result` the static gate PROVES: an `Ok` constructor, interpolated directly. */
@@ -1644,13 +1723,19 @@ describe("H8a-T — bug 0079 (b): a laundered Result interpolation panics instea
           "the wire\"): no user turn may be sent once the render panics. " +
           "Sent: " + JSON.stringify(turn.userTexts),
       ).toEqual([]);
-      expect(
+      expectInterpolatedResultAbortNote(
         turn.systemNotes,
-        "PRIMARY (bug 0079 §Fix (b)): the panic must be framed on the " +
-          "theta-system-note channel with the registered code's message " +
-          "(DIAG-4, read from code-registry-parse.md, never copied prose). " +
-          "System notes: " + JSON.stringify(turn.systemNotes),
-      ).toEqual([interpolatedResultAbortedNote("b79livepanic")]);
+        {
+          slashName: "b79livepanic",
+          thetaPath: join(workspace.cwd, ".pi", "theta", "b79livepanic.theta"),
+          thetaText: interpolatedResultLaunderedTheta(),
+          source: "r",
+        },
+        "PRIMARY (bug 0079 §Fix (b), bug 0492 §Fix direction): the panic must be " +
+          "framed on the theta-system-note channel with the registered code's " +
+          "message (DIAG-4, read from code-registry-parse.md, never copied " +
+          "prose) plus bug 0476's location suffix",
+      );
     } finally {
       await handle.dispose();
       workspace.dispose();
@@ -1826,16 +1911,22 @@ describe("H8a-T — bug 0114: a Result NESTED inside an interpolated `par for` v
           "sent once the nested render panics. Sent: " +
           JSON.stringify(turn.userTexts),
       ).toEqual([]);
-      expect(
+      expectInterpolatedResultAbortNote(
         turn.systemNotes,
-        "PRIMARY (bug 0114 §Fix (b), the DIAG-2 Trigger widening at " +
-          "code-registry-parse.md:74): the panic must be framed on the " +
+        {
+          slashName: "b114livepanic",
+          thetaPath: join(workspace.cwd, ".pi", "theta", "b114livepanic.theta"),
+          thetaText: nestedResultInterpolationTheta(),
+          source: "rs",
+        },
+        "PRIMARY (bug 0114 §Fix (b), bug 0492 §Fix direction, the DIAG-2 Trigger " +
+          "widening at code-registry-parse.md:87): the panic must be framed on the " +
           "theta-system-note channel with the SAME registered " +
           "`theta/parse/interpolated-result` code's Message (DIAG-4, read " +
           "from the registry, never copied prose) bug 0079's top-level case " +
-          "already uses — one code, no new row, no third raise site. System " +
-          "notes: " + JSON.stringify(turn.systemNotes),
-      ).toEqual([interpolatedResultAbortedNote("b114livepanic")]);
+          "already uses — one code, no new row, no third raise site, " +
+          "plus bug 0476's location suffix",
+      );
     } finally {
       await handle.dispose();
       workspace.dispose();
@@ -10717,14 +10808,20 @@ describe("H8a-T (cell 63) — bug 0116: a `?`-unwrapped operand behind a `${…}
           "HEAD (pre-fix) this row sent [\"xnull\"] and reported success. Sent: " +
           JSON.stringify(errTurn.userTexts),
       ).toEqual([]);
-      expect(
+      expectInterpolatedResultAbortNote(
         errTurn.systemNotes,
-        "PRIMARY (bug 0116 §Fix (c)): the abort must be framed on the " +
-          "`theta-system-note` channel carrying the registered " +
+        {
+          slashName: "b116liveerr",
+          thetaPath: join(errWorkspace.cwd, ".pi", "theta", "b116liveerr.theta"),
+          thetaText: questionUnwrapErrTheta(),
+          source: "r?",
+        },
+        "PRIMARY (bug 0116 §Fix (c), bug 0492 §Fix direction): the abort must be framed on " +
+          "the `theta-system-note` channel carrying the registered " +
           INTERPOLATED_RESULT_CODE + " code's Message (DIAG-4, read from " +
-          "code-registry-parse.md, never copied prose). System notes: " +
-          JSON.stringify(errTurn.systemNotes),
-      ).toEqual([interpolatedResultAbortedNote("b116liveerr")]);
+          "code-registry-parse.md, never copied prose) plus bug 0476's " +
+          "location suffix",
+      );
     } finally {
       await errHandle.dispose();
       errWorkspace.dispose();

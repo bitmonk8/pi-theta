@@ -4,6 +4,24 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.492.0]
+
+### Fixed
+- **Bug 0492 — three H8a live witnesses match the bug-0476 panic note again.**
+  The bug 0079 (b), bug 0114 and cell 63 (bug 0116) tests in
+  `tests/live/live-production-acceptance.test.ts` compared the whole
+  `theta-system-note` against the one-line `theta /<name> aborted: <Message>`
+  text. Since 0.472.0 that note also carries the panic location lines, so all
+  three tests had been failing. They now check that there is exactly one
+  three-line note:
+  - the first line against the `theta/parse/interpolated-result` registry
+    Message;
+  - the `at <file>:<line>:<col>` line;
+  - the `in interpolation ${…}` line.
+
+  The expected line is taken from the fixture's own query line. The test
+  change is the whole fix; no runtime behaviour changes.
+
 ## [0.491.0]
 
 ### Added
