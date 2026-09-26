@@ -66,8 +66,8 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
    (`quality/tmp/<wave>/<lens>/shard-NN.txt`) - for D8, a shard is a
    path-contiguous APPROXIMATION of a subsystem, not a subsystem boundary.
 4. **Review** — one lens worker per shard in parallel (D2 cruft:
-   `anthropic/claude-sonnet-5`, per the experiments' D2 pick at quarter-surface
-   scopes; D4 duplication & drift: `anthropic/claude-opus-5-5` at `thinking: xhigh`,
+   `anthropic/claude-opus-5-5` at `thinking: high`, per the 2026-09-26 model x
+   effort benchmark; D4 duplication & drift: `anthropic/claude-opus-5-5` at `thinking: xhigh`,
    per the 2026-09-25 model x effort benchmark; D7 test
    quality: `anthropic/claude-sonnet-5`, per the x03 quarter-surface data; D8
    simplification: `anthropic/claude-opus-5-5`; D9 placement &
