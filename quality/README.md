@@ -69,7 +69,8 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
    `anthropic/claude-opus-5-5` at `thinking: high`, per the 2026-09-26 model x
    effort benchmark; D4 duplication & drift: `anthropic/claude-opus-5-5` at `thinking: xhigh`,
    per the 2026-09-25 model x effort benchmark; D7 test
-   quality: `anthropic/claude-sonnet-5`, per the x03 quarter-surface data; D8
+   quality: `anthropic/claude-opus-5-5` at `thinking: high`, per the 2026-09-26
+   model x effort benchmark; D8
    simplification: `anthropic/claude-opus-5-5`; D9 placement &
    breakdown: `anthropic/claude-opus-5-5`). Candidates land in `intake/`, shaped by
    `TEMPLATE.md`. Reviewed files are marked in `state.json` at the reviewed

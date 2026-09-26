@@ -1,7 +1,8 @@
 ---
 description: "D7 test-quality reviewer - reviews one shard of test files, files candidate findings into quality/intake/"
 mode: subagent
-model: "anthropic/claude-sonnet-5"
+model: "anthropic/claude-opus-5-5"
+thinking: high
 tools: read, grep, bash, write
 tool_loop:
   max_rounds: 80
@@ -111,7 +112,7 @@ Write each finding as one file: quality/intake/${wave}-d7-NN-<short-slug>.md
 where NN is 01, 02, ... in filing order and <short-slug> is a few lowercase
 words joined by hyphens. Follow this template exactly (frontmatter fields
 included; set lens: D7, wave: ${wave},
-reported_by: lens-d7-testquality (anthropic/claude-sonnet-5),
+reported_by: lens-d7-testquality (anthropic/claude-opus-5-5),
 status: intake, verdict: pending, id: pending):
 ${template}
 
