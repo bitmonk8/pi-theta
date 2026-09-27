@@ -2,7 +2,7 @@
 id: PTQ-1387
 title: import-specifier-separator test reimplements loadThetaLibDiags as a local loadImports despite importing fakeThetaLibFs from the same helper module
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/import-specifier-separator-production-required.test.ts:1
@@ -129,3 +129,7 @@ sibling under the same alias (`loadThetaLibDiags as loadImports`).
 
 ## Triage
 verdict: confirmed — reproduces at HEAD: tests/import-specifier-separator-production-required.test.ts:1 imports only `fakeThetaLibFs` from ./helpers/thetalib-load-harness and :286-306 declares a local `loadImports` that is the same parse-app / frontmatter-assert / `ThetaCompositionInput` / `checkThetaImports({ fs: fakeThetaLibFs(libs), parseDeps: parseDeps() })` sequence as `loadThetaLibDiags` at tests/helpers/thetalib-load-harness.ts:196-224, differing only in returning a 2-field subset of the harness's 5-field `LoadResult` (which since PTQ-0467's fix already carries `materialised` and `diagnostics`, the only two fields the three (e) cells at :866-935 read); both bug-family siblings import `loadThetaLibDiags as loadImports` (from-clause :14, specifier-list :14, 9 call sites) because PTQ-0467 (fixed) migrated exactly those two files and PTQ-0713 (fixed) migrated only this file's `fakeThetaLibFs` double (:313-347 then), leaving the driver behind — so no open or resolved row tracks this residual; not a *gate* file, `fakeThetaLibFs` is a state double not a recording double, 0 hits for the three file names in docs/reference/coverage-matrix.md and 0 hits for loadImports/loadThetaLibDiags in docs/bugs/0211*, git status clean; same-wave siblings d7-01 (REGISTRY read) and d7-03 (normativeMessage) target disjoint helpers — D7 boilerplate-duplication class, fix is a mechanical import swap (harness APP_FRONTMATTER is also 4 lines, so `APP_FIRST_BODY_LINE = 5` still holds) (triage: claude-fable-5-1)
+
+## Resolution
+
+- 2026-09-27 (operator-directed, after wave qw20260927174614): already resolved upstream by 4a4d6f61 ("quality: qw20260923203928 fix tests__p1"); wave qw20260923203928 halted after that cherry-pick and before its store-resolve step, so the issue stayed open. Verified resolved at d5ae7f79 (duplicated declaration count 0 in every cited file). No code change.

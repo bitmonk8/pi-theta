@@ -2,7 +2,7 @@
 id: PTQ-1405
 title: The scratch-dir/fixture-write/launch/reap scaffold above launchRealSubagentChild is retyped identically in the bug-0067 and bug-0180 subagent witnesses
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/subagent-invoke-inbound-enum-tag.test.ts:150-193
@@ -111,3 +111,7 @@ A small helper in `tests/helpers/real-subagent-spawn.ts` (or a sibling module) t
 
 ## Triage
 verdict: confirmed — independently re-verified: both excerpts reproduce verbatim at exactly the cited lines (enum-tag :150-193 + finally/reap :301-306, nonfinite :265-309 + finally/reap :481-486); a comment-stripped mktemp diff of the two ranges (32 vs 31 statements) differs only in the tmp-dir prefix, the fixture-write shape (five fixed writeFileSync calls vs a for…of Object.entries(FIXTURES) loop), the root filename/slug literal and nothing else (both watchdogs 90_000, reap line byte-identical); tests/helpers/real-subagent-spawn.ts exports only the primitives (:27-151) and no helper composes the scratch-dir→fixture-write→launch-guard→exitPromise→try/finally-reap shell, so this is the residue above PTQ-0583's call boundary (0583 = PI_CLI_ENTRY/requirePath/launch constants, PTQ-0938 = the requirePath pair, PTQ-0709/0942 = reportOf — none the shell); all locations under tests/, boilerplate-duplication class, neither file a gate, `diagnostics` is a failure-message recording double not a MUST-NOT witness, no cell merge/rename/delete proposed (docs/bugs/0067:329,466 and 0180:1089,1207 cite by file name only; coverage-matrix → 0 hits); file set is disjoint from the same-wave family head d7-01 (b0337/b0342, already confirmed and naming this filing as a disjoint pair) so under the per-file-set precedent (PTQ-0759/1032/1077, 0629/0692) this is the family's next row, not a duplicate — the fixer should land the one shared helper d7-01 names and migrate this pair with it (triage: claude-fable-5-1)
+
+## Resolution
+
+- 2026-09-27 (operator-directed, after wave qw20260927174614): already resolved upstream by 4a4d6f61 ("quality: qw20260923203928 fix tests__p1"); wave qw20260923203928 halted after that cherry-pick and before its store-resolve step, so the issue stayed open. Verified resolved at d5ae7f79 (duplicated declaration count 0 in every cited file). No code change.

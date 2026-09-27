@@ -2,7 +2,7 @@
 id: PTQ-1380
 title: The renamed-field-plus-named-enum SchemaSidecar fixture is re-literalised verbatim in a second file
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/wire-translation-inbound-retag.test.ts:40-47
@@ -60,3 +60,7 @@ Gate-pin check: neither file matches `*gate*.test.ts` or its named kin. Recordin
 
 ## Triage
 verdict: confirmed — both excerpts reproduce verbatim (retag.test.ts:40-47 `personSidecar`, wire-name-translation.test.ts:29-39 `externalUserSidecar`) with byte-identical `wireNames`/`namedEnumPositions` one-entry literals, no shared sidecar fixture exists under tests/helpers/ (grep SchemaSidecar tests/helpers → 0), and the two-site count verifies — the filing's stated `properties/severity` grep actually hits 5 lines in 4 files, but the extra hits (enum-schema-tag-privacy.test.ts:439 enum-position-only sidecar, schema-lowering-hash.test.ts:211/223 assertions on buildSidecar output) are not the first_name/FirstName quadruple; the `refTargets` drift example is weak since `refTargets?` is optional (schema-lowering.ts:292) so nothing broke, but the D7 copy-paste-fixture class stands on the duplicated literal itself, both tests are live, neither is a gate/pin and no merge/delete is proposed (triage: claude-fable-5-1)
+
+## Resolution
+
+- 2026-09-27 (operator-directed, after wave qw20260927174614): already resolved upstream by 4a4d6f61 ("quality: qw20260923203928 fix tests__p1"); wave qw20260923203928 halted after that cherry-pick and before its store-resolve step, so the issue stayed open. Verified resolved at d5ae7f79 (duplicated declaration count 0 in every cited file). No code change.

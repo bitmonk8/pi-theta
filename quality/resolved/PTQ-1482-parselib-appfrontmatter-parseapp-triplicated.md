@@ -2,7 +2,7 @@
 id: PTQ-1482
 title: parseLib / APP_FRONTMATTER / parseApp are redeclared near-identically in all three import bug-witness files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/import-specifier-separator-production-required.test.ts:216-229
@@ -91,3 +91,7 @@ All three files are the same matched bug-witness trio (0058/0100/0211) already k
 ## Triage
 <!-- triage appends its note here -->
 verdict: confirmed — reproduces at HEAD: `parseLib`/`APP_FRONTMATTER`/`parseApp` declared at tests/import-specifier-separator-production-required.test.ts:216-229, tests/import-specifier-list-production-required.test.ts:230-243 and tests/import-export-from-clause-required.test.ts:169-179; mktemp sed-extract + diff shows copies 1≡2 byte-identical once the `parse`→`parseDoc` import alias is normalised, copy 3 differs only by quote style and the absent `APP_FIRST_BODY_LINE` (grep: 3/7/0 hits — the drift claim holds); all three copies live (parseLib 8/10/6, parseApp 5/10/4 references); none imports a shared home even though tests/helpers/thetalib-load-harness.ts:206 already exports `parseImportingApp(body, sourcePath = "/proj/app.theta")` with the same frontmatter-prepend shape (only the model literal differs, `"sonnet"` vs `"anthropic/claude-sonnet-5"`), so the fold is a mechanical export + import swap; not a *gate* file, stateless parse wrappers (no recording double), docs/bugs/0058|0100|0211 grep → 0, coverage-matrix → 0, no it()/describe() change proposed; not a duplicate — resolved PTQ-0914 folded only the underlying local `parse()` into `parseDoc` in two of these files (leaving `parseLib`/`parseApp` as its callers), resolved PTQ-0239 covers the b0303–b0306 family, open PTQ-1395 (`normativeMessage`) and PTQ-1387 (`loadImports`) name these wrappers only as shared context, and same-wave d7-01-parse-src-path-wrapper targets six disjoint files — D7 boilerplate-duplication class (triage: claude-fable-5-1)
+
+## Resolution
+
+- 2026-09-27 (operator-directed, after wave qw20260927174614): already resolved upstream by 4a4d6f61 ("quality: qw20260923203928 fix tests__p1"); wave qw20260923203928 halted after that cherry-pick and before its store-resolve step, so the issue stayed open. Verified resolved at d5ae7f79 (duplicated declaration count 0 in every cited file). No code change.

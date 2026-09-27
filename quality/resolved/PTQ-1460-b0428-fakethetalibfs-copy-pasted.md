@@ -2,7 +2,7 @@
 id: PTQ-1460
 title: b0428-unreadable-thetalib-refused.test.ts redeclares tests/helpers/thetalib-load-harness.ts's canonical fakeThetaLibFs member-for-member
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0428-unreadable-thetalib-refused.test.ts:62-107
@@ -173,3 +173,7 @@ fakeThetaLibFs" as the shape it mirrors.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — both excerpts reproduce (local `fakeThetaLibFs` at tests/b0428-unreadable-thetalib-refused.test.ts:68-115, exported canonical at tests/helpers/thetalib-load-harness.ts:89-135; same signature, same nine member stubs, same `unreadable`/EACCES branch, only diff is the helper's `hasOwnProperty` guard with no observable effect for a plain `Record` literal); the test already imports from tests/helpers (e2e-s1) so the migration is a mechanical import swap; dedupe grep of quality/{issues,resolved,intake} for the test file hits only this candidate (the 13 prior fakeThetaLibFs filings cite other files); not a gate/pin test, not a recording double, no merge/rename/delete proposed against the bug doc's witness line (triage: claude-fable-5-1)
+
+## Resolution
+
+- 2026-09-27 (operator-directed, after wave qw20260927174614): already resolved upstream by 4a4d6f61 ("quality: qw20260923203928 fix tests__p1"); wave qw20260923203928 halted after that cherry-pick and before its store-resolve step, so the issue stayed open. Verified resolved at d5ae7f79 (duplicated declaration count 0 in every cited file). No code change.

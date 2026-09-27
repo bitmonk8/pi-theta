@@ -2,7 +2,7 @@
 id: PTQ-1481
 title: pure-async-unification.test.ts and query-schema-transitive-defs.test.ts each redeclare a local NOOP_CHECKPOINT byte-identical to the exported SEAM_NOOP_CHECKPOINT
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/pure-async-unification.test.ts:99-103
@@ -100,3 +100,7 @@ The natural home for both local declarations, as observation: import
 
 ## Triage
 verdict: confirmed — independently re-verified: all three excerpts reproduce byte-exact at the cited lines (invoke-seam-scaffold.ts:66-70 `SEAM_NOOP_CHECKPOINT`, pure-async-unification.test.ts:99-103 and query-schema-transitive-defs.test.ts:242-246 each `const NOOP_CHECKPOINT: Checkpoint = { before(): Promise<void> { return Promise.resolve(); } }`), both locals are live (`rootWith(NOOP_CHECKPOINT)` at pure-async:116 and the typed-query drive in transitive-defs), the export is live (`grep -rl SEAM_NOOP_CHECKPOINT tests/` → 40 files) and tool-call-dispatch-harness.ts:52 already uses the `SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT` alias import; neither in-scope file imports from invoke-seam-scaffold; docs/bugs (0), coverage-matrix (0) searches reproduce, neither file is a gate, the double is a static value not a recording double, and no merge/rename/delete is proposed; not a duplicate — resolved PTQ-0432 mentions query-schema-transitive-defs only "for context" (its root cause is the six-piece typed-query substrate mirrored from e2e-s3, locations b0292/e2e-s3), PTQ-1015/1348/1384 cover the resolvePiTool and rootDouble doubles in pure-async, same-wave sibling d7-01 covers AST builders, and prior NOOP_CHECKPOINT filings (PTQ-0603/0650/1005/1038/0886) name other files; same class as those accepted precedents — in-scope D7 copy-paste double whose fix is a mechanical import swap (triage: claude-fable-5-1)
+
+## Resolution
+
+- 2026-09-27 (operator-directed, after wave qw20260927174614): already resolved upstream by 4a4d6f61 ("quality: qw20260923203928 fix tests__p1"); wave qw20260923203928 halted after that cherry-pick and before its store-resolve step, so the issue stayed open. Verified resolved at d5ae7f79 (duplicated declaration count 0 in every cited file). No code change.

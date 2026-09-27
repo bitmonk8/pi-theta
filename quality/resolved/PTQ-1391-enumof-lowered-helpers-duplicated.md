@@ -2,7 +2,7 @@
 id: PTQ-1391
 title: enumOf and lowered helper functions byte-identical between enum-body-unclosed-at-eof.test.ts and schema-body-unclosed-at-eof.test.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/enum-body-unclosed-at-eof.test.ts:253-263
@@ -111,3 +111,7 @@ only the repeated helper bodies are observed.
 
 ## Triage
 verdict: confirmed — reproduces: `diff` of enum-body-unclosed-at-eof.test.ts:253-263/280-294 against schema-body-unclosed-at-eof.test.ts:228-238/258-272 is empty for both `enumOf` and `lowered`; the stated grep returns exactly the four cited sites; no tests/helpers/ export assembles `buildBodyTypeSchemas` over parsed statements (e2e-s1's `loweredAnnotation` wraps `lowerQueryResponseSchema`, a different facility, and `schemaDeclsOf`/`enumDeclsOf` are only the filters); neither file is a gate/pin test or cited by docs/reference/coverage-matrix.md; resolved rows touching these files (PTQ-0507/0604/0804/0835/0870/1004) cover registry-oracle, msg(), other files' decl filters and an unrelated cannot-fail, not this pair — D7 boilerplate duplication, mechanical dedupe into tests/helpers/ (triage: claude-fable-5-1)
+
+## Resolution
+
+- 2026-09-27 (operator-directed, after wave qw20260927174614): already resolved upstream by 4a4d6f61 ("quality: qw20260923203928 fix tests__p1"); wave qw20260923203928 halted after that cherry-pick and before its store-resolve step, so the issue stayed open. Verified resolved at d5ae7f79 (duplicated declaration count 0 in every cited file). No code change.

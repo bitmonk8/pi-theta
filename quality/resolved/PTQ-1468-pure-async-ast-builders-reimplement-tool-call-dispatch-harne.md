@@ -2,7 +2,7 @@
 id: PTQ-1468
 title: pure-async-unification.test.ts redeclares span/callExpr/identExpr/numberExpr/objectExpr byte-identical to tests/helpers/tool-call-dispatch-harness.ts, which the same file already imports from
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/pure-async-unification.test.ts:51-73
@@ -122,3 +122,7 @@ of the file under review.
 
 ## Triage
 verdict: confirmed — re-verified independently: tests/pure-async-unification.test.ts:51-73 declares span/callExpr/identExpr/numberExpr/objectExpr byte-identical (name, signature, body) to the exports at tests/helpers/tool-call-dispatch-harness.ts:56-58/78-80/90-92/102-104/110-112, and line 1 of the test already imports recordingPiToolResolver from that very module; both locations in tests/, not a gate/census file, builders are plain value constructors not recording doubles, `grep -rl pure-async-unification docs/bugs/ docs/reference/coverage-matrix.md` → 0 hits (the V20e-T correct-reason red concerns the it() bodies, untouched here), no merge/rename/delete proposed; not a duplicate — PTQ-1384 (rootDouble→rootWith) and PTQ-1015 (received double) are distinct root causes, and resolved PTQ-0670 covered only the cancellation-wiring↔core-exec pair (its triage note flagged pure-async as an uncounted 6/8 sibling but no filing tracked it and the copies remain at HEAD); fix is a mechanical import swap (triage: claude-fable-5-1)
+
+## Resolution
+
+- 2026-09-27 (operator-directed, after wave qw20260927174614): already resolved upstream by 4a4d6f61 ("quality: qw20260923203928 fix tests__p1"); wave qw20260923203928 halted after that cherry-pick and before its store-resolve step, so the issue stayed open. Verified resolved at d5ae7f79 (duplicated declaration count 0 in every cited file). No code change.

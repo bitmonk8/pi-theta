@@ -2,7 +2,7 @@
 id: PTQ-1407
 title: tools-entry-closed-grammar-lockstep.test.ts hand-rolls NOOP_CHECKPOINT/rootDouble/ctxDouble instead of importing tests/helpers/tool-call-dispatch-harness.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/tools-entry-closed-grammar-lockstep.test.ts:247-263
@@ -132,3 +132,7 @@ locally.
 ## Triage
 <!-- triage appends its note here -->
 verdict: confirmed — excerpts match at tests/tools-entry-closed-grammar-lockstep.test.ts:247-263 and tests/helpers/tool-call-dispatch-harness.ts:122-146; the canonical module exports NOOP_CHECKPOINT/rootDouble/ctxDouble and is already imported by scope-sibling tool-arg-shape-enforcement.test.ts:4; the local double's only divergences are inert on the path this file drives (its extra `clock.wallNow` is read only at production-theta-producer.ts:1665/1894/3961 — slash-entry note, top-level Err note, typed-query event — none reachable via bindPromptConversation→executeBody, and its missing `schemaValidator` is what the canonical adds), so the copy is a copy-paste double not a purpose-varied fake; not a gate/census test, not a recording negative-witness, not cited by coverage-matrix.md, and the one docs/bugs hit for rootDouble (0172) does not cite this file; not a duplicate — PTQ-0998/0936/1236 on this file cover parseDeps/readFileSync/toolCallableName, and PTQ-0873/1005/1090/0603 target other files (triage: claude-fable-5-1)
+
+## Resolution
+
+- 2026-09-27 (operator-directed, after wave qw20260927174614): already resolved upstream by 4a4d6f61 ("quality: qw20260923203928 fix tests__p1"); wave qw20260923203928 halted after that cherry-pick and before its store-resolve step, so the issue stayed open. Verified resolved at d5ae7f79 (duplicated declaration count 0 in every cited file). No code change.

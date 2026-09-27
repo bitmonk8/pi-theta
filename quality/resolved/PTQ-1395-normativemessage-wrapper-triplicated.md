@@ -2,7 +2,7 @@
 id: PTQ-1395
 title: the registry-read-with-loud-failure wrapper normativeMessage is redeclared near-identically in all three import bug-witness files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/import-export-from-clause-required.test.ts:138-153
@@ -104,3 +104,7 @@ home a fourth retyping would otherwise repeat.
 
 ## Triage
 verdict: confirmed — reproduces at HEAD: `function normativeMessage(code)` at tests/import-export-from-clause-required.test.ts:144-153, tests/import-specifier-list-production-required.test.ts:203-212 and tests/import-specifier-separator-production-required.test.ts:219-227; mktemp sed-extract + diff shows copies 1≡2 byte-identical and copy 3 differing only by the dropped `(mirrored into … DIAG-2)` clause of the failure string (drift, not a substantive per-file wording variant, so registry-oracle.ts's header carve-out for readers whose wording varies does not apply); all three are live (7/8/5 references) and none imports the canonical read-and-fail-loudly reader — tests/helpers/load-row-harness.ts:61-77 `registryMessageOf(registry, page, code)` is the same `registryMessage` + `expect(template, DIAG-4 anchor msg)` presence guard, and registry-oracle.ts:132 `loadRowMessage` already wraps it for the load shard, so a parse-shard sibling is a mechanical export + three import swaps; not a *gate* file, static registry read (no recording double), docs/bugs/0058|0100|0211 grep for normativeMessage → 0, coverage-matrix → 0, no it()/describe() change proposed, git status clean; not a duplicate — resolved PTQ-0916 migrated only the `RegistryRow`/`REGISTRY` read in two of these files and its note explicitly left the `normativeMessage` fold unremediated, PTQ-0921 is the b0268 file, PTQ-1089 the params-inline-object file, and same-wave d7-01 (REGISTRY read) / d7-02 (loadImports) target disjoint helpers and each name this wrapper as distinct — D7 boilerplate-duplication class (triage: claude-fable-5-1)
+
+## Resolution
+
+- 2026-09-27 (operator-directed, after wave qw20260927174614): already resolved upstream by 4a4d6f61 ("quality: qw20260923203928 fix tests__p1"); wave qw20260923203928 halted after that cherry-pick and before its store-resolve step, so the issue stayed open. Verified resolved at d5ae7f79 (duplicated declaration count 0 in every cited file). No code change.

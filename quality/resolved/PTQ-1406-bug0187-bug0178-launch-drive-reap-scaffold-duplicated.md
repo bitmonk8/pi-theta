@@ -2,7 +2,7 @@
 id: PTQ-1406
 title: subagent-return-depth-refusal.test.ts and subagent-root-binder-model-exempt.test.ts each retype the same launchRealSubagentChild/childExit/driveWatchedSubagentChild/reapSubagentChildren scaffold, plus the identical CHILD_MODEL_PROVIDER/CHILD_MODEL_ID pair, above tests/helpers/real-subagent-spawn.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/subagent-return-depth-refusal.test.ts:213-214
@@ -129,3 +129,7 @@ A small helper in `tests/helpers/real-subagent-spawn.ts` that takes a fixture ma
 
 ## Triage
 verdict: confirmed — independently re-verified: all four excerpts reproduce at exactly the cited lines (CHILD_MODEL pair :213-214 / :148-149; bug0187 scratch-tree→realExecutableHost→launchRealSubagentChild→`!launch.ok` guard→childExit→driveWatchedSubagentChild(90_000)→batch reap at :1408; bug0178 driveDirect :349-414 with the same launch/guard/childExit/driveWatched(ROW_WATCHDOG_MS=120_000 at :177)/finally-reap sequence and scratch tree at :438-454); tests/helpers/real-subagent-spawn.ts exports only the primitives (:27-151) and no CHILD_MODEL_* constant, so both the constant pair and the composing shell sit above PTQ-0583's (fixed) call boundary; the stated greps reproduce (constant pair once per file; docs/bugs/0187*/0178* → 0 hits for scratchDir/reapSubagentChildren/CHILD_MODEL_PROVIDER; coverage-matrix → 0 hits for either stem); all locations under tests/, boilerplate-duplication class, neither a gate file, `diagnostics` is a launch-failure message double not a MUST-NOT witness, no cell merge/rename/delete proposed; not a duplicate — PTQ-0583 covered the PI_CLI_ENTRY/requirePath/launch constants and PTQ-0686 return-depth-refusal's unit driveChildRoot block (:726-868, disjoint), and neither file appears in the family head d7-01 (b0337/b0342, confirmed) nor in sibling d7-89-01 (inbound-enum-tag/nonfinite-return-refusal), so this is the next disjoint pair under the per-file-set precedent (PTQ-0759/1032/1077) that d7-01's note already anticipated by name. Accounting notes for the fixer, not changing the outcome: (1) `sites: 2` undercounts the constant pair — `CHILD_MODEL_PROVIDER|CHILD_MODEL_ID` is declared in 13 test files, none in a helper, so lift it once for all importers alongside d7-01's shell helper; (2) bug0178's driveDirect diverges more than the filing states — it returns a launch-failure record instead of throwing, records stdout/stderr line counts via onStdoutLine/onStderrLine, passes a `controlPlaneEnv` params carrier, and reaps per-row rather than batching — so the shared helper must accept a launch-failure policy and optional line taps or bug0178 keeps a thin local wrapper over it (triage: claude-fable-5-1)
+
+## Resolution
+
+- 2026-09-27 (operator-directed, after wave qw20260927174614): already resolved upstream by 4a4d6f61 ("quality: qw20260923203928 fix tests__p1"); wave qw20260923203928 halted after that cherry-pick and before its store-resolve step, so the issue stayed open. Verified resolved at d5ae7f79 (duplicated declaration count 0 in every cited file). No code change.
