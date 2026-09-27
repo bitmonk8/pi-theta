@@ -2,6 +2,7 @@
 description: "D8 simplification reviewer - reviews one shard of production source files through the overbuilt/reimplemented/against-grain/heavier-than-scale lens, files candidate findings into quality/intake/"
 mode: subagent
 model: "anthropic/claude-opus-5-5"
+thinking: xhigh
 tools: read, grep, bash, write
 tool_loop:
   max_rounds: 120
