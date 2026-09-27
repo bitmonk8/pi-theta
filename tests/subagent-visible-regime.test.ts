@@ -14,7 +14,7 @@
 // 0012 §7), execution-status.md EXST-5.
 
 import { RecordingBus, rootDouble, noopPi, subagentTheta, childCtx } from "./helpers/subagent-fn-child-regime";
-import { resolvingHost } from "./helpers/fake-json-child";
+import { fakeExecutableHost } from "./helpers/fake-json-child";
 import { describe, expect, it } from "vitest";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
@@ -455,7 +455,7 @@ async function launchThrough(
     modelRegistry: { getAvailable: () => [{ id: "claude-test", provider: "anthropic" }] } as unknown as ModelRegistry,
     subagentParentEnv: {},
     subagentParentPid: 1,
-    subagentExecutableHost: resolvingHost(),
+    subagentExecutableHost: fakeExecutableHost(),
     subagentPlacement: (): PlacementLease => (leaseResolves++, lease),
     subagentOpenWire: openWire,
     statusBus: busWithEnds,
@@ -502,7 +502,7 @@ async function launchTwiceThrough(
     modelRegistry: { getAvailable: () => [{ id: "claude-test", provider: "anthropic" }] } as unknown as ModelRegistry,
     subagentParentEnv: {},
     subagentParentPid: 1,
-    subagentExecutableHost: resolvingHost(),
+    subagentExecutableHost: fakeExecutableHost(),
     subagentPlacement: (): PlacementLease => lease,
     subagentOpenWire: openWire,
     statusBus: bus,

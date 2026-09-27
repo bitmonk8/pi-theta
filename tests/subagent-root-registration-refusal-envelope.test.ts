@@ -75,7 +75,7 @@
 // diagnostics/code-registry-load.md (`theta/load/unresolvable-theta-path`,
 // `theta/load/binder-model-unresolved`); diagnostics/diagnostic-shape.md #diag-4
 // (the *Message* column is normative and asserting tests source it from there).
-import { resolvingHost } from "./helpers/fake-json-child";
+import { fakeExecutableHost } from "./helpers/fake-json-child";
 import { makeIdleModelHost, noteLinesContaining } from "./helpers/compose-workspace-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -221,7 +221,7 @@ async function runLoad(
   try {
     const regimeActive = detectSubagentRootRegime(readParentEnv()).active;
     const overrides: EnvelopeCapturingOverrides = {
-      subagentExecutableHost: resolvingHost(),
+      subagentExecutableHost: fakeExecutableHost(),
       emitResultEnvelope: (line: string): void => {
         captured.push(line);
       },

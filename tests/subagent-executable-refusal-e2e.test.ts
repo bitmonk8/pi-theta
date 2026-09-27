@@ -14,7 +14,7 @@
 // pi-integration-contract/subagent.md (#subagent-executable-resolution),
 // diagnostics/code-registry-load.md (`theta/load/subagent-executable-unresolved`).
 
-import { resolvingHost, bothRungsFailHost } from "./helpers/fake-json-child";
+import { fakeExecutableHost, bothRungsFailHost } from "./helpers/fake-json-child";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   SUBAGENT_EXECUTABLE_THETAS,
@@ -51,7 +51,7 @@ describe("RFC-0005 — Step 0 (f) executable-resolution refusal through the comp
   });
 
   it("a resolving host admits the subagent theta (no refusal)", async () => {
-    const outcome = await runLoad(workspaceDir, resolvingHost());
+    const outcome = await runLoad(workspaceDir, fakeExecutableHost());
     expect(outcome.registered).toContain("subq");
     expect(outcome.noteContent.join("\n")).not.toContain(
       SUBAGENT_EXECUTABLE_UNRESOLVED_CODE,

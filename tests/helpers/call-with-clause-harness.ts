@@ -295,6 +295,8 @@ export function subagentCallee(
 const RESOLVED_CALLEE = resolvePath("/thetadir", "./callee.theta").replace(/\\/g, "/");
 const RESOLVED_THETA_ROOT = resolvePath("/thetadir").replace(/\\/g, "/");
 
+const EMPTY_GRAPH = { edges: new Map([["caller", []]]), unresolvable: new Set<string>() };
+
 /** Check a single invoke's clause against a resolvable callee with caller-supplied arity. */
 export function checkInvokeWithClause(
   clause: FakeCallWithClause,
@@ -314,7 +316,7 @@ export function checkInvokeWithClause(
       dirs: { [RESOLVED_THETA_ROOT]: [] },
     }),
     activeRoots: [RESOLVED_THETA_ROOT],
-    graph: { edges: new Map([["caller", []]]), unresolvable: new Set<string>() },
+    graph: EMPTY_GRAPH,
     resolveCalleeArity,
   });
 }
@@ -323,8 +325,6 @@ export function checkInvokeWithClause(
 export function bodyOf(...stmts: Stmt[]): ThetaBody {
   return { statements: stmts, tail: null };
 }
-
-const EMPTY_GRAPH = { edges: new Map([["caller", []]]), unresolvable: new Set<string>() };
 
 const noArityResolution = (): Promise<CalleeArity | undefined> => Promise.resolve(undefined);
 

@@ -326,16 +326,6 @@ export function driveOver(
   });
 }
 
-/** Executable host fixture: the entry script resolves. */
-export function resolvingHost(): ExecutableHost {
-  return {
-    argv1: "/app/pi/dist/index.js",
-    execPath: "/usr/bin/node",
-    fileExists: (): boolean => true,
-    isGenericRuntime: (): boolean => false,
-  };
-}
-
 /** Executable host fixture: both resolution rungs refuse. */
 export function bothRungsFailHost(): ExecutableHost {
   return {

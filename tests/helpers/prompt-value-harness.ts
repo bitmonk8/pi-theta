@@ -3,7 +3,6 @@
 
 import { expect } from "vitest";
 import type {
-  ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
@@ -199,11 +198,7 @@ export async function drivePromptAttach(input: {
   const deps = createProductionProducerDeps({
     // `getActiveTools` / `setActiveTools` satisfy the PIC-17 prompt→prompt
     // suspend window; `sendMessage` satisfies the theta-system-note channel.
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
+    pi: noopPi(),
     root: input.root(),
     modelRegistry: {} as unknown as ModelRegistry,
     // Bug 0293: the seam returns the three-arm `CalleeParseOutcome` verdict.

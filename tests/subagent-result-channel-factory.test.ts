@@ -5,7 +5,7 @@
 // before the socket ends. In-process over the real factory + real
 // `composeExtensionInstance`; the channel client is a fake; zero processes.
 
-import { resolvingHost } from "./helpers/fake-json-child";
+import { fakeExecutableHost } from "./helpers/fake-json-child";
 import { makeIdleModelHost } from "./helpers/compose-workspace-harness";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { plantThetaWorkspace, disposeWorkspace } from "./helpers/production-load-harness";
@@ -93,7 +93,7 @@ describe("RFC-0012 §3 — the factory latches, reuses and closes the child's re
           ctx,
           {
             clock: new FakeClock(),
-            subagentExecutableHost: resolvingHost(),
+            subagentExecutableHost: fakeExecutableHost(),
             subagentControlPlane: {
               env: { [SUBAGENT_ROOT_ENV_MARKER]: "clean", [SUBAGENT_PARENT_PID_ENV]: "1" },
               entry: { kind: "theta" },
@@ -149,7 +149,7 @@ describe("RFC-0012 §3 — the factory latches, reuses and closes the child's re
           ctx,
           {
             clock: new FakeClock(),
-            subagentExecutableHost: resolvingHost(),
+            subagentExecutableHost: fakeExecutableHost(),
             subagentControlPlane: {
               env: { [SUBAGENT_ROOT_ENV_MARKER]: "clean", [SUBAGENT_PARENT_PID_ENV]: "1" },
               entry: { kind: "theta" },

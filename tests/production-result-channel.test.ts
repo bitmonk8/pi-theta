@@ -13,7 +13,7 @@
 //      writes its envelope to the channel (never fd 1), mirrors its own error
 //      diagnostics as `stderr` frames, exposes the client on the wiring; a
 //      `pipe` child (no channel) exposes none.
-import { resolvingHost } from "./helpers/fake-json-child";
+import { fakeExecutableHost } from "./helpers/fake-json-child";
 import { makeIdleModelHost } from "./helpers/compose-workspace-harness";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -358,7 +358,7 @@ describe("RFC-0012 §3 — the composition root routes the child's envelope to i
     const { pi, ctx } = fakeHost();
     const client = fakeChannelClient();
     const overrides: ComposeSeamOverrides = {
-      subagentExecutableHost: resolvingHost(),
+      subagentExecutableHost: fakeExecutableHost(),
       subagentControlPlane: {
         env: {
           PATH: "/usr/bin",
@@ -387,7 +387,7 @@ describe("RFC-0012 §3 — the composition root routes the child's envelope to i
     const client = fakeChannelClient();
     const captured: string[] = [];
     const wiring = await composeExtensionInstance(pi, ctx, {
-      subagentExecutableHost: resolvingHost(),
+      subagentExecutableHost: fakeExecutableHost(),
       subagentControlPlane: {
         env: { [SUBAGENT_ROOT_ENV_MARKER]: "refused", [SUBAGENT_PARENT_PID_ENV]: "1" },
         entry: { kind: "theta" },
@@ -406,7 +406,7 @@ describe("RFC-0012 §3 — the composition root routes the child's envelope to i
   it("a pipe child (no channel on its control plane) exposes no result channel and dials nothing", async () => {
     const { pi, ctx } = fakeHost();
     const wiring = await composeExtensionInstance(pi, ctx, {
-      subagentExecutableHost: resolvingHost(),
+      subagentExecutableHost: fakeExecutableHost(),
       subagentControlPlane: {
         env: { [SUBAGENT_ROOT_ENV_MARKER]: "clean", [SUBAGENT_PARENT_PID_ENV]: "1" },
         entry: { kind: "theta" },
@@ -420,7 +420,7 @@ describe("RFC-0012 §3 — the composition root routes the child's envelope to i
   it("a parent process (no regime) exposes no result channel", async () => {
     const { pi, ctx } = fakeHost();
     const wiring = await composeExtensionInstance(pi, ctx, {
-      subagentExecutableHost: resolvingHost(),
+      subagentExecutableHost: fakeExecutableHost(),
       subagentControlPlane: { env: {}, entry: { kind: "theta" } },
       emitResultEnvelope: (): void => {},
     });

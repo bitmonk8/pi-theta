@@ -25,7 +25,7 @@
 // #subagent-host-loop-dispatch), functions.md FN-6 (#fn-6), RFC 0012 §10,
 // diagnostics/code-registry-load.md (`theta/load/extension-tool-unreachable`).
 
-import { resolvingHost } from "./helpers/fake-json-child";
+import { fakeExecutableHost } from "./helpers/fake-json-child";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -134,7 +134,7 @@ describe("PIC-64 rung 3 — a surfaces-absent host still refuses the inline-body
     });
 
     const wiring = await composeExtensionInstance(pi, ctx, {
-      subagentExecutableHost: resolvingHost(),
+      subagentExecutableHost: fakeExecutableHost(),
     });
 
     expect(

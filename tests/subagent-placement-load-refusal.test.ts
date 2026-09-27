@@ -6,7 +6,7 @@
 // factory-owned registry (the §5 handle) makes the same selection available.
 // In-process over the real `composeExtensionInstance`; zero processes.
 
-import { resolvingHost } from "./helpers/fake-json-child";
+import { fakeExecutableHost } from "./helpers/fake-json-child";
 import { makeIdleModelHost } from "./helpers/compose-workspace-harness";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { plantThetaWorkspace, disposeWorkspace } from "./helpers/production-load-harness";
@@ -77,7 +77,7 @@ async function compose(
   const { pi, ctx, notes } = fakeHost();
   const diagnostics: Diagnostic[] = [];
   const overrides: ComposeSeamOverrides = {
-    subagentExecutableHost: resolvingHost(),
+    subagentExecutableHost: fakeExecutableHost(),
     subagentControlPlane: { env: {}, entry: { kind: "theta" } },
     emitResultEnvelope: (): void => {},
     ...(registration !== undefined ? { subagentPlacementRegistration: registration } : {}),

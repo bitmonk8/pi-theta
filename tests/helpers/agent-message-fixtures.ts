@@ -52,14 +52,7 @@ export function assistantMessage(opts: {
     api: "anthropic-messages",
     provider: "anthropic",
     model: "claude-test",
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
+    usage: USAGE,
     stopReason: opts.stopReason,
     timestamp: 0,
   };

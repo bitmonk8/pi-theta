@@ -227,12 +227,7 @@ export function parseTheta(path: string, src: string): ThetaDocument {
 export function envelopeRootDouble(schemaValidator: SchemaValidator): RuntimeRoot {
   return {
     checkpoint: SEAM_NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    clock: {
-      wallNow: () => 0,
-      setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
-      clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>),
-    },
+    ...fixedIdsAndClock(),
     schemaValidator,
   } as unknown as RuntimeRoot;
 }

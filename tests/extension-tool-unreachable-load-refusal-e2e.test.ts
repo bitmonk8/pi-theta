@@ -27,7 +27,7 @@
 // `theta/load/unknown-tool`).
 
 import { makeIdleModelHost, noteLinesContaining } from "./helpers/compose-workspace-harness";
-import { resolvingHost } from "./helpers/fake-json-child";
+import { fakeExecutableHost } from "./helpers/fake-json-child";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -269,7 +269,7 @@ async function runLoad(
     // own premise instead.
     const regimeActive = detectSubagentRootRegime(readParentEnv()).active;
     const wiring = await composeExtensionInstance(pi, ctx, {
-      subagentExecutableHost: resolvingHost(),
+      subagentExecutableHost: fakeExecutableHost(),
     });
     return { registered: wiring.thetas.map((t) => t.slashName), noteContent, regimeActive };
   } finally {

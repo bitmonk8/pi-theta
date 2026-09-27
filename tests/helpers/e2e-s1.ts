@@ -462,14 +462,9 @@ export function diagLines(
  * subject" and "the position reports nothing" distinguishable failures.
  */
 export function diagLinesWithRange(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d: Diagnostic) => {
-    const r = d.range;
-    const at =
-      r === undefined
-        ? "-"
-        : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-    return `${d.severity} ${d.code} @${at}: ${d.message}`;
-  });
+  return doc.diagnostics.map(
+    (d: Diagnostic) => `${d.severity} ${d.code} @${at(d.range)}: ${d.message}`,
+  );
 }
 
 /** One rendered `error`-severity diagnostic line, single-line range. */
@@ -1610,14 +1605,9 @@ export const S_STR = "schema S { s: string }\n";
 
 /** Every diagnostic rendered `severity code: message @l:c-l:c`, in emission order. */
 export function rendered(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d: Diagnostic) => {
-    const r = d.range;
-    const at =
-      r === undefined
-        ? "-"
-        : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-    return `${d.severity} ${d.code}: ${d.message} @${at}`;
-  });
+  return doc.diagnostics.map(
+    (d: Diagnostic) => `${d.severity} ${d.code}: ${d.message} @${at(d.range)}`,
+  );
 }
 
 /**

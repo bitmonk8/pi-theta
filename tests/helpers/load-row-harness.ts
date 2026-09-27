@@ -26,7 +26,9 @@ import type { Diagnostic, SourceRange } from "../../src/diagnostics/diagnostic";
 import { buildBodyTypeSchemas } from "../../src/parser/body-type-lowering";
 import type { EnumDecl, FnDecl, FnParam, SchemaDecl, ThetaDocument } from "../../src/parser/theta-document";
 import type { LowerCtx } from "../../src/parser/params";
-import { at, topKinds, parseDoc, diagLines, errorLineAt, isLoadParseError } from "./e2e-s1";
+import { at, range, topKinds, parseDoc, diagLines, errorLineAt, isLoadParseError } from "./e2e-s1";
+
+export { range };
 
 // ===========================================================================
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
@@ -827,19 +829,6 @@ export function shapesWithHint(doc: ThetaDocument): DiagShapeWithHint[] {
   return doc.diagnostics.map((d) => ({ ...diagnosticShape(d), hint: d.hint }));
 }
 
-/** A 1-indexed, end-exclusive-column source range literal. */
-export function range(
-  startLine: number,
-  startColumn: number,
-  endLine: number,
-  endColumn: number,
-): SourceRange {
-  return {
-    start: { line: startLine, column: startColumn },
-    end: { line: endLine, column: endColumn },
-  };
-}
-
 /**
  * The PATTERN's span, from its source spelling alone: the object `PatternNode`
  * carries the whole pattern's range, head token through closing `}`.
@@ -871,13 +860,8 @@ export function expectDiagnosticsOf(
 export function render(doc: ThetaDocument, includeHint = false): string {
   return JSON.stringify(
     doc.diagnostics.map((d: Diagnostic) => {
-      const r = d.range;
-      const at =
-        r === undefined
-          ? "-"
-          : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
       const hint = includeHint ? ` [hint=${d.hint ?? "-"}]` : "";
-      return `${d.severity} ${d.code} @${at}: ${d.message}${hint}`;
+      return `${d.severity} ${d.code} @${at(d.range)}: ${d.message}${hint}`;
     }),
   );
 }
