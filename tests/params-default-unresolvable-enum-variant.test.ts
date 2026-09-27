@@ -6,6 +6,7 @@ import {
 import { parseDeps, diagCodes } from "./helpers/e2e-s1";
 import { rootDouble, scriptEnvelope, EM_DASH, ajvArgsNote } from "./helpers/scripted-live-session-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
+import { registryMessageOrThrow } from "./helpers/load-row-harness";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -249,8 +250,6 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   };
 });
 
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -307,13 +306,11 @@ const NOT_LITERAL_CODE = "theta/parse/default-not-literal";
  * never degrade an assertion into a comparison against `undefined`.
  */
 function registryMessageOf(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  if (template === undefined) {
-    throw new Error(
-      `harness: docs/spec_topics/diagnostics/code-registry-parse.md carries no Message row for ${code} — the DIAG-4 column is this file's oracle, so a missing row is a harness failure, never a skip`,
-    );
-  }
-  return template;
+  return registryMessageOrThrow(
+    REGISTRY,
+    code,
+    "The row belongs on docs/spec_topics/diagnostics/code-registry-parse.md.",
+  );
 }
 
 /**

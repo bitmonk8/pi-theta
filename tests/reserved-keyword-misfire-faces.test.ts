@@ -3,9 +3,15 @@ import {
   type ParseCodeRegistryRow as RegistryRow,
 } from "./helpers/load-row-harness";
 import { FM } from "./helpers/prompt-value-harness";
+import {
+  SPELLINGS, sweep, expectedSweep,
+  forSource, parForSource, schemaFieldSource, paramsSource, enumVariantSource,
+  importBareLine, importBareSource, importAliasSource,
+  FOR_COL, PAR_FOR_COL, SCHEMA_FIELD_COL, PARAMS_KEY_COL, ENUM_VARIANT_COL,
+  IMPORT_BARE_COL, IMPORT_ALIAS_COL,
+} from "./helpers/reserved-keyword-sweep";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { reservedKeywords } from "../src/lexer/lexer";
 import { EXPORT_IN_THETA_CODE } from "../src/parser/imports";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc, isLoadParseError, diagLinesWithRange as lines, errorLineAt as at } from "./helpers/e2e-s1";
@@ -209,65 +215,19 @@ function blocksRegistration(diagnostics: readonly Diagnostic[]): boolean {
 // The spelling list and the two lexer sub-sets the partition is stated over.
 // ===========================================================================
 
-/**
- * lexical.md:20's 32 spellings, read from the shipped set (`reservedKeywords()`,
- * src/lexer/lexer.ts:159) rather than copied, so the sweeps cannot drift from
- * the set the fix's own predicates read.
- */
-const SPELLINGS: readonly string[] = [...reservedKeywords()];
+// lexical.md:20's 32 spellings (`SPELLINGS`), the shared source shapes, their
+// name columns and the `sweep` / `expectedSweep` pair are the shared sweep
+// harness (tests/helpers/reserved-keyword-sweep.ts).
 
-/** The 1-indexed column each shape's name starts at, from its fixed prefix. */
-const FOR_COL = 5; // `for `
-const PAR_FOR_COL = 9; // `par for `
-const SCHEMA_FIELD_COL = 12; // `schema S { `
-const PARAMS_KEY_COL = 3; // the two-space YAML indent
-const ENUM_VARIANT_COL = 10; // `enum E { `
-const IMPORT_BARE_COL = 10; // `import { `
-const IMPORT_ALIAS_COL = 15; // `import { a as `
-
-// The nine source shapes of §Reproduction (E). Body line numbers: the `.theta`
-// frontmatter occupies lines 1–3, so a one-line body sits on line 4 and a body
-// preceded by `let xs = [1]` sits on line 5.
-const forSource = (kw: string): string =>
-  `${FM}let xs = [1]\nfor ${kw} in xs { 1 }\n1\n`;
-const parForSource = (kw: string): string =>
-  `${FM}let xs = [1]\npar for ${kw} in xs { 1 }\n1\n`;
-const schemaFieldSource = (kw: string): string => `${FM}schema S { ${kw}: string }\n1\n`;
-const enumVariantSource = (kw: string): string => `${FM}enum E { ${kw} }\n1\n`;
-const importBareLine = (kw: string): string => `import { ${kw} } from "./lib.thetalib"`;
-const importBareSource = (kw: string): string => `${FM}${importBareLine(kw)}\n1\n`;
-const importAliasSource = (kw: string): string =>
-  `${FM}import { a as ${kw} } from "./lib.thetalib"\n1\n`;
+// The three further source shapes of §Reproduction (E) this file adds to the
+// shared ones. Body line numbers: the `.theta` frontmatter occupies lines 1–3,
+// so a one-line body sits on line 4.
 const wireRenameSource = (kw: string): string =>
   `${FM}schema S { ${kw} as "w": string }\n1\n`;
 const importNameAliasLine = (kw: string): string =>
   `import { ${kw} as x } from "./lib.thetalib"`;
 const importNameAliasSource = (kw: string): string =>
   `${FM}${importNameAliasLine(kw)}\n1\n`;
-const paramsSource = (kw: string): string =>
-  `---\nmode: prompt\nparams:\n  ${kw}: string\n---\n1\n`;
-
-/** Run one shape's whole 32-spelling sweep into `spelling -> rendered list`. */
-function sweep(
-  source: (keyword: string) => string,
-  path?: string,
-): Record<string, string[]> {
-  const out: Record<string, string[]> = {};
-  for (const keyword of SPELLINGS) {
-    const text = source(keyword);
-    out[keyword] = lines(path === undefined ? parseDoc(text) : parseDoc(text, path));
-  }
-  return out;
-}
-
-/** Build the expected sweep from a per-spelling rule. */
-function expectedSweep(rule: (keyword: string) => string[]): Record<string, string[]> {
-  const out: Record<string, string[]> = {};
-  for (const keyword of SPELLINGS) {
-    out[keyword] = rule(keyword);
-  }
-  return out;
-}
 
 // ===========================================================================
 // (r) The registered rows the whole file reads its oracle from.

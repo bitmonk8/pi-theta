@@ -1,8 +1,15 @@
 import { registryMessageOf, reservedAt } from "./helpers/load-row-harness";
 import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
+import { FM } from "./helpers/prompt-value-harness";
+import {
+  SPELLINGS, sweep, expectedSweep,
+  forSource, parForSource, schemaFieldSource, paramsSource, enumVariantSource,
+  importBareLine, importBareSource, importAliasSource,
+  FOR_COL, PAR_FOR_COL, SCHEMA_FIELD_COL, PARAMS_KEY_COL, ENUM_VARIANT_COL,
+  IMPORT_BARE_COL, IMPORT_ALIAS_COL,
+} from "./helpers/reserved-keyword-sweep";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { reservedKeywords } from "../src/lexer/lexer";
 import { EXPORT_IN_THETA_CODE } from "../src/parser/imports";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc, isLoadParseError, diagLinesWithRange as lines, errorLineAt as at } from "./helpers/e2e-s1";
@@ -211,9 +218,6 @@ function reservedMsg(keyword: string): string {
 // system-note channel and a resolving `model:` matcher. No behaviour is
 // stubbed: the lexer and parser under assertion are the production ones.
 
-/** Frontmatter for every `.theta` row — occupies lines 1–3, body starts at 4. */
-const FM = "---\nmode: prompt\n---\n";
-
 /** Parse `body` as a `.theta` under the standard frontmatter. */
 function theta(body: string): ThetaDocument {
   return parseDoc(FM + body);
@@ -242,70 +246,17 @@ function blocksRegistration(diagnostics: readonly Diagnostic[]): boolean {
 // The spelling list and the two lexer sub-sets the sweeps partition on.
 // ===========================================================================
 
-/**
- * lexical.md:20's 32 spellings, read from the shipped set
- * (`reservedKeywords()`, src/lexer/lexer.ts:159–166) rather than copied, so the
- * sweeps below cannot drift from the set the fix's own predicate reads and a
- * fix that mints a second list has nowhere to hide.
- */
-const SPELLINGS: readonly string[] = [...reservedKeywords()];
-
 // The two lexer sub-sets earlier revisions of this file partitioned on —
 // `controlHeads` (src/lexer/lexer.ts:812) and the three declarator arms' heads
 // — no longer divide any sweep: bug 0242's §Fix ROUTE A removed every misfire
 // they used to predict, so each sweep below is stated as one rule over all 32
 // spellings, with only the pre-existing `mut` and `as` recoveries carved out.
 
-/** Run one position's whole 32-spelling sweep into `spelling -> rendered list`. */
-function sweep(
-  source: (keyword: string) => string,
-  path?: string,
-): Record<string, string[]> {
-  const out: Record<string, string[]> = {};
-  for (const keyword of SPELLINGS) {
-    const text = source(keyword);
-    out[keyword] = lines(path === undefined ? parseDoc(text) : parseDoc(text, path));
-  }
-  return out;
-}
-
-/** Build the expected sweep from a per-spelling rule. */
-function expectedSweep(rule: (keyword: string) => string[]): Record<string, string[]> {
-  const out: Record<string, string[]> = {};
-  for (const keyword of SPELLINGS) {
-    out[keyword] = rule(keyword);
-  }
-  return out;
-}
-
-// The seven source shapes the sweeps drive, one per position (the import face
-// has two name slots and therefore two shapes). Body line numbers: the `.theta`
-// frontmatter occupies lines 1–3, so a one-line body sits on line 4 and a body
-// preceded by `let xs = [1]` sits on line 5.
-const forSource = (kw: string): string =>
-  `${FM}let xs = [1]\nfor ${kw} in xs { 1 }\n1\n`;
-const parForSource = (kw: string): string =>
-  `${FM}let xs = [1]\npar for ${kw} in xs { 1 }\n1\n`;
-const schemaFieldSource = (kw: string): string => `${FM}schema S { ${kw}: string }\n1\n`;
-const paramsSource = (kw: string): string =>
-  `---\nmode: prompt\nparams:\n  ${kw}: string\n---\n1\n`;
-const enumVariantSource = (kw: string): string => `${FM}enum E { ${kw} }\n1\n`;
-const importBareLine = (kw: string): string => `import { ${kw} } from "./lib.thetalib"`;
-const importBareSource = (kw: string): string => `${FM}${importBareLine(kw)}\n1\n`;
-const importAliasSource = (kw: string): string =>
-  `${FM}import { a as ${kw} } from "./lib.thetalib"\n1\n`;
-
-// The 1-indexed column each position's name starts at, derived from the fixed
-// prefix of the line above: `for ` is 4 characters, `par for ` is 8,
-// `schema S { ` is 11, `  ` (the YAML indent) is 2, `enum E { ` is 9,
-// `import { ` is 9, `import { a as ` is 14.
-const FOR_COL = 5;
-const PAR_FOR_COL = 9;
-const SCHEMA_FIELD_COL = 12;
-const PARAMS_KEY_COL = 3;
-const ENUM_VARIANT_COL = 10;
-const IMPORT_BARE_COL = 10;
-const IMPORT_ALIAS_COL = 15;
+// `SPELLINGS` (lexical.md:20's 32 spellings, read from the shipped
+// `reservedKeywords()`), the seven source shapes the sweeps drive (one per
+// position; the import face has two name slots and therefore two shapes), the
+// column each shape's name starts at, and the `sweep` / `expectedSweep` pair
+// are the shared sweep harness (tests/helpers/reserved-keyword-sweep.ts).
 
 // ===========================================================================
 // (r) The registered row — the oracle every message and every d-row depends on.
