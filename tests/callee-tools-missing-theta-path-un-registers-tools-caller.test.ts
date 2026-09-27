@@ -1,6 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
@@ -8,13 +6,12 @@ import { parseRegistry } from "../tools/code-registry/index.js";
 import {
   allDiagnostics,
   describeNotes,
-  expectCallerRefusedWithCalleeHasErrors,
-  finishWorkspace,
+  expectCallerRefusedOverStructuralErrors,
   normalisePath,
-  normativeMessagePattern,
+  plantThetaWorkspace,
+  requireCalleeDropRoute,
   requireDriven,
   runLoadPass,
-  type ComposeWorkspace,
   type LoadPass,
 } from "./helpers/compose-workspace-harness";
 import { runDispatchPass } from "./helpers/fixture-dispatch-harness";
@@ -95,7 +92,7 @@ import { runDispatchPass } from "./helpers/fixture-dispatch-harness";
 // provider, no child process, no live model. The seam is one predicate inside
 // the shipped composition root, and `composeExtensionInstance` over planted
 // files reaches it directly. The host and load-pass harness is shared through
-// `tests/helpers/compose-workspace-harness.ts`; fixture planting stays local.
+// `tests/helpers/compose-workspace-harness.ts`, fixture planting included.
 //
 // PATH SEPARATORS. Two walks spell the same file differently. Every path
 // comparison below separator-normalises both sides first; the spelling
@@ -219,43 +216,6 @@ const REGISTRY = parseRegistry(
   ),
 ) as RegistryRow[];
 
-/**
- * Plant the named fixture files on the conventional project source
- * (`.pi/theta/`), exactly as bug 0270 §Reproduction does. `outside` plants into
- * a sibling directory that is NOT a discovery root, which is how cell (D)
- * reaches bug 0111's containment route with a file that genuinely exists. One
- * workspace per cell keeps every decision below attributable to that cell's
- * file set. `dirs` plants DIRECTORIES rather than files — the `.theta` name
- * that exists and `realpath`s while `readBytes` rejects, which cells (D2)/(D3)
- * need; an `outside/` prefix on such a name plants it in the non-root sibling
- * directory.
- */
-function plantWorkspace(
-  files: Readonly<Record<string, string>>,
-  outside?: Readonly<Record<string, string>>,
-  dirs?: readonly string[],
-): ComposeWorkspace {
-  const cwd = mkdtempSync(join(tmpdir(), "theta-b0270-"));
-  mkdirSync(join(cwd, ".pi", "theta"), { recursive: true });
-  for (const [name, body] of Object.entries(files)) {
-    writeFileSync(join(cwd, ".pi", "theta", name), body, "utf8");
-  }
-  if (outside !== undefined) {
-    mkdirSync(join(cwd, "outside"), { recursive: true });
-    for (const [name, body] of Object.entries(outside)) {
-      writeFileSync(join(cwd, "outside", name), body, "utf8");
-    }
-  }
-  const workspace = finishWorkspace(cwd);
-  for (const name of dirs ?? []) {
-    const target = name.startsWith("outside/")
-      ? join(cwd, "outside", name.slice("outside/".length))
-      : join(cwd, ".pi", "theta", name);
-    mkdirSync(target, { recursive: true });
-  }
-  return workspace;
-}
-
 // ── Observation helpers ─────────────────────────────────────────────────────
 
 /** Error-severity codes the pass located at `file`, sorted and de-duplicated. */
@@ -269,50 +229,11 @@ function errorCodesAt(pass: LoadPass, file: string): readonly string[] {
   ].sort();
 }
 
-/**
- * The precondition the offender cells rest on: the callee's OWN drop route fired
- * this pass, located at the callee's own file. Without it the cell is measuring
- * an unrelated pass, so an absent route throws naming itself rather than letting
- * the cell pass or red on the wrong subject.
- */
-function requireCalleeDropRoute(pass: LoadPass, code: string, calleeFile: string): void {
-  const rows = allDiagnostics(pass.notes).filter(
-    (d) =>
-      d.code === code &&
-      d.severity === "error" &&
-      normalisePath(d.file ?? "") === calleeFile,
-  );
-  if (rows.length === 0) {
-    throw new Error(
-      `harness: no error-severity ${code} row is located at the callee's own file — the ` +
-        "callee's own drop route is the premise of bug 0270's caller-side claim, so its " +
-        `absence is a harness failure, never a skip. Notes:\n${describeNotes(pass.notes)}`,
-    );
-  }
-}
-
-/**
- * Bug 0270 §Fix constraint 1, on the route `invocation.md` line 22 settles: the
- * caller does not register, an error-severity `theta/load/callee-has-errors` row
- * is located at the CALLER's file with the registry's Message, and the callee
- * does not register either.
- */
-function expectCallerRefused(pass: LoadPass, callerPath: string, callerName: string): void {
-  expectCallerRefusedWithCalleeHasErrors(
-    pass,
-    callerPath,
-    callerName,
-    CALLEE_HAS_ERRORS_CODE,
-    normativeMessagePattern(REGISTRY, CALLEE_HAS_ERRORS_CODE),
-    "callee with structural errors",
-  );
-}
-
 describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-registers the `tools:` caller too", () => {
   // ── (A) the offender ─────────────────────────────────────────────────────
 
   it("(A) callee's own `tools:` names a `.theta` path with no file: the caller does not register", async () => {
-    const workspace = plantWorkspace({
+    const workspace = plantThetaWorkspace("0270", {
       [CALLEE_NAME]: MISSING_ENTRY_CALLEE_SOURCE,
       [CALLER_NAME]: CALLER_SOURCE,
     });
@@ -324,6 +245,7 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
       // checks under `invocation.md` line 22.
       requireCalleeDropRoute(
         pass,
+        "0270",
         UNRESOLVABLE_THETA_PATH_CODE,
         workspace.path(CALLEE_NAME),
       );
@@ -332,7 +254,12 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
       // the pass is the callee-located `unresolvable-theta-path` row — the stub
       // `resolveThetaCallee` never returns `undefined`, so the caller's scan
       // cannot see it.
-      expectCallerRefused(pass, workspace.path(CALLER_NAME), "b0270caller");
+      expectCallerRefusedOverStructuralErrors(
+        pass,
+        workspace.path(CALLER_NAME),
+        "b0270caller",
+        REGISTRY,
+      );
       // Non-regression: the callee's own drop is correct at HEAD and stays.
       expect(pass.registered).not.toContain("b0270callee");
       expect(pass.registered, describeNotes(pass.notes)).toEqual([]);
@@ -346,7 +273,7 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
   // ── (B) the byte-neighbour control ───────────────────────────────────────
 
   it("(B) control — the named grandchild exists: caller and callee both register, with the `.theta` callable", async () => {
-    const workspace = plantWorkspace({
+    const workspace = plantThetaWorkspace("0270", {
       [GRANDCHILD_NAME]: HEALTHY_GRANDCHILD_SOURCE,
       [CALLEE_NAME]: PRESENT_ENTRY_CALLEE_SOURCE,
       [CALLER_NAME]: CALLER_SOURCE,
@@ -406,7 +333,7 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
     // change, or the drive-time verdict diverges from the load-time one. HEAD
     // puts ZERO notes on the channel here — the gate accepts a file the same
     // pass dropped and the callee's body runs.
-    const workspace = plantWorkspace({
+    const workspace = plantThetaWorkspace("0270", {
       [CALLEE_NAME]: PROMPT_MISSING_ENTRY_CALLEE_SOURCE,
       [INVOKE_CALLER_NAME]: INVOKE_CALLER_SOURCE,
     });
@@ -455,14 +382,15 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
     // 0111), and an escaping entry draws `theta/load/invoke-path-escape`, not
     // `unresolvable-theta-path`. The widened read must not double-report. This
     // cell is green at HEAD and pins that outcome as the thing to preserve.
-    const workspace = plantWorkspace(
+    const workspace = plantThetaWorkspace(
+      "0270",
       { [CALLEE_NAME]: ESCAPING_ENTRY_CALLEE_SOURCE, [CALLER_NAME]: CALLER_SOURCE },
       { [GRANDCHILD_NAME]: HEALTHY_GRANDCHILD_SOURCE },
     );
     try {
       const pass = await runLoadPass(workspace);
       requireDriven(pass, "0270");
-      requireCalleeDropRoute(pass, INVOKE_PATH_ESCAPE_CODE, workspace.path(CALLEE_NAME));
+      requireCalleeDropRoute(pass, "0270", INVOKE_PATH_ESCAPE_CODE, workspace.path(CALLEE_NAME));
 
       // The caller already refuses on this route, through the escape row at its
       // OWN file rather than through `callee-has-errors`.
@@ -496,7 +424,8 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
     // (`code-registry-load.md` line 29) names a path that "does not exist or is
     // not readable" — and the containment walk therefore defers, exactly as the
     // depth-0 loop already does. Exactly ONE caller-located code.
-    const workspace = plantWorkspace(
+    const workspace = plantThetaWorkspace(
+      "0270",
       { [CALLEE_NAME]: ESCAPING_UNREADABLE_CALLEE_SOURCE, [CALLER_NAME]: CALLER_SOURCE },
       {},
       [`outside/${UNREADABLE_DIR_NAME}`],
@@ -508,6 +437,7 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
       // its own row is the read-failure route rather than an escape.
       requireCalleeDropRoute(
         pass,
+        "0270",
         UNRESOLVABLE_THETA_PATH_CODE,
         workspace.path(CALLEE_NAME),
       );
@@ -518,7 +448,12 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
           `${CALLEE_HAS_ERRORS_CODE} row and never ${INVOKE_PATH_ESCAPE_CODE} as well\n` +
           describeNotes(pass.notes),
       ).toEqual([CALLEE_HAS_ERRORS_CODE]);
-      expectCallerRefused(pass, workspace.path(CALLER_NAME), "b0270caller");
+      expectCallerRefusedOverStructuralErrors(
+        pass,
+        workspace.path(CALLER_NAME),
+        "b0270caller",
+        REGISTRY,
+      );
       expect(pass.registered, describeNotes(pass.notes)).toEqual([]);
       expect(pass.notified).toEqual([]);
       expect(pass.offChannel).toEqual([]);
@@ -531,7 +466,8 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
     // Containment cannot fire at all here, so this cell isolates the read
     // failure's own disposition from the precedence question (D2) settles: the
     // caller refuses through one `callee-has-errors` row either way.
-    const workspace = plantWorkspace(
+    const workspace = plantThetaWorkspace(
+      "0270",
       { [CALLEE_NAME]: CONTAINED_UNREADABLE_CALLEE_SOURCE, [CALLER_NAME]: CALLER_SOURCE },
       undefined,
       [UNREADABLE_DIR_NAME],
@@ -541,6 +477,7 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
       requireDriven(pass, "0270");
       requireCalleeDropRoute(
         pass,
+        "0270",
         UNRESOLVABLE_THETA_PATH_CODE,
         workspace.path(CALLEE_NAME),
       );
@@ -549,7 +486,12 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
         errorCodesAt(pass, workspace.path(CALLER_NAME)),
         `the caller's single row on the read-failure route\n${describeNotes(pass.notes)}`,
       ).toEqual([CALLEE_HAS_ERRORS_CODE]);
-      expectCallerRefused(pass, workspace.path(CALLER_NAME), "b0270caller");
+      expectCallerRefusedOverStructuralErrors(
+        pass,
+        workspace.path(CALLER_NAME),
+        "b0270caller",
+        REGISTRY,
+      );
       expect(pass.registered, describeNotes(pass.notes)).toEqual([]);
       expect(pass.notified).toEqual([]);
       expect(pass.offChannel).toEqual([]);
@@ -568,7 +510,7 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
     // `tools:` cycle A↔B still terminates), so the grandchild's own parse
     // failure reaches the caller through the existing
     // `theta/load/callee-has-errors` row.
-    const workspace = plantWorkspace({
+    const workspace = plantThetaWorkspace("0270", {
       [GRANDCHILD_NAME]: BROKEN_GRANDCHILD_SOURCE,
       [CALLEE_NAME]: PRESENT_ENTRY_CALLEE_SOURCE,
       [CALLER_NAME]: CALLER_SOURCE,
@@ -576,7 +518,7 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
     try {
       const pass = await runLoadPass(workspace);
       requireDriven(pass, "0270");
-      requireCalleeDropRoute(pass, CALLEE_HAS_ERRORS_CODE, workspace.path(CALLEE_NAME));
+      requireCalleeDropRoute(pass, "0270", CALLEE_HAS_ERRORS_CODE, workspace.path(CALLEE_NAME));
 
       expect(
         allDiagnostics(pass.notes)

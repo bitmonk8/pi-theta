@@ -1,4 +1,5 @@
-// Shared gated par-for host, driver, and diagnostic-capturing executor deps.
+// Shared gated par-for host, no-effect pure host, driver, and diagnostic-capturing
+// executor deps.
 // The broader par-for conformance host keeps its payload/outcome scripting;
 // these bug witnesses need only dispatch count and admitted in-flight width.
 import type { Diagnostic } from "../../src/diagnostics/diagnostic";
@@ -45,6 +46,48 @@ export function evalBoundedPure(
       return expr.elements.map((e) => evalExpr(e, env));
     default:
       return undefined;
+  }
+}
+
+/**
+ * A `StatementEvalHost` that evaluates only pure forms — the bounded set above
+ * plus `+` / `*` binaries — and runs no effects: `checkpointFor` is always
+ * `null` and `runEffect` throws `effectRefusal`, the caller's own statement of
+ * why an effect reaching the host means the source under test is not the one
+ * the test meant.
+ */
+export class PureHost implements StatementEvalHost {
+  constructor(private readonly effectRefusal: string) {}
+
+  evaluatePure(expr: Expr, env: LexicalEnvironment): ThetaValue {
+    return this.#eval(expr, env);
+  }
+
+  checkpointFor(_expr: Expr): CheckpointDescriptor | null {
+    return null;
+  }
+
+  async runEffect(): Promise<OperationResult> {
+    throw new Error(this.effectRefusal);
+  }
+
+  #eval(expr: Expr, env: LexicalEnvironment): ThetaValue {
+    const bounded = evalBoundedPure(expr, env, (e, en) => this.#eval(e, en));
+    if (bounded !== undefined) {
+      return bounded;
+    }
+    if (expr.kind === "binary") {
+      const left = this.#eval(expr.left, env) as number;
+      const right = this.#eval(expr.right, env) as number;
+      if (expr.op === "*") {
+        return left * right;
+      }
+      if (expr.op === "+") {
+        return left + right;
+      }
+      return null;
+    }
+    return null;
   }
 }
 

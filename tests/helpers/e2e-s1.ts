@@ -759,6 +759,56 @@ export function capturedSchemas(doc: ThetaDocument): CapturedSchema[] {
   }));
 }
 
+/**
+ * How a named-declaration lookup renders the document it searched when it
+ * fails: the statement list and the diagnostics, each in the calling file's
+ * own form, so the loud failure reads in that file's coordinates.
+ */
+export interface DeclLookupRender {
+  readonly statements: (doc: ThetaDocument) => readonly string[];
+  readonly diagnostics: (doc: ThetaDocument) => readonly string[];
+}
+
+/**
+ * The named-`schema` lookups over a document's statement list, bound to the
+ * caller's failure renderer:
+ *   - `schemaDecl` — the named `schema` declaration node, or a loud failure
+ *     naming the parse;
+ *   - `armsOf` — the alias/union arm sources that declaration captured, or a
+ *     loud failure.
+ * A right-hand-side capture that ran past the declaration shows up in `armsOf`
+ * as a joined arm; one that ran short shows up as a missing arm.
+ */
+export function schemaDeclLookup(render: DeclLookupRender): {
+  readonly schemaDecl: (doc: ThetaDocument, name: string, label: string) => Record<string, unknown>;
+  readonly armsOf: (doc: ThetaDocument, name: string, label: string) => readonly string[];
+} {
+  function schemaDecl(doc: ThetaDocument, name: string, label: string): Record<string, unknown> {
+    const decl = doc.body.statements.find((stmt) => {
+      const record = stmt as unknown as Record<string, unknown>;
+      return record["kind"] === "schema" && record["name"] === name;
+    });
+    if (decl === undefined) {
+      throw new Error(
+        `${label}: no \`schema ${name}\` declaration in the statement list ` +
+          `${JSON.stringify(render.statements(doc))}; diagnostics=${JSON.stringify(render.diagnostics(doc))}`,
+      );
+    }
+    return decl as unknown as Record<string, unknown>;
+  }
+  function armsOf(doc: ThetaDocument, name: string, label: string): readonly string[] {
+    const arms = schemaDecl(doc, name, label)["arms"];
+    if (!Array.isArray(arms)) {
+      throw new Error(
+        `${label}: \`schema ${name}\` carries no alias/union arm list, so the right-hand side ` +
+          `was not captured as a declaration at all; diagnostics=${JSON.stringify(render.diagnostics(doc))}`,
+      );
+    }
+    return arms as readonly string[];
+  }
+  return { schemaDecl, armsOf };
+}
+
 /** Top-level declarations of this kind, preserving source order. */
 export function enumDeclsOf(doc: ThetaDocument): readonly EnumDecl[] {
   return doc.body.statements.filter((s): s is EnumDecl => s.kind === "enum");

@@ -30,13 +30,26 @@
 // message pattern stay the caller's own, so the assertion takes both as
 // parameters instead of pinning one code.
 //
+// `plantThetaWorkspace`, `requireCalleeDropRoute` and
+// `expectCallerRefusedOverStructuralErrors` (PTQ-1425) are the thin adapter
+// layer the bug-0267 and bug-0270 `tools:`-caller witnesses both redeclared:
+// the plain `.pi/theta/` (+ optional `outside/`, directory-entry) planter, the
+// callee-drop-route precondition guard, and the `callee-has-errors` refusal
+// bound to the caller's own registry. Planters that vary beyond that shape
+// still stay local and call `finishWorkspace`.
+//
+// `expectNoSideNotifications` (PTQ-1426) is the `LoadPass` no-side-effect
+// tail those witnesses end on: no UI toast (`notified`) and nothing off the
+// `theta-system-note` channel (`offChannel`).
+//
 // `makeIdleModelHost` supplies the no-op host + idle, one-model context used
 // by result-channel and registration-refusal tests; recording hooks stay local.
 //
 // TIER: unit, offline, deterministic, provider-free. Live load cells also reuse
 // the pure `theta` text builder.
 
-import { rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, vi } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -230,6 +243,43 @@ export function finishWorkspace(cwd: string): ComposeWorkspace {
   };
 }
 
+/**
+ * Plant the named fixture files on the conventional project source
+ * (`.pi/theta/`) of a fresh `theta-b<bugId>-` temp directory, exactly as each
+ * importing bug report's §Reproduction does. `outside` plants into a sibling
+ * directory that is NOT a discovery root (a file that genuinely exists but sits
+ * outside every root). `dirs` plants DIRECTORIES rather than files — a `.theta`
+ * name that exists and `realpath`s while `readBytes` rejects; an `outside/`
+ * prefix on such a name plants it in the non-root sibling directory. One
+ * workspace per cell keeps every decision attributable to that cell's file set.
+ */
+export function plantThetaWorkspace(
+  bugId: string,
+  files: Readonly<Record<string, string>>,
+  outside?: Readonly<Record<string, string>>,
+  dirs?: readonly string[],
+): ComposeWorkspace {
+  const cwd = mkdtempSync(join(tmpdir(), `theta-b${bugId}-`));
+  mkdirSync(join(cwd, ".pi", "theta"), { recursive: true });
+  for (const [name, body] of Object.entries(files)) {
+    writeFileSync(join(cwd, ".pi", "theta", name), body, "utf8");
+  }
+  if (outside !== undefined) {
+    mkdirSync(join(cwd, "outside"), { recursive: true });
+    for (const [name, body] of Object.entries(outside)) {
+      writeFileSync(join(cwd, "outside", name), body, "utf8");
+    }
+  }
+  const workspace = finishWorkspace(cwd);
+  for (const name of dirs ?? []) {
+    const target = name.startsWith("outside/")
+      ? join(cwd, "outside", name.slice("outside/".length))
+      : join(cwd, ".pi", "theta", name);
+    mkdirSync(target, { recursive: true });
+  }
+  return workspace;
+}
+
 // ── The load pass (PTQ-0230) ────────────────────────────────────────────────
 
 export interface LoadPass {
@@ -259,6 +309,16 @@ export async function runLoadPass(
     registered: wiring.thetas.map((t) => t.slashName),
     thetas: wiring.thetas,
   };
+}
+
+/**
+ * The load pass raised no UI toast (`notified`) and put nothing off the
+ * `theta-system-note` channel (`offChannel`) — its every report reached the
+ * author through the channel alone (PTQ-1426).
+ */
+export function expectNoSideNotifications(pass: Pick<LoadPass, "notified" | "offChannel">): void {
+  expect(pass.notified).toEqual([]);
+  expect(pass.offChannel).toEqual([]);
 }
 
 export function theta(...lines: string[]): string {
@@ -456,6 +516,36 @@ export function requireDriven(pass: LoadPass, bugId: string, requireNotes = fals
 }
 
 /**
+ * The precondition a callee-drop defect cell rests on: the callee's OWN drop
+ * route fired this pass — an error-severity `code` row, located at `calleeFile`
+ * when given. Without it the cell is measuring an unrelated pass, so an absent
+ * route throws naming itself (and bug `bugId`) rather than letting the cell pass
+ * or red on the wrong subject.
+ */
+export function requireCalleeDropRoute(
+  pass: LoadPass,
+  bugId: string,
+  code: string,
+  calleeFile?: string,
+): void {
+  const rows = allDiagnostics(pass.notes).filter(
+    (d) =>
+      d.code === code &&
+      d.severity === "error" &&
+      (calleeFile === undefined || normalisePath(d.file ?? "") === calleeFile),
+  );
+  if (rows.length === 0) {
+    const where =
+      calleeFile === undefined ? "reached the channel" : "is located at the callee's own file";
+    throw new Error(
+      `harness: no error-severity ${code} row ${where} — the callee's own drop route is ` +
+        `the precondition for bug ${bugId}'s caller-side claim, so its absence is a ` +
+        `harness failure, never a skip. Notes:\n${describeNotes(pass.notes)}`,
+    );
+  }
+}
+
+/**
  * The row's normative *Message* (DIAG-4) as a regex with the `<placeholder>`
  * slots opened up. Throws naming the registry pages when the row is absent, so
  * registry drift can never degrade a presence assertion into a comparison
@@ -509,6 +599,31 @@ export function expectCallerRefusedWithCalleeHasErrors(
       describeNotes(pass.notes),
   ).toEqual([code]);
   expect((rows[0] as Diagnostic).message, `${code} message`).toMatch(messagePattern);
+}
+
+/**
+ * `expectCallerRefusedWithCalleeHasErrors` bound to `theta/load/callee-has-errors`
+ * over a callee with structural errors (§Fix constraint 1 of bugs 0267/0270, on
+ * the route `invocation.md` line 22 settles): the caller does not register, an
+ * error-severity `theta/load/callee-has-errors` row is located at the CALLER's
+ * file with the Message `registry` (the caller's own registry pages) carries,
+ * and the callee does not register either.
+ */
+export function expectCallerRefusedOverStructuralErrors(
+  pass: LoadPass,
+  callerPath: string,
+  callerStem: string,
+  registry: readonly { readonly code: string; readonly message: string }[],
+): void {
+  const code = "theta/load/callee-has-errors";
+  expectCallerRefusedWithCalleeHasErrors(
+    pass,
+    callerPath,
+    callerStem,
+    code,
+    normativeMessagePattern(registry, code),
+    "callee with structural errors",
+  );
 }
 
 // Narrow the recorded diagnostics to exactly one, failing loudly (no silent

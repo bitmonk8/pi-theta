@@ -77,6 +77,38 @@ export function section(text: string, heading: string, rel: string, region: stri
   return heading + (end < 0 ? rest : rest.slice(0, end));
 }
 
+/**
+ * The reserved set read out of its normative source, `docs/spec_topics/lexical.md`
+ * `:20` "**Reserved keywords.**" sentence, in spec order. The lexer's
+ * `reservedKeywords()` (src/lexer/lexer.ts) is module-private, so the spec
+ * sentence is the oracle a reserved-keyword test's exhaustiveness claim is
+ * checked against: a spelling added to or removed from the sentence reds the
+ * caller instead of silently narrowing its coverage. The extraction THROWS when
+ * either anchor text is absent rather than degrading to a shorter list.
+ */
+export function specReservedKeywords(): string[] {
+  const page = readRepoFile("docs/spec_topics/lexical.md");
+  const open = "**Reserved keywords.** Cannot be used as identifiers: ";
+  const start = page.indexOf(open);
+  if (start < 0) {
+    throw new Error(
+      `docs/spec_topics/lexical.md carries no \`${open}\` sentence, so the reserved set has no ` +
+        "normative source to check the matrix against",
+    );
+  }
+  const close = ". Using one of these in identifier position is";
+  const end = page.indexOf(close, start);
+  if (end < 0) {
+    throw new Error(
+      "docs/spec_topics/lexical.md §Reserved keywords no longer ends its list with " +
+        `\`${close}\`, so the list's extent cannot be determined`,
+    );
+  }
+  return [...page.slice(start + open.length, end).matchAll(/`([^`]+)`/g)].map(
+    (match) => match[1] as string,
+  );
+}
+
 /** Whitespace-collapsed, lowercased text — wording and wrapping are the editor's. */
 export function flat(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();

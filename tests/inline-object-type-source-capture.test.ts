@@ -1,5 +1,4 @@
-import { REGISTRY, DUP, QUOTED, NOTIDENT } from "./helpers/registry-oracle";
-import { registryMessageOf } from "./helpers/load-row-harness";
+import { REGISTRY, DUP, QUOTED, NOTIDENT, type Exp, render, renderAll } from "./helpers/registry-oracle";
 import { readRepoFile } from "./helpers/corpus-reader";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
@@ -145,7 +144,7 @@ import {
 //     position).
 //   * SYMPTOM 3 — THE MISSING REGISTRY ROW. Cell A0, cell A1, and every
 //     message-level expectation that fills the new row's template (DIAG-4
-//     forbids copying the prose, so those cells red inside `msg()` naming the
+//     forbids copying the prose, so those cells red inside `render()` naming the
 //     registry until the row lands — which is the correct pre-fix red).
 // GREEN NOW AND AFTER (the no-move controls): group (F)'s E1/E2 lowered bytes
 // and their empty diagnostic lists, E3's whole position map, group (G)'s
@@ -189,32 +188,6 @@ const QUERY_NOT_EXPR = "theta/parse/query-annotation-type-not-expression";
 const PARAMS_NOT_EXPR = "theta/load/params-type-not-expression";
 /** Drawn by group (G)'s `array<x>` bound only. */
 const UNRESOLVED_NAMED = "theta/parse/unresolved-named-type";
-
-/** One expected diagnostic, as a code plus the placeholder fills its row needs. */
-interface Exp {
-  readonly severity: "error" | "warning";
-  readonly code: string;
-  readonly fills: ReadonlyArray<readonly [string, string]>;
-}
-
-/**
- * The registry row's normative *Message* template with its named placeholders
- * filled (DIAG-4). Definedness and placeholder presence are asserted first, so
- * a missing row or a reworded template reds by naming the registry rather than
- * by a bare `undefined` comparison.
- */
-function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): string {
-  return registryMessageOf(REGISTRY, "docs/spec_topics/diagnostics/", code, fills);
-}
-
-/** One rendered diagnostic, in the shape `diagLines` produces. */
-function render(exp: Exp): string {
-  return `${exp.severity} ${exp.code}: ${msg(exp.code, exp.fills)}`;
-}
-
-function renderAll(exps: readonly Exp[]): string[] {
-  return exps.map(render);
-}
 
 function codesOf(exps: readonly Exp[]): string[] {
   return exps.map((e) => e.code);

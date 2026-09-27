@@ -5,7 +5,7 @@ import {
   range,
   deniesRegistration,
 } from "./helpers/load-row-harness";
-import { readRepoFile } from "./helpers/corpus-reader";
+import { readRepoFile, specReservedKeywords } from "./helpers/corpus-reader";
 import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
@@ -205,23 +205,12 @@ describe("0219 (r) — the registered row the refusal renders from", () => {
 // The reserved list, read off the spec rather than restated.
 // ===========================================================================
 
-/**
- * `lexical.md:20`'s 32 reserved spellings, extracted from the sentence itself.
- * Reading the list from the spec is what makes group (a) a claim about the
- * CLASS: a spelling added to or removed from the sentence must be accounted for
- * by one of the three partitions below or the partition cell reds.
- */
-function specReservedWords(): readonly string[] {
-  const lexical = readRepoFile(LEXICAL_PAGE).split("\n");
-  const sentence = lexical.find((l) => l.startsWith("**Reserved keywords.**"));
-  if (sentence === undefined) {
-    throw new Error(
-      `${LEXICAL_PAGE} no longer carries a line starting '**Reserved keywords.**' — the reserved-list oracle for bug 0219's class has no source`,
-    );
-  }
-  const listPart = sentence.split("Using one of these")[0] as string;
-  return [...listPart.matchAll(/`([A-Za-z_]+)`/g)].map((m) => m[1] as string);
-}
+// `lexical.md:20`'s 32 reserved spellings come from the shared
+// `specReservedKeywords()` (tests/helpers/corpus-reader.ts), extracted from the
+// sentence itself. Reading the list from the spec is what makes group (a) a
+// claim about the CLASS: a spelling added to or removed from the sentence must
+// be accounted for by one of the three partitions below or the partition cell
+// reds.
 
 /**
  * The five spellings the bug names as rows a1–a6 (a2 is `Result` with an empty
@@ -359,7 +348,7 @@ describe("0219 (a) — a reserved keyword heading an object pattern draws the re
       ...OTHER_IN_CLASS,
       ...CLAIMED_ABOVE,
     ]);
-    const spec = specReservedWords();
+    const spec = specReservedKeywords();
     expect(
       spec.length,
       `${LEXICAL_PAGE}:20 must still list 32 reserved spellings; got ${JSON.stringify(spec)}`,

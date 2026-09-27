@@ -1,7 +1,6 @@
-import { REGISTRY, DUP, QUOTED, RENAMED, NOTIDENT } from "./helpers/registry-oracle";
+import { DUP, QUOTED, RENAMED, NOTIDENT, type Exp, render, renderAll } from "./helpers/registry-oracle";
 import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
-import { registryMessageOf } from "./helpers/load-row-harness";
 import { splitTopLevelSegments, topLevelColon } from "../src/parser/params";
 import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseDoc, diagLines, subagentTheta as theta, loweredParams } from "./helpers/e2e-s1";
 
@@ -183,21 +182,6 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseD
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-/**
- * The registry row's normative *Message* template with its named placeholders
- * filled (DIAG-4). Definedness and placeholder presence are asserted first, so a
- * missing row or a reworded template reds by naming the registry rather than by
- * a bare `undefined` comparison.
- */
-function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): string {
-  return registryMessageOf(
-    REGISTRY,
-    "docs/spec_topics/diagnostics/code-registry-{parse,load,runtime,host}.md",
-    code,
-    fills,
-  );
-}
-
 const BINDING_CASE = "theta/parse/binding-case-mismatch";
 const LET_RHS_MISMATCH = "theta/parse/let-rhs-type-mismatch";
 const SCHEMA_NOT_EXPR = "theta/parse/schema-type-not-expression";
@@ -208,13 +192,6 @@ const PARAMS_NOT_EXPR = "theta/load/params-type-not-expression";
  * Added for that one cell; every other cell in this file is unmoved.
  */
 const ANNOTATION_NOT_EXPR = "theta/parse/annotation-type-not-expression";
-
-/** One expected diagnostic, as a code plus the placeholder fills its row needs. */
-interface Exp {
-  readonly severity: "error" | "warning";
-  readonly code: string;
-  readonly fills: ReadonlyArray<readonly [string, string]>;
-}
 
 /** Bug 0154's lowercase-first pass over `TypeNode.fieldNames` — W13's line. */
 const CASE: Exp = { severity: "error", code: BINDING_CASE, fills: [] };
@@ -246,15 +223,6 @@ function PARAMSNOTEXPR(param: string): Exp {
 /** Bug 0252's refusal, naming the `let` binder — W21's attributed line. */
 function ANNOTATIONNOTEXPR(name: string): Exp {
   return { severity: "error", code: ANNOTATION_NOT_EXPR, fills: [["<name>", name]] };
-}
-
-/** One rendered diagnostic, in the shape `diagLines` produces. */
-function render(exp: Exp): string {
-  return `${exp.severity} ${exp.code}: ${msg(exp.code, exp.fills)}`;
-}
-
-function renderAll(exps: readonly Exp[]): string[] {
-  return exps.map(render);
 }
 
 // ===========================================================================

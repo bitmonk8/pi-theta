@@ -8,6 +8,8 @@ import {
   matchExpr,
   queryExpr,
   span,
+  arrayExpr,
+  returnStmt,
 } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import { executeBody } from "../src/runtime/statement-executor";
@@ -17,7 +19,6 @@ import type {
   Expr,
   MatchArmNode,
   MatchExpr,
-  Stmt,
 } from "../src/parser/theta-document";
 
 // Bug 0307 — a value-position query-effect failure (`let r = @`…``, no `?`)
@@ -50,15 +51,6 @@ import type {
 // or a harness throw: the scripted host returns a real `{ ok:false, error }`
 // query failure and the executor is driven to the value-position abort. The fix
 // version placeholder used below is 0.298.0 (no version invented here).
-
-function arrayExpr(elements: readonly Expr[]): Expr {
-  return { kind: "array", elements, range: span() };
-}
-
-/** A `return <operand>` statement. */
-function returnStmt(operand: Expr | null): Stmt {
-  return { kind: "return", operand, range: span() };
-}
 
 /** The two-arm result `match` the bug's recovery shape uses. */
 function okErrMatch(scrutinee: Expr): MatchExpr {

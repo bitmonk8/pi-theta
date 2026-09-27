@@ -7,6 +7,7 @@ import {
   describeNotes,
   errorFilesOf,
   expectCallerRefusedWithCalleeHasErrors,
+  expectNoSideNotifications,
   finishWorkspace,
   normalisePath,
   normativeMessagePattern as normativeMessagePatternCore,
@@ -404,8 +405,7 @@ describe("bug 0271 — a grandchild that fails its own checks un-registers the g
       expectCallerRefused(pass, workspace.path(GP_NAME), GP_STEM);
       // Non-regression: the depth-1 outcomes are correct at HEAD and stay.
       expect(pass.registered, describeNotes(pass.notes)).toEqual([]);
-      expect(pass.notified).toEqual([]);
-      expect(pass.offChannel).toEqual([]);
+      expectNoSideNotifications(pass);
     } finally {
       workspace.dispose();
     }
@@ -434,8 +434,7 @@ describe("bug 0271 — a grandchild that fails its own checks un-registers the g
 
       expectCallerRefused(pass, workspace.path(GP_NAME), GP_STEM);
       expect(pass.registered, describeNotes(pass.notes)).toEqual([]);
-      expect(pass.notified).toEqual([]);
-      expect(pass.offChannel).toEqual([]);
+      expectNoSideNotifications(pass);
     } finally {
       workspace.dispose();
     }
@@ -464,8 +463,7 @@ describe("bug 0271 — a grandchild that fails its own checks un-registers the g
 
       expectCallerRefused(pass, workspace.path(GP_NAME), GP_STEM);
       expect(pass.registered, describeNotes(pass.notes)).toEqual([]);
-      expect(pass.notified).toEqual([]);
-      expect(pass.offChannel).toEqual([]);
+      expectNoSideNotifications(pass);
     } finally {
       workspace.dispose();
     }
@@ -518,8 +516,7 @@ describe("bug 0271 — a grandchild that fails its own checks un-registers the g
         /^sha256:[0-9a-f]{64}$/,
       );
 
-      expect(pass.notified).toEqual([]);
-      expect(pass.offChannel).toEqual([]);
+      expectNoSideNotifications(pass);
     } finally {
       workspace.dispose();
     }
@@ -560,8 +557,7 @@ describe("bug 0271 — a grandchild that fails its own checks un-registers the g
           "a cycle of healthy members must draw no diagnostic — the bound withholds, it does " +
             "not refuse",
         ).toEqual([]);
-        expect(pass.notified).toEqual([]);
-        expect(pass.offChannel).toEqual([]);
+        expectNoSideNotifications(pass);
       } finally {
         workspace.dispose();
       }
@@ -599,8 +595,7 @@ describe("bug 0271 — a grandchild that fails its own checks un-registers the g
 
         expectCallerRefused(pass, workspace.path(CYC_CALLER_NAME), CYC_CALLER_STEM);
         expect(pass.registered, describeNotes(pass.notes)).toEqual([]);
-        expect(pass.notified).toEqual([]);
-        expect(pass.offChannel).toEqual([]);
+        expectNoSideNotifications(pass);
       } finally {
         workspace.dispose();
       }
@@ -638,8 +633,7 @@ describe("bug 0271 — a grandchild that fails its own checks un-registers the g
         [...pass.registered],
         `the great-grandchild's own parse error un-registers it too\n${describeNotes(pass.notes)}`,
       ).not.toContain(GGC_STEM);
-      expect(pass.notified).toEqual([]);
-      expect(pass.offChannel).toEqual([]);
+      expectNoSideNotifications(pass);
     } finally {
       workspace.dispose();
     }
@@ -676,8 +670,7 @@ describe("bug 0271 — a grandchild that fails its own checks un-registers the g
         `a grandchild whose bytes are never parsed must draw no ${CALLEE_HAS_ERRORS_CODE} anywhere`,
       ).toEqual([]);
       expect(pass.registered, describeNotes(pass.notes)).toEqual([]);
-      expect(pass.notified).toEqual([]);
-      expect(pass.offChannel).toEqual([]);
+      expectNoSideNotifications(pass);
     } finally {
       workspace.dispose();
     }
@@ -736,8 +729,7 @@ describe("bug 0271 — a grandchild that fails its own checks un-registers the g
           `no pass either\n${describeNotes(pass.notes)}`,
       ).toEqual([]);
       expect(pass.registered, describeNotes(pass.notes)).toEqual([]);
-      expect(pass.notified).toEqual([]);
-      expect(pass.offChannel).toEqual([]);
+      expectNoSideNotifications(pass);
     } finally {
       workspace.dispose();
     }
@@ -797,8 +789,7 @@ describe("bug 0271 — a grandchild that fails its own checks un-registers the g
       ).toEqual([]);
       expect([...pass.registered]).not.toContain(CHILD_STEM);
       expect([...pass.registered]).not.toContain(GC_STEM);
-      expect(pass.notified).toEqual([]);
-      expect(pass.offChannel).toEqual([]);
+      expectNoSideNotifications(pass);
     } finally {
       workspace.dispose();
     }

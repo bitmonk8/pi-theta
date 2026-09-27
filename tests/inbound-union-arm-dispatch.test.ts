@@ -1,20 +1,18 @@
 import { scripted } from "./helpers/scripted-complete-queue-mock";
 import { ajv as realAjv, assistantReply, contextToolsOf, ANTHROPIC_MODEL as SCRIPTED_MODEL } from "./helpers/scripted-live-session-harness";
 import {
+  CHILD_MODEL_ID,
+  CHILD_MODEL_PROVIDER,
   requireRealSubagentPathsFor,
   realExecutableHost,
-  launchRealSubagentChild,
-  childExit,
-  driveWatchedSubagentChild,
-  reapSubagentChildren,
+  driveRealSubagentRoot,
+  dropScratchDir,
+  writeRealSubagentScratchTree,
 } from "./helpers/real-subagent-spawn";
 import { reportOf } from "./helpers/subagent-fn-child-regime";
 import { parseDeps as makeParseDeps, schemaDeclsOf, enumDeclsOf } from "./helpers/e2e-s1";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -59,7 +57,6 @@ import type { Checkpoint } from "../src/seams/checkpoint";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { QueryError } from "../src/runtime/query-error";
 import type { RuntimeRoot } from "../src/runtime-root";
-import { driveSubagentChild } from "../src/runtime/subagent-json-driver";
 import { type ChildExitInfo, type ExecutableHost } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_PARAMS_ENV, SUBAGENT_PARAMS_FILE_ENV } from "../src/runtime/subagent-params";
 import { type LoweredSchema, type SchemaValidator } from "../src/seams/schema-validator";
@@ -1213,11 +1210,8 @@ describe("bug 0172 face 2 — the binder-`args` boundary, parent side, over a un
 // replaced by the repo's own pi CLI entry through the `ExecutableHost`,
 // `PI_THETA_SUBAGENT_EXTENSION_PIN` set to this working tree's `extensions/`,
 // and `parentPid` written beside it so the AUTHENTICATED control plane does not
-// strip the pin.
-
-/** The marshalled model reference riding the child argv (PIC-62). NEVER CONTACTED. */
-const CHILD_MODEL_PROVIDER = "anthropic";
-const CHILD_MODEL_ID = "claude-fable-5";
+// strip the pin. The marshalled model reference riding the child argv
+// (`CHILD_MODEL_PROVIDER`/`CHILD_MODEL_ID`, PIC-62) is NEVER CONTACTED.
 
 /** Fail loudly on a missing precondition — never a silent skip. */
 const requireRealSubagentPaths = requireRealSubagentPathsFor(
@@ -1284,12 +1278,14 @@ async function driveRootChild(input: {
   // Rung-1 executable resolution, exactly as a pi-hosted parent resolves it
   // (node + the entry script); pinned to the repo's own pi install.
   const host: ExecutableHost = realExecutableHost();
+  // Subscribed (via `onExit`) BEFORE driving so the terminal `'close'` is never missed.
+  let exit: ChildExitInfo | "no exit observed" = "no exit observed";
   // The extension pin rides `parentEnv` and inherits down to any grandchild the
   // root theta spawns; `parentPid` is what authenticates the pin at each level,
   // so omitting it would strip the pin silently and bind ambient builds.
-  const { launch, diagnostics, emitDiagnostic } = launchRealSubagentChild({
+  const drive = await driveRealSubagentRoot({
     slug: input.slug,
-    thetaDirs: [input.thetaDir],
+    thetaDir: input.thetaDir,
     provider: CHILD_MODEL_PROVIDER,
     model: CHILD_MODEL_ID,
     cwd: input.scratchDir,
@@ -1302,72 +1298,46 @@ async function driveRootChild(input: {
       [SUBAGENT_PARAMS_FILE_ENV]: undefined,
     },
     host,
+    // In-test bound BELOW the vitest timeout: on a stall (the root child or a
+    // grandchild making no progress) kill the tree so the drive settles
+    // fail-closed and the assertions report loudly, instead of the test and a
+    // live process tree hanging to the outer timeout.
+    watchdogMs: 60_000,
+    onExit: (info) => {
+      exit = info;
+    },
   });
-  if (!launch.ok) {
+  if (!drive.ok) {
     throw new Error(
-      `harness: the child did not launch (${JSON.stringify(launch.reason)}), so no cell below ` +
-        `observes an inbound boundary: ${JSON.stringify(diagnostics)}`,
+      `harness: the child did not launch (${JSON.stringify(drive.reason)}), so no cell below ` +
+        `observes an inbound boundary: ${JSON.stringify(drive.diagnostics)}`,
     );
   }
-  const child = launch.child;
-
-  // Subscribed BEFORE driving so the terminal `'close'` is never missed.
-  let exit: ChildExitInfo | "no exit observed" = "no exit observed";
-  const exitPromise = childExit(child, (info) => { exit = info; });
-  // In-test bound BELOW the vitest timeout: on a stall (the root child or a
-  // grandchild making no progress) kill the tree so the drive settles
-  // fail-closed and the assertions report loudly, instead of the test and a
-  // live process tree hanging to the outer timeout.
-  let killedByWatchdog: boolean;
-  let result: Awaited<ReturnType<typeof driveSubagentChild>>;
-  try {
-    ({ result, killedByWatchdog } = await driveWatchedSubagentChild(
-      child, join(input.thetaDir, `${input.slug}.theta`), emitDiagnostic, 60_000,
-    ));
-  } finally {
-    // Reap on every path (idempotent on an already-exited child), then await its
-    // exit (bounded): the dying child's cwd is inside the scratch tree, so
-    // leaving it live could make the caller's cleanup throw EBUSY and replace a
-    // primary assertion error with a less diagnostic one.
-    await reapSubagentChildren([{ kill: () => child.kill(), exited: exitPromise }]);
-  }
+  // The drive reaped the child on every path (idempotent on an already-exited
+  // child) and awaited its exit (bounded): the dying child's cwd is inside the
+  // scratch tree, so leaving it live could make the caller's cleanup throw
+  // EBUSY and replace a primary assertion error with a less diagnostic one.
+  const { result } = drive;
   return {
     ok: result.ok,
     payload: result.ok ? result.value : result.error,
-    diagnostics,
+    diagnostics: drive.diagnostics,
     exit,
-    killedByWatchdog,
+    killedByWatchdog: drive.killedByWatchdog,
   };
 }
 
-/** Best-effort scratch cleanup; never mask the primary test failure. */
-function dropScratch(scratchDir: string): void {
-  try {
-    rmSync(scratchDir, { recursive: true, force: true });
-  } catch {
-    // The child's cwd may still be releasing; the OS temp sweeper owns the rest.
-  }
-}
-
-/** One discovery root, holding the fixtures a cell's root theta resolves `./` against. */
-function plantThetas(files: Readonly<Record<string, string>>): {
-  readonly scratchDir: string;
-  readonly thetaDir: string;
-} {
-  const scratchDir = mkdtempSync(join(tmpdir(), "pi-theta-bug0172-face2-"));
-  const thetaDir = join(scratchDir, "thetas");
-  mkdirSync(thetaDir, { recursive: true });
-  for (const [name, text] of Object.entries(files)) {
-    writeFileSync(join(thetaDir, name), text);
-  }
-  return { scratchDir, thetaDir };
-}
+/** The tmp prefix of each cell's one discovery root (its root theta resolves `./` against it). */
+const SCRATCH_PREFIX = "pi-theta-bug0172-face2-";
 
 describe("bug 0172 face 2 — the invoke return boundary over a union annotation", () => {
   it(
     "RED (invoke-union): `invoke<Sev | null>` of a subagent callee binds a tagged variant",
     async () => {
-      const planted = plantThetas({ "kid.theta": INVOKE_KID, "top.theta": INVOKE_TOP });
+      const planted = writeRealSubagentScratchTree(SCRATCH_PREFIX, {
+        "kid.theta": INVOKE_KID,
+        "top.theta": INVOKE_TOP,
+      });
       try {
         const drive = await driveRootChild({
           scratchDir: planted.scratchDir,
@@ -1420,7 +1390,7 @@ describe("bug 0172 face 2 — the invoke return boundary over a union annotation
         // self-exits 0.
         expect(drive.exit).toEqual({ code: 0, signal: null });
       } finally {
-        dropScratch(planted.scratchDir);
+        dropScratchDir(planted.scratchDir);
       }
     },
     120_000,
@@ -1465,7 +1435,7 @@ describe("bug 0172 face 2 — the child-side `params:` intake over a union-typed
   it(
     "RED (child-params-union): a marshalled `sev: Sev | null` binds tagged inside the spawned child",
     async () => {
-      const planted = plantThetas({
+      const planted = writeRealSubagentScratchTree(SCRATCH_PREFIX, {
         "root.theta": CHILD_PARAMS_ROOT,
         "rootctl.theta": CHILD_PARAMS_CONTROL,
       });
@@ -1510,7 +1480,7 @@ describe("bug 0172 face 2 — the child-side `params:` intake over a union-typed
         ).toBe(true);
         expect(control.payload).toBe("n");
       } finally {
-        dropScratch(planted.scratchDir);
+        dropScratchDir(planted.scratchDir);
       }
     },
     120_000,

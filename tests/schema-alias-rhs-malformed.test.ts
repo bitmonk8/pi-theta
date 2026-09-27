@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, schemaDeclLookup } from "./helpers/e2e-s1";
 
 // Bug 0042 — a `schema X = …` right-hand side the grammar does not derive is
 // consumed in part and reported not at all: `schema X = Cat Cat` registers a
@@ -367,36 +367,16 @@ function stmtSpans(doc: ThetaDocument, prelude: number): string[] {
   });
 }
 
-/** The named `schema` declaration node, or a loud failure naming the parse. */
-function schemaDecl(doc: ThetaDocument, name: string, label: string): Record<string, unknown> {
-  const decl = doc.body.statements.find((stmt) => {
-    const record = stmt as unknown as Record<string, unknown>;
-    return record["kind"] === "schema" && record["name"] === name;
-  });
-  if (decl === undefined) {
-    throw new Error(
-      `${label}: no \`schema ${name}\` declaration in the statement list ` +
-        `${JSON.stringify(stmtSpans(doc, 0))}; diagnostics=${JSON.stringify(renderDiags(doc.diagnostics, 0))}`,
-    );
-  }
-  return decl as unknown as Record<string, unknown>;
-}
-
 /**
- * The alias/union arm sources the named declaration captured, or a loud failure.
- * A capture that ran past the declaration shows up here as a joined arm; one
- * that ran short shows up as a missing arm.
+ * The named `schema` declaration node and its alias/union arm sources, or a
+ * loud failure naming the parse (shared `schemaDeclLookup`, tests/helpers/e2e-s1.ts).
+ * A capture that ran past the declaration shows up in `armsOf` as a joined arm;
+ * one that ran short shows up as a missing arm.
  */
-function armsOf(doc: ThetaDocument, name: string, label: string): readonly string[] {
-  const arms = schemaDecl(doc, name, label)["arms"];
-  if (!Array.isArray(arms)) {
-    throw new Error(
-      `${label}: \`schema ${name}\` carries no alias/union arm list, so the right-hand side was ` +
-        `not captured as a declaration at all; diagnostics=${JSON.stringify(renderDiags(doc.diagnostics, 0))}`,
-    );
-  }
-  return arms as readonly string[];
-}
+const { schemaDecl, armsOf } = schemaDeclLookup({
+  statements: (doc) => stmtSpans(doc, 0),
+  diagnostics: (doc) => renderDiags(doc.diagnostics, 0),
+});
 
 /** The named declaration's own source span, body-relative, or a loud failure. */
 function declSpan(doc: ThetaDocument, name: string, label: string, prelude: number): string {

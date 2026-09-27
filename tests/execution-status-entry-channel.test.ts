@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   createEntryChannel,
   createProgressEntryRenderer,
@@ -7,6 +6,7 @@ import {
 } from "../src/extension/execution-status/entry-channel";
 import { createSystemNoteRenderer } from "../src/extension/system-note-renderer";
 import type { SystemNote } from "../src/extension/system-note-channel";
+import { recordingEntryPi as fakePi } from "./helpers/execution-status-progress";
 
 // RFC 0010 (execution-status.md EXST-8; runtime-event-channel.md PIC-71/72) —
 // `tests/execution-status-entry-channel.test.ts` (T-ENT). Behaviour-matrix
@@ -19,47 +19,6 @@ import type { SystemNote } from "../src/extension/system-note-channel";
 // true — every "delivered as an entry" assertion below asserts that real
 // `pi.appendEntry` call; the `live()`-only "absent surface" / "registration
 // throws" assertions cover the probe/registration wiring directly.
-
-/** A recording fake `pi` exposing appendEntry + registerEntryRenderer (mirrors
- *  tests/extension-factory-harness.test.ts's `makeAbsentSeamPi` recording-double
- *  style: every call recorded, selected members optionally throw). */
-function fakePi(options: {
-  readonly absentAppendEntry?: boolean;
-  readonly absentRegisterEntryRenderer?: boolean;
-  readonly registerEntryRendererThrows?: boolean;
-  readonly appendEntryThrows?: boolean | ((n: number) => boolean);
-}): {
-  pi: ExtensionAPI;
-  appendCalls: { customType: string; data: unknown }[];
-  registeredRenderer: unknown;
-} {
-  const appendCalls: { customType: string; data: unknown }[] = [];
-  let registeredRenderer: unknown;
-  let appendCount = 0;
-  const base: Record<string, unknown> = {};
-  if (!options.absentRegisterEntryRenderer) {
-    base.registerEntryRenderer = (_type: string, renderer: unknown): void => {
-      if (options.registerEntryRendererThrows) {
-        throw new Error("registerEntryRenderer host seam absent");
-      }
-      registeredRenderer = renderer;
-    };
-  }
-  if (!options.absentAppendEntry) {
-    base.appendEntry = (customType: string, data: unknown): void => {
-      appendCount += 1;
-      const throwsNow =
-        typeof options.appendEntryThrows === "function"
-          ? options.appendEntryThrows(appendCount)
-          : options.appendEntryThrows === true;
-      if (throwsNow) {
-        throw new Error("appendEntry host seam absent");
-      }
-      appendCalls.push({ customType, data });
-    };
-  }
-  return { pi: base as unknown as ExtensionAPI, appendCalls, registeredRenderer };
-}
 
 const BATCH_NOTE: SystemNote = {
   content: "theta/load/settings-value-out-of-range: settings key thetas.progress value is out of range; got 7",

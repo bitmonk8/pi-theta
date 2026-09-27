@@ -1,24 +1,18 @@
 import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT, SEAM_NOOP_MUTATOR } from "./helpers/invoke-seam-scaffold";
-import { evalBoundedPure } from "./helpers/par-for-harness";
+import { PureHost } from "./helpers/par-for-harness";
 import { messagesFor as diagnosticMessagesFor, parseDoc } from "./helpers/e2e-s1";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { type ThetaDocument, type ThetaBody, type Expr } from "../src/parser/theta-document";
+import { type ThetaDocument, type ThetaBody } from "../src/parser/theta-document";
 import {
   executeBody,
-  type CheckpointDescriptor,
   type ExecuteBodyDeps,
   type StatementEvalHost,
 } from "../src/runtime/statement-executor";
-import {
-  buildEnvironment,
-  type LexicalEnvironment,
-} from "../src/runtime/lexical-environment";
-import type { OperationResult } from "../src/runtime/cancellation-core";
-import type { ThetaValue } from "../src/runtime/value";
+import { buildEnvironment } from "../src/runtime/lexical-environment";
 
 // ===========================================================================
 // Bug 0223 — a `return` in a `par for` body is REFUSED at load (route (a))
@@ -543,47 +537,16 @@ describe("bug 0223 — DIAG-4: par-return-in-body's message is the registry's", 
 // ===========================================================================
 
 /**
- * A `StatementEvalHost` that evaluates only the pure forms these bodies need —
- * literals, the loop-variable identifier, arrays and `+` / `*` binaries — and
- * runs no effects. The `par for` fan-out, flow handling and element collection
- * are the production code paths (`runParForIteration`,
+ * The effect refusal for the shared no-effect `PureHost`
+ * (tests/helpers/par-for-harness.ts), which evaluates only the pure forms these
+ * bodies need — literals, the loop-variable identifier, arrays and `+` / `*`
+ * binaries — and runs no effects. The `par for` fan-out, flow handling and
+ * element collection are the production code paths (`runParForIteration`,
  * src/runtime/statement-executor.ts:1280).
  */
-class PureHost implements StatementEvalHost {
-  evaluatePure(expr: Expr, env: LexicalEnvironment): ThetaValue {
-    return this.#eval(expr, env);
-  }
-
-  checkpointFor(_expr: Expr): CheckpointDescriptor | null {
-    return null;
-  }
-
-  async runEffect(): Promise<OperationResult> {
-    throw new Error(
-      "PureHost: no effect is written in any bug-0223 fold row — an effect " +
-        "reaching the host means the source under test is not the row's source",
-    );
-  }
-
-  #eval(expr: Expr, env: LexicalEnvironment): ThetaValue {
-    const bounded = evalBoundedPure(expr, env, (e, en) => this.#eval(e, en));
-    if (bounded !== undefined) {
-      return bounded;
-    }
-    if (expr.kind === "binary") {
-      const left = this.#eval(expr.left, env) as number;
-      const right = this.#eval(expr.right, env) as number;
-      if (expr.op === "*") {
-        return left * right;
-      }
-      if (expr.op === "+") {
-        return left + right;
-      }
-      return null;
-    }
-    return null;
-  }
-}
+const PURE_HOST_EFFECT_REFUSAL =
+  "PureHost: no effect is written in any bug-0223 fold row — an effect " +
+  "reaching the host means the source under test is not the row's source";
 
 function execDeps(body: ThetaBody, host: StatementEvalHost): ExecuteBodyDeps {
   return {
@@ -605,7 +568,7 @@ function bodyOf(src: string): ThetaBody {
 /** Parse `src` (diagnostics notwithstanding) and run the real `executeBody` over its body. */
 async function runValue(src: string): Promise<unknown> {
   const body = bodyOf(src);
-  const exec = await executeBody(body, execDeps(body, new PureHost()));
+  const exec = await executeBody(body, execDeps(body, new PureHost(PURE_HOST_EFFECT_REFUSAL)));
   return exec.result;
 }
 

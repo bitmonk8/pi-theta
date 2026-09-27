@@ -1,5 +1,8 @@
 import {
   span,
+  arrayExpr,
+  returnStmt,
+  ClassifyingHost,
   SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
   ScriptedCheckpoint,
   RecordingMutator,
@@ -32,7 +35,6 @@ import type {
   ForStmt,
   IfStmt,
   ThetaBody,
-  ReturnStmt,
   Stmt,
   ToolCallStmt,
   WhileStmt,
@@ -81,10 +83,6 @@ function identExpr(name: string): Expr {
   return { kind: "ident", name, range: span() };
 }
 
-function arrayExpr(elements: readonly Expr[]): Expr {
-  return { kind: "array", elements, range: span() };
-}
-
 function eqExpr(left: Expr, right: Expr): Expr {
   return { kind: "binary", op: "==", left, right, range: span() };
 }
@@ -101,10 +99,6 @@ function toolCallStmt(callee: string, args: readonly Expr[] = []): ToolCallStmt 
 /** A pure expression statement (its value discarded). */
 function exprStmt(expr: Expr): ExprStmt {
   return { kind: "expr", expr, range: span() };
-}
-
-function returnStmt(operand: Expr | null): ReturnStmt {
-  return { kind: "return", operand, range: span() };
 }
 
 function ifStmt(condition: Expr, then: Block, otherwise: Block | IfStmt | null = null): IfStmt {
@@ -953,56 +947,6 @@ describe("CANCEL-1 — the loop-iter cancellation checkpoint fires per iteration
 // field values twice (a latent double-eval). The executor must therefore NOT
 // pre-evaluate a call the host classifies as `.theta`-callable.
 // ===========================================================================
-
-/**
- * A `StatementEvalHost` double that records every dispatched effect (by callee)
- * and the `evaluatedToolArgs` each `runEffect` was handed, and classifies calls
- * by a configured callee→kind map. `runEffect` does NOT itself lower arguments
- * — exactly like the invoke trampoline's opacity to `evaluatedToolArgs` — so a
- * nested field effect is dispatched only if the EXECUTOR pre-evaluates it.
- */
-class ClassifyingHost implements StatementEvalHost {
-  readonly dispatched: string[] = [];
-  readonly argsSeen: (Record<string, ThetaValue> | undefined)[] = [];
-  readonly #kinds: ReadonlyMap<string, "pi-tool" | "theta-callable">;
-
-  constructor(kinds: ReadonlyMap<string, "pi-tool" | "theta-callable">) {
-    this.#kinds = kinds;
-  }
-
-  evaluatePure(expr: Expr): ThetaValue {
-    if (expr.kind === "string") {
-      return expr.value;
-    }
-    if (expr.kind === "number") {
-      return Number(expr.text);
-    }
-    return null;
-  }
-
-  checkpointFor(expr: Expr): CheckpointDescriptor | null {
-    if (expr.kind === "call" || expr.kind === "query" || expr.kind === "invoke") {
-      return { kind: "tool-call", site: SITE };
-    }
-    return null;
-  }
-
-  classifyCall(expr: CallExpr): "pi-tool" | "theta-callable" {
-    return this.#kinds.get(expr.callee) ?? "pi-tool";
-  }
-
-  runEffect(
-    expr: Expr,
-    _env: LexicalEnvironment,
-    evaluatedToolArgs?: Record<string, ThetaValue>,
-  ): Promise<OperationResult> {
-    if (expr.kind === "call") {
-      this.dispatched.push(expr.callee);
-      this.argsSeen.push(evaluatedToolArgs);
-    }
-    return Promise.resolve(ok(null));
-  }
-}
 
 describe("RFC 0002 / Finding #3 — pre-evaluation gated on the Pi-tool callee kind", () => {
   it("a `.theta`-callable call with an object-literal arg is NOT pre-evaluated (no field double-dispatch)", async () => {

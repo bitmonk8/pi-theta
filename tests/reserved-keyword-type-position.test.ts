@@ -1,7 +1,6 @@
 import { registryMessageOf } from "./helpers/load-row-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { specReservedKeywords } from "./helpers/corpus-reader";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
@@ -138,39 +137,6 @@ const MATCH_ARM_MISMATCH = "theta/parse/match-arm-type-mismatch";
  * (`docs/bugs/0058-fromless-export-form-parses-without-spec-production.md`).
  */
 const MISSING_FROM_CLAUSE = "theta/parse/import-missing-from-clause";
-
-/**
- * The reserved set read out of its normative source, `docs/spec_topics/lexical.md`
- * §Reserved keywords. The lexer's `reservedKeywords()` (src/lexer/lexer.ts:153)
- * is module-private, so the spec sentence is the oracle the matrix's
- * exhaustiveness claim is checked against; the extraction THROWS when its
- * anchor text is absent rather than degrading to a shorter list.
- */
-function specReservedKeywords(): string[] {
-  const page = readFileSync(
-    fileURLToPath(new URL("../docs/spec_topics/lexical.md", import.meta.url)),
-    "utf8",
-  );
-  const open = "**Reserved keywords.** Cannot be used as identifiers: ";
-  const start = page.indexOf(open);
-  if (start < 0) {
-    throw new Error(
-      `docs/spec_topics/lexical.md carries no \`${open}\` sentence, so the reserved set has no ` +
-        "normative source to check the matrix against",
-    );
-  }
-  const close = ". Using one of these in identifier position is";
-  const end = page.indexOf(close, start);
-  if (end < 0) {
-    throw new Error(
-      "docs/spec_topics/lexical.md §Reserved keywords no longer ends its list with " +
-        `\`${close}\`, so the list's extent cannot be determined`,
-    );
-  }
-  return [...page.slice(start + open.length, end).matchAll(/`([^`]+)`/g)].map(
-    (match) => match[1] as string,
-  );
-}
 
 /** Every code this file asserts, for the DIAG-4 coverage cell in group (d). */
 const ASSERTED_CODES = [

@@ -1,5 +1,4 @@
-import { registryMessageOf } from "./helpers/load-row-harness";
-import { REGISTRY } from "./helpers/registry-oracle";
+import { type Exp, render, renderAll } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import { annotationSourceIsNotTypeExpression } from "../src/parser/type-layer-checks";
 import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLines } from "./helpers/e2e-s1";
@@ -164,26 +163,15 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLi
 // comparing two `null`s.
 
 // ===========================================================================
-// The diagnostic oracle — the registry's *Message* column (DIAG-4). Mirrors
-// tests/inline-object-stray-close-token-split.test.ts (bug 0238's witness).
+// The diagnostic oracle — the registry's *Message* column (DIAG-4), rendered by
+// the shared `render`/`renderAll` in tests/helpers/registry-oracle.ts.
 // ===========================================================================
-
-function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): string {
-  return registryMessageOf(REGISTRY, "docs/spec_topics/diagnostics/", code, fills);
-}
 
 const NOT_TYPE_EXPR = "theta/parse/annotation-type-not-expression";
 const LET_RHS_MISMATCH = "theta/parse/let-rhs-type-mismatch";
 const REASSIGN_RHS_MISMATCH = "theta/parse/reassign-rhs-type-mismatch";
 const NON_ARRAY_ITERAND = "theta/parse/non-array-iterand";
 const DUPLICATE_INLINE = "theta/parse/duplicate-inline-field-name";
-
-/** One expected diagnostic, as a code plus the placeholder fills its row needs. */
-interface Exp {
-  readonly severity: "error" | "warning";
-  readonly code: string;
-  readonly fills: ReadonlyArray<readonly [string, string]>;
-}
 
 /** This report's row: the refusal, naming the `let` binder. */
 function REFUSE(name: string): Exp {
@@ -216,15 +204,6 @@ function ITERAND(type: string): Exp {
 }
 function DUP(field: string): Exp {
   return { severity: "error", code: DUPLICATE_INLINE, fills: [["<field>", field]] };
-}
-
-/** One rendered diagnostic, in the shape `diagLines` produces. */
-function render(exp: Exp): string {
-  return `${exp.severity} ${exp.code}: ${msg(exp.code, exp.fills)}`;
-}
-
-function renderAll(exps: readonly Exp[]): string[] {
-  return exps.map(render);
 }
 
 // ===========================================================================

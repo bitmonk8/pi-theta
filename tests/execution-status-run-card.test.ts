@@ -14,10 +14,7 @@
 // TIER: unit, offline, deterministic, provider-free.
 
 import { afterAll, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ThetaExtensionDeps } from "../src/extension/factory";
 import { composeExtensionInstance } from "../src/extension/production-composition";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
@@ -71,34 +68,9 @@ import {
   soleEnvelope,
   subagentTheta as regimeSubagentTheta,
 } from "./helpers/subagent-fn-child-regime";
-import { noopExecutionStatusBus } from "./helpers/execution-status-progress";
+import { noopExecutionStatusBus, recordingEntryPi as fakePi } from "./helpers/execution-status-progress";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
-
-// ---------------------------------------------------------------------------
-// Fakes (mirrors tests/execution-status-entry-channel.test.ts's recording pi).
-// ---------------------------------------------------------------------------
-
-function fakePi(options: { readonly appendEntryThrows?: boolean } = {}): {
-  pi: ExtensionAPI;
-  appendCalls: { customType: string; data: unknown }[];
-  registrations: Map<string, unknown>;
-} {
-  const appendCalls: { customType: string; data: unknown }[] = [];
-  const registrations = new Map<string, unknown>();
-  const base: Record<string, unknown> = {
-    registerEntryRenderer: (type: string, renderer: unknown): void => {
-      registrations.set(type, renderer);
-    },
-    appendEntry: (customType: string, data: unknown): void => {
-      if (options.appendEntryThrows === true) {
-        throw new Error("appendEntry host seam absent");
-      }
-      appendCalls.push({ customType, data });
-    },
-  };
-  return { pi: base as unknown as ExtensionAPI, appendCalls, registrations };
-}
 
 const SEED: ThetaRunSeed = {
   invocationId: "inv-1",

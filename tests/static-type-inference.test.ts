@@ -8,15 +8,10 @@ import { checkCompatible, type TypeEnv } from "../src/parser/type-compat";
 import type { Expr, ThetaBody, Stmt } from "../src/parser/theta-document";
 import {
   executeBody,
-  type CheckpointDescriptor,
   type ExecuteBodyDeps,
-  type StatementEvalHost,
 } from "../src/runtime/statement-executor";
-import {
-  buildEnvironment,
-  type LexicalEnvironment,
-} from "../src/runtime/lexical-environment";
-import type { ThetaValue } from "../src/runtime/value";
+import { buildEnvironment } from "../src/runtime/lexical-environment";
+import { PureHost } from "./helpers/par-for-harness";
 
 // V20b-T — failing tests for the paired `V20b` static type-inference substrate.
 //
@@ -154,42 +149,11 @@ describe("V20b-T — static type-inference substrate: per-node assignment", () =
 
 // --- V19c execution harness ------------------------------------------------
 
-/** A bounded pure-expression host: every node in the read-only body is pure. */
-class PureHost implements StatementEvalHost {
-  evaluatePure(expr: Expr, env: LexicalEnvironment): ThetaValue {
-    return this.#eval(expr, env);
-  }
-  checkpointFor(_expr: Expr): CheckpointDescriptor | null {
-    return null;
-  }
-  runEffect(): Promise<never> {
-    throw new Error("read-only body has no checkpointed effects");
-  }
-  #eval(expr: Expr, env: LexicalEnvironment): ThetaValue {
-    switch (expr.kind) {
-      case "number":
-        return Number(expr.text);
-      case "string":
-        return expr.value;
-      case "bool":
-        return expr.value;
-      case "null":
-        return null;
-      case "binary":
-        if (expr.op === "+") {
-          return (this.#eval(expr.left, env) as number) + (this.#eval(expr.right, env) as number);
-        }
-        return null;
-      default:
-        return null;
-    }
-  }
-}
-
 function execDeps(body: ThetaBody): ExecuteBodyDeps {
   return {
     env: buildEnvironment({ body }),
-    host: new PureHost(),
+    // The shared bounded pure-expression host: every node in the read-only body is pure.
+    host: new PureHost("read-only body has no checkpointed effects"),
     checkpoint: NOOP_CHECKPOINT,
     signal: new AbortController().signal,
     mutator: SEAM_NOOP_MUTATOR,

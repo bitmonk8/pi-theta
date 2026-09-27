@@ -1,6 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
@@ -13,14 +11,12 @@ import type { FileSystem } from "../src/seams/file-system";
 import {
   allDiagnostics,
   describeNotes,
-  expectCallerRefusedWithCalleeHasErrors,
-  finishWorkspace,
+  expectCallerRefusedOverStructuralErrors,
   normalisePath,
-  normativeMessagePattern,
+  plantThetaWorkspace,
+  requireCalleeDropRoute,
   requireDriven,
   runLoadPass,
-  type ComposeWorkspace,
-  type LoadPass,
 } from "./helpers/compose-workspace-harness";
 import { runDispatchPass } from "./helpers/fixture-dispatch-harness";
 import { parseDeps } from "./helpers/e2e-s1";
@@ -136,7 +132,7 @@ import { parseDeps } from "./helpers/e2e-s1";
 // predicate inside the shipped composition root, and `composeExtensionInstance`
 // over planted files reaches it directly, so neither an integration nor a live
 // tier is needed. The host and load-pass harness is shared through
-// `tests/helpers/compose-workspace-harness.ts`; fixture planting stays local.
+// `tests/helpers/compose-workspace-harness.ts`, fixture planting included.
 //
 // No silent skipping: a cell whose precondition is unmet (registry row absent,
 // host double never driven, the callee's own drop route no longer firing) throws
@@ -235,58 +231,6 @@ const REGISTRY = ["code-registry-parse.md", "code-registry-load.md"].flatMap((pa
   ) as RegistryRow[],
 );
 
-/**
- * Plant the named fixture files on the conventional project source
- * (`.pi/theta/`), exactly as bug 0267 §Reproduction does. One workspace per cell
- * keeps every decision below attributable to that cell's file set.
- */
-function plantWorkspace(files: Readonly<Record<string, string>>): ComposeWorkspace {
-  const cwd = mkdtempSync(join(tmpdir(), "theta-b0267-"));
-  mkdirSync(join(cwd, ".pi", "theta"), { recursive: true });
-  for (const [name, body] of Object.entries(files)) {
-    writeFileSync(join(cwd, ".pi", "theta", name), body, "utf8");
-  }
-  return finishWorkspace(cwd);
-}
-
-// ── Observation helpers ─────────────────────────────────────────────────────
-
-/**
- * The precondition every defect cell rests on: the callee's OWN drop route
- * fired this pass. Without it the cell is measuring an unrelated pass, so an
- * absent route throws naming itself rather than letting the cell pass or red on
- * the wrong subject.
- */
-function requireCalleeDropRoute(pass: LoadPass, code: string): void {
-  const rows = allDiagnostics(pass.notes).filter(
-    (d) => d.code === code && d.severity === "error",
-  );
-  if (rows.length === 0) {
-    throw new Error(
-      `harness: no error-severity ${code} row reached the channel — the callee's own drop ` +
-        "route is the precondition for bug 0267's caller-side claim, so its absence is a " +
-        `harness failure, never a skip. Notes:\n${describeNotes(pass.notes)}`,
-    );
-  }
-}
-
-/**
- * Bug 0267 §Fix constraint 1, on the route `invocation.md` line 22 settles: the
- * caller does not register, an error-severity `theta/load/callee-has-errors` row
- * is located at the CALLER's file with the registry's Message, and the callee
- * does not register either.
- */
-function expectCallerRefused(pass: LoadPass, callerPath: string, callerName: string): void {
-  expectCallerRefusedWithCalleeHasErrors(
-    pass,
-    callerPath,
-    callerName,
-    CALLEE_HAS_ERRORS_CODE,
-    normativeMessagePattern(REGISTRY, CALLEE_HAS_ERRORS_CODE),
-    "callee with structural errors",
-  );
-}
-
 // ── In-memory seam fixture (the direct measurement, no load pass) ────────────
 
 /** A `FileSystem` double over POSIX-spelled in-memory files, for the seam cell. */
@@ -330,7 +274,7 @@ describe("bug 0267 — a callee's post-parse drop un-registers the `tools:` call
   // ── (1) callee imports a `.thetalib` carrying lex + parse errors ──────────
 
   it("(1) callee imports a malformed `.thetalib`: the caller does not register", async () => {
-    const workspace = plantWorkspace({
+    const workspace = plantThetaWorkspace("0267", {
       [LIB_NAME]: BROKEN_LIB_SOURCE,
       [CALLEE_NAME]: IMPORTING_CALLEE_SOURCE,
       [CALLER_NAME]: CALLER_SOURCE,
@@ -338,12 +282,17 @@ describe("bug 0267 — a callee's post-parse drop un-registers the `tools:` call
     try {
       const pass = await runLoadPass(workspace);
       requireDriven(pass, "0267");
-      requireCalleeDropRoute(pass, UNTERMINATED_TEMPLATE_CODE);
+      requireCalleeDropRoute(pass, "0267", UNTERMINATED_TEMPLATE_CODE);
 
       // HEAD: `pass.registered` is `["b0267caller"]` — the library's rows land on
       // the LIBRARY's parse document, never on the callee's, so the callee's
       // `hasErrors` is false and the V15f loop has no subject.
-      expectCallerRefused(pass, workspace.path(CALLER_NAME), "b0267caller");
+      expectCallerRefusedOverStructuralErrors(
+        pass,
+        workspace.path(CALLER_NAME),
+        "b0267caller",
+        REGISTRY,
+      );
       // Non-regression: the callee's own drop is correct at HEAD and stays.
       expect(pass.registered).not.toContain("b0267callee");
       expect(pass.registered, describeNotes(pass.notes)).toEqual([]);
@@ -357,18 +306,23 @@ describe("bug 0267 — a callee's post-parse drop un-registers the `tools:` call
   // ── (2) callee imports a `.thetalib` that does not exist (IMP-1) ──────────
 
   it("(2) callee imports a missing `.thetalib` (IMP-1): the caller does not register", async () => {
-    const workspace = plantWorkspace({
+    const workspace = plantThetaWorkspace("0267", {
       [CALLEE_NAME]: IMPORTING_CALLEE_SOURCE,
       [CALLER_NAME]: CALLER_SOURCE,
     });
     try {
       const pass = await runLoadPass(workspace);
       requireDriven(pass, "0267");
-      requireCalleeDropRoute(pass, UNRESOLVABLE_THETALIB_CODE);
+      requireCalleeDropRoute(pass, "0267", UNRESOLVABLE_THETALIB_CODE);
 
       // IMP-1 (`docs/spec_topics/imports.md` line 23) un-registers the importing
       // file; the caller's decision over the same file must agree.
-      expectCallerRefused(pass, workspace.path(CALLER_NAME), "b0267caller");
+      expectCallerRefusedOverStructuralErrors(
+        pass,
+        workspace.path(CALLER_NAME),
+        "b0267caller",
+        REGISTRY,
+      );
       expect(pass.registered).not.toContain("b0267callee");
       expect(pass.registered, describeNotes(pass.notes)).toEqual([]);
       expect(pass.notified).toEqual([]);
@@ -381,7 +335,7 @@ describe("bug 0267 — a callee's post-parse drop un-registers the `tools:` call
   // ── (3) callee imports a symbol the library does not export ───────────────
 
   it("(3) callee imports an unknown symbol: the caller does not register", async () => {
-    const workspace = plantWorkspace({
+    const workspace = plantThetaWorkspace("0267", {
       [LIB_NAME]: HEALTHY_LIB_SOURCE,
       [CALLEE_NAME]: UNKNOWN_SYMBOL_CALLEE_SOURCE,
       [CALLER_NAME]: CALLER_SOURCE,
@@ -389,9 +343,14 @@ describe("bug 0267 — a callee's post-parse drop un-registers the `tools:` call
     try {
       const pass = await runLoadPass(workspace);
       requireDriven(pass, "0267");
-      requireCalleeDropRoute(pass, IMPORT_UNKNOWN_SYMBOL_CODE);
+      requireCalleeDropRoute(pass, "0267", IMPORT_UNKNOWN_SYMBOL_CODE);
 
-      expectCallerRefused(pass, workspace.path(CALLER_NAME), "b0267caller");
+      expectCallerRefusedOverStructuralErrors(
+        pass,
+        workspace.path(CALLER_NAME),
+        "b0267caller",
+        REGISTRY,
+      );
       expect(pass.registered).not.toContain("b0267callee");
       expect(pass.registered, describeNotes(pass.notes)).toEqual([]);
       expect(pass.notified).toEqual([]);
@@ -404,20 +363,25 @@ describe("bug 0267 — a callee's post-parse drop un-registers the `tools:` call
   // ── (4) the callee's own `tools:` names an unknown Pi tool ────────────────
 
   it("(4) callee's own `tools:` names an unknown Pi tool: the caller does not register", async () => {
-    const workspace = plantWorkspace({
+    const workspace = plantThetaWorkspace("0267", {
       [CALLEE_NAME]: UNKNOWN_TOOL_CALLEE_SOURCE,
       [CALLER_NAME]: CALLER_SOURCE,
     });
     try {
       const pass = await runLoadPass(workspace);
       requireDriven(pass, "0267");
-      requireCalleeDropRoute(pass, UNKNOWN_TOOL_CODE);
+      requireCalleeDropRoute(pass, "0267", UNKNOWN_TOOL_CODE);
 
       // The caller's scan replaces the callee's own `resolveThetaToolsAtLoad`
       // with `parseCalleeForTools`, which read mode, existence and containment
       // only, so the callee's `theta/load/unknown-tool` did not reach the
       // caller's decision.
-      expectCallerRefused(pass, workspace.path(CALLER_NAME), "b0267caller");
+      expectCallerRefusedOverStructuralErrors(
+        pass,
+        workspace.path(CALLER_NAME),
+        "b0267caller",
+        REGISTRY,
+      );
       expect(pass.registered).not.toContain("b0267callee");
       expect(pass.registered, describeNotes(pass.notes)).toEqual([]);
       expect(pass.notified).toEqual([]);
@@ -430,19 +394,24 @@ describe("bug 0267 — a callee's post-parse drop un-registers the `tools:` call
   // ── (5) control A — the callee's OWN body fails to parse ──────────────────
 
   it("(5) control A — the callee's own body fails to parse: the caller already does not register", async () => {
-    const workspace = plantWorkspace({
+    const workspace = plantThetaWorkspace("0267", {
       [CALLEE_NAME]: OWN_PARSE_ERROR_CALLEE_SOURCE,
       [CALLER_NAME]: CALLER_SOURCE,
     });
     try {
       const pass = await runLoadPass(workspace);
       requireDriven(pass, "0267");
-      requireCalleeDropRoute(pass, UNTERMINATED_TEMPLATE_CODE);
+      requireCalleeDropRoute(pass, "0267", UNTERMINATED_TEMPLATE_CODE);
 
       // The one condition the V15f loop already detects, because its rows land
       // on the callee's OWN parse document. Green at HEAD: this cell is what
       // keeps a fix from moving the detection rather than widening it.
-      expectCallerRefused(pass, workspace.path(CALLER_NAME), "b0267caller");
+      expectCallerRefusedOverStructuralErrors(
+        pass,
+        workspace.path(CALLER_NAME),
+        "b0267caller",
+        REGISTRY,
+      );
       expect(pass.registered).not.toContain("b0267callee");
       expect(pass.registered, describeNotes(pass.notes)).toEqual([]);
       expect(pass.notified).toEqual([]);
@@ -455,7 +424,7 @@ describe("bug 0267 — a callee's post-parse drop un-registers the `tools:` call
   // ── (6) control B — healthy callee, healthy library ───────────────────────
 
   it("(6) control B — healthy callee: caller and callee both register, with the `.theta` callable", async () => {
-    const workspace = plantWorkspace({
+    const workspace = plantThetaWorkspace("0267", {
       [LIB_NAME]: HEALTHY_LIB_SOURCE,
       [CALLEE_NAME]: IMPORTING_CALLEE_SOURCE,
       [CALLER_NAME]: CALLER_SOURCE,
@@ -533,7 +502,7 @@ describe("bug 0267 — a callee's post-parse drop un-registers the `tools:` call
   }
 
   it("(7) invoke-literal caller over the missing-`.thetalib` callee: registers, and its drive fails closed with load_failure", async () => {
-    const workspace = plantWorkspace({
+    const workspace = plantThetaWorkspace("0267", {
       [CALLEE_NAME]: IMPORTING_CALLEE_SOURCE,
       [INVOKE_CALLER_NAME]: INVOKE_CALLER_SOURCE,
     });
@@ -559,7 +528,7 @@ describe("bug 0267 — a callee's post-parse drop un-registers the `tools:` call
   });
 
   it("(8) invoke-literal caller over the unknown-Pi-tool callee: registers, and its drive fails closed with load_failure", async () => {
-    const workspace = plantWorkspace({
+    const workspace = plantThetaWorkspace("0267", {
       [CALLEE_NAME]: UNKNOWN_TOOL_CALLEE_SOURCE,
       [INVOKE_CALLER_NAME]: INVOKE_CALLER_SOURCE,
     });
@@ -584,7 +553,7 @@ describe("bug 0267 — a callee's post-parse drop un-registers the `tools:` call
     // workspace and driven through the SAME harness instance: its `load_failure`
     // note is the in-cell proof that the channel this cell reads an absence off
     // is live.
-    const workspace = plantWorkspace({
+    const workspace = plantThetaWorkspace("0267", {
       [CALLEE_NAME]: IMPORTING_CALLEE_SOURCE,
       [INVOKE_CALLER_NAME]: INVOKE_CALLER_SOURCE,
       [OK_CALLEE_NAME]: HEALTHY_PROMPT_CALLEE_SOURCE,

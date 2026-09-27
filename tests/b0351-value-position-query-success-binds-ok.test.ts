@@ -7,6 +7,8 @@ import {
   matchExpr,
   letStmt,
   body,
+  arrayExpr,
+  returnStmt,
 } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import { executeBody } from "../src/runtime/statement-executor";
@@ -22,7 +24,6 @@ import type {
   Expr,
   MatchArmNode,
   MatchExpr,
-  Stmt,
 } from "../src/parser/theta-document";
 
 // Bug 0351 — a value-position query SUCCESS (`let r = @`…``, no `?`) must BIND
@@ -67,10 +68,6 @@ function stringExpr(value: string): Expr {
   return { kind: "string", value, range: span() };
 }
 
-function arrayExpr(elements: readonly Expr[]): Expr {
-  return { kind: "array", elements, range: span() };
-}
-
 /** An `{ <name>: <value>, … }` object literal (no schema ctor). */
 function objectExpr(fields: readonly { name: string; value: Expr }[]): Expr {
   return { kind: "object", typeName: null, fields, range: span() };
@@ -84,11 +81,6 @@ function callExpr(callee: string, args: readonly Expr[]): Expr {
 /** An `<operand>?` (`?`-propagation) expression. */
 function tryExpr(operand: Expr): Expr {
   return { kind: "try", operand, range: span() };
-}
-
-/** A `return <operand>` statement. */
-function returnStmt(operand: Expr | null): Stmt {
-  return { kind: "return", operand, range: span() };
 }
 
 /** The two-arm result `match` the bug's recovery shape uses. */

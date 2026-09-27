@@ -157,30 +157,6 @@ describe("bug 0433 (RED) — the PIC-8(c) advisory note carries no fabricated ru
 // that forwarding line is gone and the wire message carries no `details` key.
 // ===========================================================================
 
-/** Gate double for the window: first `setActiveTools` installs, both restore
- *  attempts throw (the double-throw path that fires the PIC-8(c) advisory). */
-class RestoreThrowingGate {
-  readonly setCalls: string[][] = [];
-  getCalls = 0;
-  #installed = false;
-
-  constructor(readonly snapshot: readonly string[]) {}
-
-  getActiveTools(): string[] {
-    this.getCalls += 1;
-    return [...this.snapshot];
-  }
-
-  setActiveTools(names: string[]): void {
-    this.setCalls.push([...names]);
-    if (!this.#installed) {
-      this.#installed = true;
-      return;
-    }
-    throw new Error("active-set restore failure");
-  }
-}
-
 /** A captured `theta-system-note` wire message — the FULL shape as it hits
  *  `pi.sendMessage`, so `details` (present-or-absent) is inspectable. */
 interface WireMessage {
@@ -205,7 +181,12 @@ function recordWire(message: SystemNoteMessage): WireMessage | undefined {
  *  session capture records each `theta-system-note` with its full `details`. */
 async function driveQueryRestoreThrow() {
   const session = new InstantSettleSession<WireMessage>(QUERY_REPLY, recordWire);
-  return driveQueryWindow(session, new RestoreThrowingGate(QUERY_SNAPSHOT));
+  // First `setActiveTools` installs, both restore attempts throw (the
+  // double-throw path that fires the PIC-8(c) advisory).
+  return driveQueryWindow(
+    session,
+    new FakeActiveSetPi(QUERY_SNAPSHOT, "throw-restore-always", "active-set"),
+  );
 }
 
 describe("bug 0433 (RED) — the fabricated advisory `details` reaches the wire", () => {

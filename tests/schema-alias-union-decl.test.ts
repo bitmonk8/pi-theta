@@ -4,7 +4,7 @@ import { registryMessageOf } from "./helpers/load-row-harness";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { type LoweredSchema } from "../src/seams/schema-validator";
 import { capturingAjv as ajv } from "./helpers/scripted-live-session-harness";
-import { codes, parseDoc, diagLines, loadCleanly } from "./helpers/e2e-s1";
+import { codes, parseDoc, diagLines, loadCleanly, schemaDeclLookup } from "./helpers/e2e-s1";
 
 // Bug 0033 — the `schema X = A | B` type-alias / union declaration does not
 // parse: `parseSchema` consumes only `schema` + the name, registers a field-less
@@ -495,24 +495,14 @@ function expectExactly(doc: ThetaDocument, expected: string, why: string): void 
   ).toEqual([expected]);
 }
 
-/** The named `schema` declaration node, or a loud failure naming the parse. */
-function schemaDecl(
-  doc: ThetaDocument,
-  name: string,
-  label: string,
-): Record<string, unknown> {
-  const decl = doc.body.statements.find((stmt) => {
-    const record = stmt as unknown as Record<string, unknown>;
-    return record["kind"] === "schema" && record["name"] === name;
-  });
-  if (decl === undefined) {
-    throw new Error(
-      `${label}: no \`schema ${name}\` declaration in the statement list ` +
-        `${JSON.stringify(stmtSig(doc))}; diagnostics=${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  return decl as unknown as Record<string, unknown>;
-}
+/**
+ * The named `schema` declaration node and its alias/union arm sources, or a
+ * loud failure naming the parse (shared `schemaDeclLookup`, tests/helpers/e2e-s1.ts).
+ * `armsOf` is the fix's own observable for "where did the right-hand-side
+ * capture stop": a capture that ran past the declaration shows up as a joined
+ * arm (`array<integer>leta`), and one that ran short shows up as a missing arm.
+ */
+const { schemaDecl, armsOf } = schemaDeclLookup({ statements: stmtSig, diagnostics: diagLines });
 
 /** The 1-based source line a named declaration starts on, or a loud failure. */
 function declLine(doc: ThetaDocument, name: string, label: string): number {
@@ -526,24 +516,6 @@ function declLine(doc: ThetaDocument, name: string, label: string): number {
     );
   }
   return startLine;
-}
-
-/**
- * The alias/union arm sources the named declaration captured, or a loud
- * failure. This is the fix's own observable for "where did the right-hand-side
- * capture stop": a capture that ran past the declaration shows up here as a
- * joined arm (`array<integer>leta`), and one that ran short shows up as a
- * missing arm.
- */
-function armsOf(doc: ThetaDocument, name: string, label: string): readonly string[] {
-  const arms = schemaDecl(doc, name, label)["arms"];
-  if (!Array.isArray(arms)) {
-    throw new Error(
-      `${label}: \`schema ${name}\` carries no alias/union arm list, so the right-hand side ` +
-        `was not captured as a declaration at all; diagnostics=${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  return arms as readonly string[];
 }
 
 /**

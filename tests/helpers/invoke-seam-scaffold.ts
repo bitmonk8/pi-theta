@@ -16,7 +16,16 @@
 // file that imports this module. Nothing here is stubbed beyond the no-op
 // seam stand-ins themselves; the real `executeBody` /
 // `createEffectfulStatementHost` drive the actual production code under test.
-import type { Expr, MatchArmNode, MatchExpr, QueryExpr, Stmt, ThetaBody } from "../../src/parser/theta-document";
+import type {
+  CallExpr,
+  Expr,
+  MatchArmNode,
+  MatchExpr,
+  QueryExpr,
+  ReturnStmt,
+  Stmt,
+  ThetaBody,
+} from "../../src/parser/theta-document";
 import { buildEnvironment, type LexicalEnvironment } from "../../src/runtime/lexical-environment";
 import { type Diagnostic } from "../../src/diagnostics/diagnostic";
 import type { CheckpointKind, CheckpointSite } from "../../src/seams/checkpoint";
@@ -210,6 +219,16 @@ export function matchExpr(scrutinee: Expr, arms: readonly MatchArmNode[]): Match
   return { kind: "match", scrutinee, arms, range: span() };
 }
 
+/** An array literal over the given elements. */
+export function arrayExpr(elements: readonly Expr[]): Expr {
+  return { kind: "array", elements, range: span() };
+}
+
+/** A `return <operand>` statement. */
+export function returnStmt(operand: Expr | null): ReturnStmt {
+  return { kind: "return", operand, range: span() };
+}
+
 /** A `let <name> = <init>` statement (immutable, unannotated). */
 export function letStmt(name: string, init: Expr): Stmt {
   return { kind: "let", name, mutable: false, annotation: null, init, range: span() };
@@ -275,6 +294,63 @@ export class ScriptedHost implements StatementEvalHost {
   runEffect(expr: Expr): Promise<OperationResult> {
     const key = expr.kind === "call" ? expr.callee : expr.kind;
     return Promise.resolve(this.results.get(key) ?? { ok: true, value: null });
+  }
+}
+
+/**
+ * A `StatementEvalHost` double that records every dispatched effect (by callee)
+ * and the `evaluatedToolArgs` each `runEffect` was handed, and classifies calls
+ * by a configured callee→kind map (default `pi-tool`). `runEffect` does NOT
+ * itself lower arguments — exactly like the invoke trampoline's opacity to
+ * `evaluatedToolArgs` — so a nested field effect is dispatched only if the
+ * EXECUTOR pre-evaluates it. `evaluatePure` covers string / number only; a
+ * caller needing more pure forms subclasses and overrides it.
+ */
+export class ClassifyingHost implements StatementEvalHost {
+  readonly dispatched: string[] = [];
+  readonly argsSeen: (Record<string, ThetaValue> | undefined)[] = [];
+  readonly #kinds: ReadonlyMap<string, "pi-tool" | "theta-callable">;
+  readonly #site: CheckpointSite;
+
+  constructor(
+    kinds: ReadonlyMap<string, "pi-tool" | "theta-callable"> = new Map(),
+    site: CheckpointSite = SITE,
+  ) {
+    this.#kinds = kinds;
+    this.#site = site;
+  }
+
+  evaluatePure(expr: Expr, _env: LexicalEnvironment): ThetaValue {
+    if (expr.kind === "string") {
+      return expr.value;
+    }
+    if (expr.kind === "number") {
+      return Number(expr.text);
+    }
+    return null;
+  }
+
+  checkpointFor(expr: Expr): CheckpointDescriptor | null {
+    if (expr.kind === "call" || expr.kind === "query" || expr.kind === "invoke") {
+      return { kind: "tool-call", site: this.#site };
+    }
+    return null;
+  }
+
+  classifyCall(expr: CallExpr): "pi-tool" | "theta-callable" {
+    return this.#kinds.get(expr.callee) ?? "pi-tool";
+  }
+
+  runEffect(
+    expr: Expr,
+    _env: LexicalEnvironment,
+    evaluatedToolArgs?: Record<string, ThetaValue>,
+  ): Promise<OperationResult> {
+    if (expr.kind === "call") {
+      this.dispatched.push(expr.callee);
+      this.argsSeen.push(evaluatedToolArgs);
+    }
+    return Promise.resolve({ ok: true, value: null });
   }
 }
 

@@ -92,6 +92,49 @@ export function makeOrderRecordingPi(registerToolError?: Error): {
   return { pi: pi as unknown as ExtensionAPI, calls, registeredTools };
 }
 
+/** A recording fake `pi` exposing appendEntry + registerEntryRenderer (the
+ *  entry-channel surface; mirrors tests/extension-factory-harness.test.ts's
+ *  `makeAbsentSeamPi` recording-double style: every call recorded, selected
+ *  members optionally absent or throwing). `appendEntryThrows` as a function
+ *  receives the 1-based appendEntry call count; renderers record per type. */
+export function recordingEntryPi(options: {
+  readonly absentAppendEntry?: boolean;
+  readonly absentRegisterEntryRenderer?: boolean;
+  readonly registerEntryRendererThrows?: boolean;
+  readonly appendEntryThrows?: boolean | ((n: number) => boolean);
+} = {}): {
+  pi: ExtensionAPI;
+  appendCalls: { customType: string; data: unknown }[];
+  registrations: Map<string, unknown>;
+} {
+  const appendCalls: { customType: string; data: unknown }[] = [];
+  const registrations = new Map<string, unknown>();
+  let appendCount = 0;
+  const base: Record<string, unknown> = {};
+  if (!options.absentRegisterEntryRenderer) {
+    base.registerEntryRenderer = (type: string, renderer: unknown): void => {
+      if (options.registerEntryRendererThrows) {
+        throw new Error("registerEntryRenderer host seam absent");
+      }
+      registrations.set(type, renderer);
+    };
+  }
+  if (!options.absentAppendEntry) {
+    base.appendEntry = (customType: string, data: unknown): void => {
+      appendCount += 1;
+      const throwsNow =
+        typeof options.appendEntryThrows === "function"
+          ? options.appendEntryThrows(appendCount)
+          : options.appendEntryThrows === true;
+      if (throwsNow) {
+        throw new Error("appendEntry host seam absent");
+      }
+      appendCalls.push({ customType, data });
+    };
+  }
+  return { pi: base as unknown as ExtensionAPI, appendCalls, registrations };
+}
+
 export function fakeHostApi(): {
   hostApi: { registerTool: (t: ToolDefinition<typeof THETA_PROGRESS_PARAMETERS>) => void };
   calls: ToolDefinition<typeof THETA_PROGRESS_PARAMETERS>[];

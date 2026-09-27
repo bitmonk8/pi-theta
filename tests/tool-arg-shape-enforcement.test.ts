@@ -1,5 +1,10 @@
 import { parseDeps, range, withCode } from "./helpers/e2e-s1";
-import { span, SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT, SEAM_NOOP_MUTATOR } from "./helpers/invoke-seam-scaffold";
+import {
+  span,
+  ClassifyingHost,
+  SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
+  SEAM_NOOP_MUTATOR,
+} from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import { bind, recordingPiTool, snapshot, thetaWithSet } from "./helpers/tool-call-dispatch-harness";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
@@ -16,7 +21,6 @@ import {
 } from "../src/parser/theta-document";
 import {
   executeBody,
-  type CheckpointDescriptor,
   type ExecuteBodyDeps,
   type StatementEvalHost,
 } from "../src/runtime/statement-executor";
@@ -24,7 +28,6 @@ import {
   buildEnvironment,
   LexicalEnvironment,
 } from "../src/runtime/lexical-environment";
-import type { OperationResult } from "../src/runtime/cancellation-core";
 import type { CheckpointSite } from "../src/seams/checkpoint";
 import type { ThetaValue } from "../src/runtime/value";
 
@@ -338,22 +341,18 @@ async function expectShapeDefectRejection(p: Promise<unknown>, toolName: string)
 const SITE: CheckpointSite = { file: FILE, line: 1, column: 1 };
 
 /**
- * A recording `StatementEvalHost` double (the ClassifyingHost pattern from
- * statement-executor.test.ts): records each dispatched callee and the
- * `evaluatedToolArgs` its `runEffect` was handed, classifies callees by a
- * configured map (default `pi-tool`), and evaluates the bounded pure forms the
- * cells need (string / number / ident / object).
+ * The shared recording `ClassifyingHost` double (tests/helpers/invoke-seam-scaffold):
+ * records each dispatched callee and the `evaluatedToolArgs` its `runEffect` was
+ * handed, classifies callees by a configured map (default `pi-tool`), checkpoints
+ * at this file's `SITE`, and — overridden here — evaluates the bounded pure
+ * forms the cells need (string / number / ident / object).
  */
-class RecordingShapeHost implements StatementEvalHost {
-  readonly dispatched: string[] = [];
-  readonly argsSeen: (Record<string, ThetaValue> | undefined)[] = [];
-  readonly #kinds: ReadonlyMap<string, "pi-tool" | "theta-callable">;
-
+class RecordingShapeHost extends ClassifyingHost {
   constructor(kinds: ReadonlyMap<string, "pi-tool" | "theta-callable"> = new Map()) {
-    this.#kinds = kinds;
+    super(kinds, SITE);
   }
 
-  evaluatePure(expr: Expr, env: LexicalEnvironment): ThetaValue {
+  override evaluatePure(expr: Expr, env: LexicalEnvironment): ThetaValue {
     switch (expr.kind) {
       case "string":
         return expr.value;
@@ -373,29 +372,6 @@ class RecordingShapeHost implements StatementEvalHost {
       default:
         return null;
     }
-  }
-
-  checkpointFor(expr: Expr): CheckpointDescriptor | null {
-    if (expr.kind === "call" || expr.kind === "query" || expr.kind === "invoke") {
-      return { kind: "tool-call", site: SITE };
-    }
-    return null;
-  }
-
-  classifyCall(expr: CallExpr): "pi-tool" | "theta-callable" {
-    return this.#kinds.get(expr.callee) ?? "pi-tool";
-  }
-
-  runEffect(
-    expr: Expr,
-    _env: LexicalEnvironment,
-    evaluatedToolArgs?: Record<string, ThetaValue>,
-  ): Promise<OperationResult> {
-    if (expr.kind === "call") {
-      this.dispatched.push(expr.callee);
-      this.argsSeen.push(evaluatedToolArgs);
-    }
-    return Promise.resolve({ ok: true, value: null });
   }
 }
 

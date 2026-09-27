@@ -21,6 +21,7 @@ import {
   recordingPiToolResolver,
   runCoreBody as runBody,
 } from "./helpers/tool-call-dispatch-harness";
+import { arrayExpr } from "./helpers/invoke-seam-scaffold";
 
 // README known-gap "bullet 2" regression — a nested `match` or an effectful
 // expression (tool-call / query / invoke / user-`fn` call) used DIRECTLY as an
@@ -29,10 +30,6 @@ import {
 // `null` with a `success` outcome. Drives the REAL production path
 // (`createEffectfulStatementHost` + the real `runCodeSideToolCall`), sharing
 // the core-execution harness with tests/production-core-exec.test.ts.
-
-function arrayExpr(elements: readonly Expr[]): Expr {
-  return { kind: "array", elements, range: span() };
-}
 
 function boolExpr(value: boolean): Expr {
   return { kind: "bool", value, range: span() };
