@@ -2,7 +2,7 @@
 id: PTQ-1397
 title: Both rfc0010-l3-progress live cells redeclare sleep instead of importing it from tests/helpers/fake-clock.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/live/rfc0010-l3-progress-parent-live-cell.test.ts:77-79

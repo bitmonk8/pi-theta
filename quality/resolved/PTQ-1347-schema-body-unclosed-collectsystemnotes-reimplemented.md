@@ -2,7 +2,7 @@
 id: PTQ-1347
 title: schema-body-unclosed-at-eof-live-cell.test.ts reimplements collectSystemNotes's theta-system-note/theta-progress-entry extraction inline instead of importing it
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/live/schema-body-unclosed-at-eof-live-cell.test.ts:165-188

@@ -2,7 +2,7 @@
 id: PTQ-1514
 title: unterminated-literal-params-type-refusal.test.ts redeclares diagLines byte-for-byte instead of importing the e2e-s1 export it sits next to
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/unterminated-literal-params-type-refusal.test.ts:231-234

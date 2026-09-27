@@ -2,7 +2,7 @@
 id: PTQ-1398
 title: b0263live-frontmatter-yaml-parse-failure-live-cell.test.ts declares a local diagLines wrapper instead of importing the canonical e2e-s1 export its own sibling live cells already use
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/live/b0263live-frontmatter-yaml-parse-failure-live-cell.test.ts:84,177-179,202,209

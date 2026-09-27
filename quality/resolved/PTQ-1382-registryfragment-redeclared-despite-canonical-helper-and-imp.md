@@ -2,7 +2,7 @@
 id: PTQ-1382
 title: index-sentinel-typeenv-case-fence-live-cell.test.ts redeclares registryFragment byte-identical to registry-oracle.ts's exported helper, which a sibling file in this same scope already imports
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/live/index-sentinel-typeenv-case-fence-live-cell.test.ts:104-117

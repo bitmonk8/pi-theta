@@ -2,7 +2,7 @@
 id: PTQ-1400
 title: tests/live/double-session-start-live.test.ts redeclares the canonical `sleep` helper already exported by tests/helpers/fake-clock.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/live/double-session-start-live.test.ts:170-172

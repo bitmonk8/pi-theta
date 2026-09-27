@@ -2,7 +2,7 @@
 id: PTQ-1310
 title: b0422live re-derives the mkdtemp/spawn/teardown shell twice instead of using the expectPiPrintFixture helper its siblings use
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/live/acceptance/b0422live-imported-schema-system-interp-wire-and-refusal.test.ts:282-308

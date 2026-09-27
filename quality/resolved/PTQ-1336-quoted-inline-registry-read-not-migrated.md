@@ -2,7 +2,7 @@
 id: PTQ-1336
 title: quoted-inline-field-name-live-cell hand-rolls the single-page registry read instead of tests/helpers/registry-oracle.ts's readRegistry
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/live/quoted-inline-field-name-live-cell.test.ts:66-73

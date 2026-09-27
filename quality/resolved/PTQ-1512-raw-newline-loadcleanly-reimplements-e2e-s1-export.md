@@ -2,7 +2,7 @@
 id: PTQ-1512
 title: params-default-string-literal-raw-newline.test.ts redeclares loadCleanly's null-checking throw chain instead of importing the exported tests/helpers/e2e-s1.ts helper
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/params-default-string-literal-raw-newline.test.ts:319-360

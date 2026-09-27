@@ -2,7 +2,7 @@
 id: PTQ-1475
 title: live-production-acceptance.test.ts's local systemNoteContents re-implements tests/helpers/recording-system-note-channel.ts's collectSystemNotes
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/live/live-production-acceptance.test.ts:925-957

@@ -2,7 +2,7 @@
 id: PTQ-1356
 title: Six of nine in-scope live cells redeclare systemNoteContents byte-identical to harness.ts's re-exported collectSystemNotes
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/live/index-sentinel-typeenv-case-fence-live-cell.test.ts:126-153

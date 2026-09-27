@@ -2,7 +2,7 @@
 id: PTQ-1381
 title: quoted-inline-field-name-live-cell redeclares systemNoteContents instead of harness.ts's re-exported collectSystemNotes
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/live/quoted-inline-field-name-live-cell.test.ts:101-124

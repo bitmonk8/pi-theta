@@ -2,7 +2,7 @@
 id: PTQ-1517
 title: Bug record 0001's fixed Status claims prompt-mode extension-tool reach "along both paths" but names no witness, and neither of its two cited corroborations (the CHANGELOG [0.11.0] entry, the PIC-64 coverage-matrix row) names one either
 lens: D10
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - docs/bugs/0001-extension-tools-unreachable.md:3-7

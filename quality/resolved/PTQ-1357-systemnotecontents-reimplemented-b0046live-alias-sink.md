@@ -2,7 +2,7 @@
 id: PTQ-1357
 title: b0046live and alias-sink-array-element-check-live-cell each reimplement collectSystemNotes's theta-system-note/theta-progress-entry extraction inline
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/live/b0046live-by-clause-undecided-inputs-live-cell.test.ts:211-234

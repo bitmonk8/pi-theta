@@ -2,7 +2,7 @@
 id: PTQ-1399
 title: milestoneEntries walk over theta-progress-entry milestone payloads is redeclared across the two rfc0010-l3-progress live cells
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/live/rfc0010-l3-progress-parent-live-cell.test.ts:83-96
