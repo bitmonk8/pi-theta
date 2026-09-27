@@ -82,7 +82,7 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
    persisted as one `REVIEW_LOG.md` row per shard (`store.mjs log-review`);
    the orchestrator otherwise reads only the filed count.
 5. **Triage** — every candidate independently re-verified
-   (`anthropic/claude-opus-5-5`). `confirmed` → minted
+   (`anthropic/claude-opus-5-5` at `thinking: high`). `confirmed` → minted
    `PTQ-NNNN` in `issues/`; rejections → one `TRIAGE_LOG.md` row, file deleted;
    `questionable` stays in `intake/` as the human queue.
 6. **Fix** — open issues clustered by fix surface (D2/D7/D4: the first two
@@ -97,7 +97,7 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
    an uncapped fixer gate in eight concurrent lanes drove the load average
    past 90 on 32 cores and turned sibling gates red with timeouts
    (wave qw20260914130212 dropped a correct, twice-confirmed D9 lane that way).
-7. **Fix review** — `anthropic/claude-opus-5-5` verifies each issue is actually resolved
+7. **Fix review** — `anthropic/claude-opus-5-5` at `thinking: high` verifies each issue is actually resolved
    and nothing else was damaged, in the tree; a green, reviewed lane's commit
    is cherry-picked onto the integrated head sequentially, in cluster order.
    A conflicting cherry-pick gets ONE rebase-and-retry in a fresh worktree at
@@ -149,7 +149,7 @@ matter what a model does.
 
 ## D9 — placement & breakdown
 
-D9 (`lens-d9-placement.theta`, `anthropic/claude-opus-5-5`) reviews every file
+D9 (`lens-d9-placement.theta`, `anthropic/claude-opus-5-5` at `thinking: high`) reviews every file
 under `src/` for three classes at once:
 
 - **breakdown** — a file or function over the size thresholds without an
@@ -279,7 +279,7 @@ rebase-and-retry (step 7b) exists for.
 
 ## D8 — simplification
 
-D8 (`lens-d8-simplification.theta`, `anthropic/claude-opus-5-5`)
+D8 (`lens-d8-simplification.theta`, `anthropic/claude-opus-5-5` at `thinking: xhigh`)
 reviews every file under `src/` for four classes, each an ACCOUNTING never a
 fix (a simpler shape may be named as an explicitly unproven hypothesis; "no
 simpler shape identified yet" is legal):
@@ -333,16 +333,17 @@ predicate) + a triage step-4 scope block + a fix-brief rules block.
 
 | lens | reviews | model | fix contract |
 |---|---|---|---|
-| D2 | cruft in `src/` | `anthropic/claude-sonnet-5` | autonomous |
+| D2 | cruft in `src/` | `anthropic/claude-opus-5-5` (`thinking: high`) | autonomous |
 | D4 | duplication & drift in `src/` | `anthropic/claude-opus-5-5` (`thinking: xhigh`) | clone/drift autonomous; parallel intake-ratified |
-| D7 | test quality in `tests/` | `anthropic/claude-sonnet-5` | autonomous |
-| D8 | simplification in `src/` | `anthropic/claude-opus-5-5` | intake-ratified |
-| D9 | placement & breakdown in `src/` | `anthropic/claude-opus-5-5` | intake-ratified |
+| D7 | test quality in `tests/` | `anthropic/claude-opus-5-5` (`thinking: high`) | autonomous |
+| D8 | simplification in `src/` | `anthropic/claude-opus-5-5` (`thinking: xhigh`) | intake-ratified |
+| D9 | placement & breakdown in `src/` | `anthropic/claude-opus-5-5` (`thinking: high`) | intake-ratified |
 
 D1/D6 → fable only, when added.
 
 Workers: triage, fixer and fix review all `anthropic/claude-opus-5-5` (the
-2026-09-24 operator model migration).
+2026-09-24 operator model migration) at `thinking: high` (pinned 2026-09-27 to
+the level they already ran at by host default; not benchmarked).
 Every pin here and in the lens table is honoured only on pi-theta ≥ 0.479.0
 (bug 0479): before it the subagent launch marshalled the invoking session's
 model, so every worker of every earlier wave ran on that session model. The
