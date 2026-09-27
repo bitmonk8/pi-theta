@@ -927,7 +927,7 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     expect(runStore(root, ["note", "--finding", "quality/intake/headless.md", "--text", "x"]).status).toBe(1);
   });
 
-  it("cell 12: default ROOT (env absent) resolves to the real repo and lists D2 + D7", () => {
+  it("cell 12: default ROOT (env absent) resolves to the real repo and lists D2 + D6 + D7", () => {
     // Scrub any ambient override so the fallback itself is what runs.
     const env = { ...process.env };
     delete env.QUALITY_STORE_ROOT;
@@ -935,6 +935,7 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     expect(r.status).toBe(0);
     const ids = r.stdout.trim().split("\n").filter(Boolean);
     expect(ids).toContain("D2");
+    expect(ids).toContain("D6");
     expect(ids).toContain("D7");
   });
 });

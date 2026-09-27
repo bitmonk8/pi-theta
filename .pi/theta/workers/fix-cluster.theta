@@ -128,6 +128,17 @@ Per-lens rules — apply per issue, by its lens: frontmatter:
   satisfied; delete the mechanism the ratified shape replaces (its tests
   too, if they exercised only the mechanism — say so); no public-surface
   change unless ratified. tsc first, then the full gate.
+- lens: D6 (error posture in src/): align the DIVERGENT side to the RIGHT
+  side — the side the issue's d6_anchor pins or the ## Triage ruling names.
+  The failure path's behaviour changes (that IS the fix): mirror the right
+  side's shape exactly (same Err kind / diagnostic code / note channel /
+  message format), never invent a third posture. The success path stays
+  byte-identical. If a test pinned the WRONG posture, update exactly that
+  test to the ratified posture and say so per issue; never weaken a test
+  that guards the right side. text-drift: align the message to the anchored
+  spelling, then grep the OLD spelling across src/, tests/, docs/ and
+  re-point every consumer in the same change. An issue naming no right side
+  and carrying no ruling → SKIP with a note (never pick a posture silently).
 
 Guidance from a previous rejected attempt — address it explicitly if present:
 ${extra}

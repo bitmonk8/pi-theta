@@ -26,8 +26,10 @@ ${candidate}
 Method — run every step:
 1. Form. All template fields present and plausible (template below); exactly one
    root cause; evidence excerpts present; no severity/priority adjectives; no fix
-   design beyond one direction paragraph. Violations that block evaluation =
-   malformed.
+   design beyond one direction paragraph. reported_by must be exactly the
+   '<worker> (<model>)' identity the candidate's lens block below pins — a
+   mismatch is malformed: the identity is dictated by the brief, never the
+   model's own belief. Violations that block evaluation = malformed.
 2. Reality. Open every cited file. Verify each excerpt exists at or near the
    cited lines (content match required; small line drift is tolerated). Re-run
    any stated searches. For deadness claims, re-run the reference hunt YOURSELF:
@@ -123,6 +125,29 @@ Method — run every step:
    Accurate → questionable — accounting verified; the simpler shape is a
    design decision for a human ruling (NEVER confirmed). Dead code → D2;
    size → D9; duplication → D4 (out-of-scope).
+   lens: D6 — error posture in src/ ONLY; d6_class selects the check.
+   reported_by must be exactly "lens-d6-errorposture (anthropic/claude-opus-5-5)"
+   — a mismatch is malformed (the identity is dictated, never guessed). All
+   classes: open BOTH cited sides and confirm the excerpts at the cited lines;
+   confirm the sibling relationship is real (same failure class, argued
+   mechanically — superficially similar code = false-positive); re-run every
+   stated search verbatim (a stated command whose hit count does not reproduce
+   refutes the citation). Pre-exemption check: a filing against EXST-9's
+   drop-only bus boundary, against a PIC-73 degrade-silent optional sink, or
+   against a posture whose stated rationale (code comment / bug doc) holds =
+   false-positive naming the pin. posture-divergence/swallowed: if d6_anchor
+   names the right side, open the anchor (spec clause, allow-broad-catch token,
+   diagnostics-registry message, bug-doc ruling) and verify it pins that side —
+   verified → confirmed (the fix aligns the divergent sibling to the anchored
+   posture). Anchor absent or unverifiable but the divergence real →
+   questionable — divergence verified; which posture is right needs a human
+   ruling (the fixer never picks a posture). text-drift: verify the named
+   consumer (grep key, pinned test assertion, bug-doc signature) actually
+   consumes the drifted spelling — verified with an anchored right spelling →
+   confirmed; no consumer named or found → false-positive (cosmetic drift).
+   Dead error path → out-of-scope (D2); over-built machinery → out-of-scope
+   (D8); copy-shaped duplication → out-of-scope (D4); tests/ → out-of-scope
+   (D7); no divergence (missing everywhere, or a plain bug) → out-of-scope.
    Any other lens: value = out-of-scope (no triage rules exist for it).
 5. Dedupe. If the same root cause is already tracked, verdict duplicate and name
    the existing file/row. Existing issues and resolved issues:

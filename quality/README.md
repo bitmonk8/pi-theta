@@ -25,10 +25,12 @@ Personal, uncommitted thetas go directly in `.localpi/` (see its README); a
 
 Arguments (bound by an LLM binder, so free-form text works):
 `max_cycles` (default 3), `lenses` (comma-separated lens roster, default
-`"D2,D4,D7,D8,D9"` - the full roster since every lens passed its supervised
-wave; start-up refuses an id lacking a surfaces.json entry or a worker),
+`"D2,D4,D7,D8,D9"` - every default-roster lens passed its supervised wave;
+D6 is worker-backed but opt-in (`lenses=D6`) until its supervised wave
+passes; start-up refuses an id lacking a surfaces.json entry or a worker),
 `shard_loc` (target lines per review shard, default `"0"` = each lens's
-surfaces.json `shard_loc` - D2 6000, D4 6000, D7 3000, D8 12000, D9 6000 -
+surfaces.json `shard_loc` - D2 6000, D4 6000, D6 6000, D7 3000, D8 12000,
+D9 6000 -
 each capped at floor(`context_tokens`/3/12) LOC when the lens declares its
 pinned model's window (D4: 128000 -> 3555, after a 4985-LOC shard overflowed
 kimi mid-turn in wave qw20260917095931); the cap binds explicit shard_loc
@@ -74,7 +76,9 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
    simplification: `anthropic/claude-opus-5-5` at `thinking: xhigh`, per the
    2026-09-26 model x effort benchmark; D9 placement &
    breakdown: `anthropic/claude-opus-5-5` at `thinking: high`, per the
-   2026-09-27 model x effort benchmark). Candidates land in `intake/`, shaped by
+   2026-09-27 model x effort benchmark; D6 error posture:
+   `anthropic/claude-opus-5-5` at `thinking: high`, operator pick
+   2026-09-27). Candidates land in `intake/`, shaped by
    `TEMPLATE.md`. Reviewed files are marked in `state.json` at the reviewed
    sha — fix commits re-dirty them, so the next cycle re-reviews exactly what
    changed. Each worker's closing notes (D9's KEEP-WHOLE dispositions, every
@@ -323,6 +327,49 @@ host never silences D8 on that same host, and vice versa — both per-lens
 exemptions coexist (`exemptions --lens D8` filters to D8's own rulings). The
 human is expected to run D8 at `budget <= 5`.
 
+## D6 — error posture
+
+D6 (`lens-d6-errorposture.theta`, `anthropic/claude-opus-5-5` at `thinking:
+high`) reviews every file under `src/` for three classes. The D6 finding is
+the INCONSISTENCY of posture between sibling paths — two paths handling the
+same failure class — never the failure itself; every filing cites BOTH sides:
+
+- **posture-divergence** — same failure class, different posture between
+  siblings: throw-vs-Err, note-vs-silent (one path emits a theta-system-note /
+  diagnostic / stderr line, the sibling swallows the same class), fail-open
+  (continue with a default) where the sibling fails closed.
+- **swallowed** — a captured error neither acted on, noted, nor propagated,
+  where sibling code propagates or notes the same class. Unannotated broad
+  catches are the `theta-local/no-broad-catch` lint's; the D6 target is an
+  ANNOTATED catch whose handling diverges from its annotated siblings.
+- **text-drift** — failure/note message format diverging inside one subsystem
+  where the format is load-bearing (a documented grep key, a pinned diagnostic
+  message asserted by tests, a bug doc's quoted signature); the filing cites
+  the consumer that breaks — a pinned string itself is never the finding.
+
+**Pre-exempted postures** (spec-pinned; a filing against one is a false
+positive): EXST-9's drop-only bus boundary
+(`docs/spec_topics/execution-status.md` — a throw from any sink call or
+producer hook is dropped or degraded BY DESIGN), the PIC-73 degrade-silent
+optional capability class (absence refuses nothing; first hard failure
+permanently degrades the sink), and any posture whose stated rationale (code
+comment / bug doc) holds. The list extends via TRIAGE_LOG precedent as waves
+surface more pinned postures.
+
+**Dual fix contract** (like D4's): a divergence whose RIGHT side is pinned by
+a verifiable `d6_anchor` (spec fail-closed clause, `allow-broad-catch:` token,
+diagnostics-registry message, bug-doc ruling) triages `confirmed` and is fixed
+autonomously by aligning the divergent sibling to the anchored posture; a real
+divergence whose right side is unpinned is capped at `questionable` — a human
+picks the posture, never the fixer. Boundaries: dead error paths → D2;
+over-built error machinery → D8; copy-paste error-handling blocks → D4;
+tests/ → D7; a reachable failure with wrong handling and no sibling
+divergence is a bug (routing note, never a filing).
+
+**Opt-in**: D6 is worker-backed but NOT in the default `lenses` roster until
+its supervised wave passes — run it explicitly (`lenses=D6`); the roster flip
+is a separate commit, as it was for D4/D8/D9.
+
 ## Extending to more lenses
 
 Add a lens = one surfaces.json entry (+ `shard_loc`) + one worker theta in
@@ -335,11 +382,11 @@ predicate) + a triage step-4 scope block + a fix-brief rules block.
 |---|---|---|---|
 | D2 | cruft in `src/` | `anthropic/claude-opus-5-5` (`thinking: high`) | autonomous |
 | D4 | duplication & drift in `src/` | `anthropic/claude-opus-5-5` (`thinking: xhigh`) | clone/drift autonomous; parallel intake-ratified |
+| D6 | error posture in `src/` (**opt-in** pending its supervised wave) | `anthropic/claude-opus-5-5` (`thinking: high`) | divergence-with-anchor autonomous; unanchored intake-ratified |
 | D7 | test quality in `tests/` | `anthropic/claude-opus-5-5` (`thinking: high`) | autonomous |
 | D8 | simplification in `src/` | `anthropic/claude-opus-5-5` (`thinking: xhigh`) | intake-ratified |
 | D9 | placement & breakdown in `src/` | `anthropic/claude-opus-5-5` (`thinking: high`) | intake-ratified |
 
-D1/D6 → fable only, when added.
 
 Workers: triage, fixer and fix review all `anthropic/claude-opus-5-5` (the
 2026-09-24 operator model migration) at `thinking: high` (pinned 2026-09-27 to
@@ -356,6 +403,6 @@ issues were kept.
 ## Committing note
 
 The repo's parse gate (`tests/committed-fixture-parse-gate.test.ts`) pins exact
-counts of committed `.theta`/`.thetalib` files (currently 41/3, including the
+counts of committed `.theta`/`.thetalib` files (currently 50/3, including the
 `.pi/theta/` loop) — adding or removing a committed theta means bumping the
 counts in the same commit.

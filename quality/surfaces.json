@@ -22,6 +22,17 @@
     "shard_loc": 6000,
     "context_tokens": 128000
   },
+  "D6": {
+    "description": "error posture: inconsistent failure honesty between sibling paths — throw-vs-Err, note-vs-silent, fail-open where siblings fail closed, swallowed errors where siblings propagate, load-bearing error-text drift; every finding cites both sides; spec-pinned postures (EXST-9 drop-only, PIC-73 degrade-silent) are pre-exempted — over the production TypeScript sources",
+    "include": [
+      "src/"
+    ],
+    "exclude": [],
+    "ext": [
+      ".ts"
+    ],
+    "shard_loc": 6000
+  },
   "D7": {
     "description": "test quality: silent skips, assertions that cannot fail, boilerplate duplication, copy-paste fixtures/doubles, misleading test names — over the committed test suite; never coverage, never suite composition",
     "include": [

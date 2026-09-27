@@ -74,6 +74,13 @@ Judge, in order:
    no behaviour change beyond what the ruling names; every removed mechanism's
    spec anchors are still satisfied by the new shape (read the cited clauses);
    the replaced code is gone (no dual path left); tests changed only as ruled.
+   For issues whose lens: is D6 the bar is: the divergent side now matches
+   the anchored/ruled posture (read both sides; open the anchor and confirm
+   it is still satisfied); the diff touches failure paths only — success-path
+   behaviour unchanged; no third posture invented; for text-drift the old
+   spelling greps to zero live consumers (bug-doc history quoting the old
+   text is fine); tests updated only as the issue or ruling names, none
+   weakened; no file outside the cited sites touched.
 3. Honesty. Do not take the diff's or any report's word for anything you can
    check directly.
 
