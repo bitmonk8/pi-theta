@@ -11,6 +11,32 @@
   the `resolvePiTool` wiring in `src/extension/production-composition.ts`) and the
   prompt-mode query-time active set (`src/runtime/conversation-drive.ts`).
 
+## Fix (0.11.0)
+
+The delivered shape is the *Solution* and *Fail-closed guard* sections below.
+The default-suite witnesses, per path:
+
+- **Code-side.** `tests/prompt-mode-extension-tool-reach-e2e.test.ts`, describe
+  "bug 0001 e2e — prompt-mode code-side extension-tool reach through the
+  production compose helper": the code-calling prompt-mode theta registers
+  (admission plus the parent host-loop rung), the `pi.getAllTools` registry
+  snapshot is read at load, dispatch drives the extension tool through the
+  PARENT's host loop with the code-supplied arguments verbatim and then restores
+  the model and active set, and a second dispatch does not re-resolve.
+- **Model-facing.** `tests/conversation-drive.test.ts`, describe "PIC-17 —
+  prompt-mode extension tool in the query-window active set (bug 0001)": the
+  query-window install vector contains the admitted extension tool and is
+  exactly the callable set, and the ambient session snapshot is still not
+  unioned in.
+- **Fail-closed guard.** `tests/prompt-mode-extension-tool-dispatch.test.ts`
+  (the "PIC-64 rung 2 …" and "PIC-64 rung 3 …" describes: parent-leg code-side
+  dispatch through the host-loop seam, and a precise `CodeToolError` when no
+  code-side rung exists), `tests/extension-tool-unreachable-load-refusal-e2e.test.ts`
+  (registration where the host-loop rung is establishable, fail-closed refusal
+  where no rung is available), and `tests/capability-probe.test.ts`, describe
+  "Step 0 (c) — pi.getAllTools is factory-probed (bug 0001 / PIC-64 fail-closed
+  guard)".
+
 ## Summary
 
 A Pi session exposes two kinds of tools to the model: the host built-ins
