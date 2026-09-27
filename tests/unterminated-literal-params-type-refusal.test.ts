@@ -5,10 +5,10 @@ import {
   type TypeCheckSite,
 } from "../src/parser/type-grammar";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
-import type { ThetaDocument } from "../src/parser/theta-document";
 import {
   annotSrc,
   body,
+  diagLines,
   expectGroup as expectGroupShared,
   type DiagnosticCell,
   paramsSrc as paramsBlockSrc,
@@ -222,11 +222,6 @@ const CTL = '{a as "w\\"x": integer}';
 // ===========================================================================
 // Parse + assertion helpers.
 // ===========================================================================
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
 
 function lines(src: string, path = "bug0232.theta"): string[] {
   return diagLines(parseDoc(src, path));

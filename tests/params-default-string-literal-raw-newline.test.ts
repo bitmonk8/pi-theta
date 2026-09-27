@@ -5,7 +5,7 @@ import type { BypassParamsField } from "../src/binder/binder-envelope";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import { isBareObjectLiteral } from "../src/parser/literal-sublanguage";
 import { parseExpressionSource, type Expr, type ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc, fieldOf, diagLines, diagCodes } from "./helpers/e2e-s1";
+import { parseDoc, fieldOf, diagLines, diagCodes, loadCleanly as loadCleanlyShared } from "./helpers/e2e-s1";
 
 // Bug 0102 — a raw newline inside a string literal is refused in theta body code
 // and admitted at the `params:` default RHS: `p: string = "a<LF>b"` loads with
@@ -318,34 +318,14 @@ interface LoadedParams {
 /**
  * Parse a fixture that must LOAD, and read its lowered `params:` schema back.
  *
- * The empty-diagnostic assertion runs first: every fixture read through this
- * helper pins a zero-diagnostic disposition, which is what makes it a theta
- * that registers (`hasLoadParseError`, src/extension/production-composition.ts).
+ * The shared loader's empty-diagnostic assertion runs first: every fixture read
+ * through this helper pins a zero-diagnostic disposition, which is what makes it
+ * a theta that registers (`hasLoadParseError`, src/extension/production-composition.ts).
  * Every absent intermediate THROWS with the diagnostics rendered.
  */
 function loadCleanly(label: string, paramsBlock: string): LoadedParams {
   const doc = parseDoc(src(paramsBlock), "bug0102.theta");
-  expect(
-    diagLines(doc),
-    `${label}: this fixture's pinned disposition is a clean load — any diagnostic is drift`,
-  ).toEqual([]);
-  if (doc.frontmatter === null) {
-    throw new Error(
-      `${label}: the theta was REFUSED — frontmatter is null. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  const params = doc.frontmatter.params;
-  if (params === undefined) {
-    throw new Error(
-      `${label}: the frontmatter carries no parsed params block. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  const lowered = params.loweredSchema;
-  if (lowered === undefined) {
-    throw new Error(
-      `${label}: the params block lowered to NOTHING (loweredSchema absent). Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
+  const { loweredSchema: lowered } = loadCleanlyShared(label, doc);
   const properties = lowered["properties"];
   if (properties === null || typeof properties !== "object") {
     throw new Error(
@@ -354,7 +334,7 @@ function loadCleanly(label: string, paramsBlock: string): LoadedParams {
   }
   return {
     properties: properties as Record<string, unknown>,
-    fields: params.fields,
+    fields: doc.frontmatter!.params!.fields,
     loweredSchema: lowered,
   };
 }
