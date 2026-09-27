@@ -252,3 +252,19 @@ export function createRecordingUi(options: {
   } as unknown as ExtensionUIContext;
   return { calls, ui };
 }
+
+/**
+ * The `type:"custom"` `theta-progress-entry` entries carrying a `milestone`
+ * payload (PIC-71), selected off a settled in-memory `SessionManager`'s
+ * `getEntries()`; each entry is returned as-is for the caller to shape.
+ */
+export function milestoneEntries(entries: readonly unknown[]): readonly unknown[] {
+  return entries.filter((entry) => {
+    const e = entry as { type?: string; customType?: string; data?: unknown };
+    return (
+      e.type === "custom" &&
+      e.customType === "theta-progress-entry" &&
+      (e.data as { milestone?: unknown } | undefined)?.milestone !== undefined
+    );
+  });
+}

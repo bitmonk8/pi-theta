@@ -46,10 +46,9 @@
 // (`thetaOwnedStderrLines`) must be empty.
 
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import {
   bootShippedExtension,
+  collectSystemNotes,
   driveSlashCaptureTurn,
   plantThetaWorkspace,
   requireLiveProvider,
@@ -57,20 +56,14 @@ import {
 } from "./harness";
 import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { parseDoc } from "../helpers/e2e-s1";
+import { readRegistry } from "../helpers/registry-oracle";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { registryMessage } from "../../tools/code-registry/index.js";
 
 /** The code bug 0176 §Fix route A adds (E, parse). */
 const QUOTED_INLINE_CODE = "theta/parse/quoted-inline-field-name";
 
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * `quoted field name '<field>' within one inline object type; field names are
@@ -90,41 +83,6 @@ function quotedInlineFieldFragment(field: string): string {
     `${QUOTED_INLINE_CODE}: an unsubstituted placeholder remains — the registry row's Message template changed shape`,
   ).not.toMatch(/<[a-z]+>/);
   return `${QUOTED_INLINE_CODE}: ${message}`;
-}
-
-/**
- * The theta-system-note channel contents from the settled in-memory
- * `SessionManager`, read directly off `getEntries()` (AGENTS.md §"Assert on
- * real observables"). Mirrors `live-production-acceptance.test.ts`'s
- * `systemNoteContents`.
- */
-function systemNoteContents(entries: readonly unknown[]): readonly string[] {
-  const notes: string[] = [];
-  for (const entry of entries) {
-    const e = entry as { customType?: string; content?: unknown; data?: unknown };
-    if (e.customType === "theta-system-note") {
-      if (typeof e.content === "string") notes.push(e.content);
-      else if (Array.isArray(e.content)) {
-        for (const part of e.content) {
-          const t = (part as { text?: string }).text;
-          if (typeof t === "string") notes.push(t);
-        }
-      }
-    } else if (e.customType === "theta-progress-entry") {
-      // PIC-72 (runtime-event-channel.md): the three migrated operator-note
-      // classes (parse/load/type diagnostic BATCH, structural-change,
-      // binder-model recovery) deliver through the `theta-progress-entry`
-      // custom-entry channel instead of `theta-system-note` whenever both
-      // entry members are present (entry-channel.ts). The entry's `data`
-      // carries the SAME `SystemNote` shape the message channel used to
-      // carry (PIC-71: byte-identical rendered content), so extracting its
-      // `content` keeps every existing substring assertion working
-      // unchanged — a channel-union repair, not a weakening.
-      const data = e.data as { content?: unknown } | undefined;
-      if (typeof data?.content === "string") notes.push(data.content);
-    }
-  }
-  return notes;
 }
 
 /**
@@ -221,7 +179,7 @@ describe("bug 0176 live: a quoted inline field-name key is refused at registrati
       // The theta-system-note channel, read off the settled SessionManager —
       // the load-time diagnostic fires before any drive is attempted, so the
       // full entry list already carries it.
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = quotedInlineFieldFragment('"a"');
       expect(
         notes.some((note) => note.includes(expectedFragment)),

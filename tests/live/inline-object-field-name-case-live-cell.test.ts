@@ -52,6 +52,7 @@
 import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
+  collectSystemNotes,
   driveSlashCaptureTurn,
   plantThetaWorkspace,
   requireLiveProvider,
@@ -80,40 +81,6 @@ function bindingCaseFragment(): string {
     `${BINDING_CASE_CODE} has no registry row -- the code this cell asserts is not registered (DIAG-2)`,
   ).toBeTypeOf("string");
   return `${BINDING_CASE_CODE}: ${template as string}`;
-}
-
-/**
- * The theta-system-note channel contents from the settled in-memory
- * `SessionManager`, read directly off `getEntries()` (AGENTS.md
- * #"Assert on real observables"). Mirrors bug 0176's `systemNoteContents`.
- */
-function systemNoteContents(entries: readonly unknown[]): readonly string[] {
-  const notes: string[] = [];
-  for (const entry of entries) {
-    const e = entry as { customType?: string; content?: unknown; data?: unknown };
-    if (e.customType === "theta-system-note") {
-      if (typeof e.content === "string") notes.push(e.content);
-      else if (Array.isArray(e.content)) {
-        for (const part of e.content) {
-          const t = (part as { text?: string }).text;
-          if (typeof t === "string") notes.push(t);
-        }
-      }
-    } else if (e.customType === "theta-progress-entry") {
-      // PIC-72 (runtime-event-channel.md): the three migrated operator-note
-      // classes (parse/load/type diagnostic BATCH, structural-change,
-      // binder-model recovery) deliver through the `theta-progress-entry`
-      // custom-entry channel instead of `theta-system-note` whenever both
-      // entry members are present (entry-channel.ts). The entry's `data`
-      // carries the SAME `SystemNote` shape the message channel used to
-      // carry (PIC-71: byte-identical rendered content), so extracting its
-      // `content` keeps every existing substring assertion working
-      // unchanged — a channel-union repair, not a weakening.
-      const data = e.data as { content?: unknown } | undefined;
-      if (typeof data?.content === "string") notes.push(data.content);
-    }
-  }
-  return notes;
 }
 
 /**
@@ -212,7 +179,7 @@ describe("bug 0154 live: an ill-cased inline object field name is refused at reg
       // The theta-system-note channel, read off the settled SessionManager --
       // the load-time diagnostic fires before any drive is attempted, so the
       // full entry list already carries it.
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = bindingCaseFragment();
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -353,7 +320,7 @@ describe("a residue field-name key under a generic argument draws the raw-key re
           JSON.stringify(handle.registeredNames()),
       ).toBeUndefined();
 
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       expect(
         notes.some((note) => note.includes(BINDING_CASE_CODE)),
         "a " + BINDING_CASE_CODE + " theta-system-note fired for the residue key under a " +

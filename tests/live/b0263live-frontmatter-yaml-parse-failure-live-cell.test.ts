@@ -81,7 +81,7 @@ import {
   type PlantedTheta,
 } from "./harness";
 import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
-import { parseDoc } from "../helpers/e2e-s1";
+import { diagLines, parseDoc } from "../helpers/e2e-s1";
 
 const CODE = "theta/load/malformed-frontmatter-yaml";
 
@@ -174,12 +174,6 @@ const PRECONDITION_THETA = [
   "",
 ].join("\n");
 
-function diagLines(text: string, path: string): string[] {
-  return parseDoc(text, path).diagnostics.map(
-    (d) => `${d.severity} ${d.code}: ${d.message}`,
-  );
-}
-
 /**
  * The offender's expected rendering. The failing position is the union bar on
  * the field line — the fifth line of the file, which is the fourth line of the
@@ -199,14 +193,14 @@ describe("bug 0263 live: a `params:` field whose type text begins with a quote c
     // token is spent. At HEAD before bug 0263's fix this list was one
     // `theta/load/missing-mode`, which is the misattribution itself.
     expect(
-      diagLines(OFFENDER, `${OFFENDER_STEM}.theta`),
+      diagLines(parseDoc(OFFENDER, `${OFFENDER_STEM}.theta`)),
       "attribution: the unquoted leading-quote type text must draw one located " +
         `${CODE} line naming the position, the offending source line and the ` +
         "`params:` field, and nothing else — never theta/load/missing-mode on a file whose " +
         "`mode:` line is present (bug 0263 §Fix constraint 1)",
     ).toEqual([`error ${CODE}: ${OFFENDER_MESSAGE}`]);
     expect(
-      diagLines(CONTROL, `${CONTROL_STEM}.theta`),
+      diagLines(parseDoc(CONTROL, `${CONTROL_STEM}.theta`)),
       "attribution: the byte-neighbour control (enclosing single quotes added) must carry zero " +
         "diagnostics — bug 0263 §Fix constraint 6 leaves a block that parses untouched",
     ).toEqual([]);

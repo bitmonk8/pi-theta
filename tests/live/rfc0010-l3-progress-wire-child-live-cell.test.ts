@@ -58,28 +58,13 @@ import {
   plantThetaWorkspace,
   requireLiveProvider,
 } from "./harness";
-import { createRecordingUi } from "../helpers/execution-status-progress";
+import { createRecordingUi, milestoneEntries } from "../helpers/execution-status-progress";
+import { sleep } from "../helpers/fake-clock";
 
 /** Settle margin for any (wrongly) still-pending status tick before the
  *  absence reads (DONE_LINGER_MS=2000 + STATUS_TICK_MS=200 margin per
  *  `execution-status/types.ts`). */
 const ABSENCE_SETTLE_MS = 2500;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** `theta-progress-entry` entries carrying a `milestone` payload (PIC-71). */
-function milestoneEntries(entries: readonly unknown[]): readonly unknown[] {
-  return entries.filter((entry) => {
-    const e = entry as { type?: string; customType?: string; data?: unknown };
-    return (
-      e.type === "custom" &&
-      e.customType === "theta-progress-entry" &&
-      (e.data as { milestone?: unknown } | undefined)?.milestone !== undefined
-    );
-  });
-}
 
 /** Chat-role (user/assistant) texts containing `needle`. */
 function chatLeaks(entries: readonly unknown[], needle: string): readonly string[] {

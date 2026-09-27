@@ -82,6 +82,7 @@ import {
   plantThetaWorkspace,
   requireLiveProvider,
 } from "./harness";
+import { sleep } from "../helpers/fake-clock";
 
 /** The PIC-67 fail-loud-once stderr prefix (stale-ctx.ts `StaleQuiesceLog`). */
 const STALE_QUIESCE_PREFIX = "theta hot-reload quiesced:";
@@ -166,10 +167,6 @@ const WARMUP_POLLS_PER_WRITE = 2;
  * unmet, and the loop exits at first delivery.
  */
 const WARMUP_DELIVERY_CAP_MS = 30_000;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /** A minimal prompt-mode `.theta`; the body line varies per churn. */
 function promptTheta(line: string): string {

@@ -52,6 +52,7 @@
 import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
+  collectSystemNotes,
   driveSlashCaptureTurn,
   plantThetaWorkspace,
   requireLiveProvider,
@@ -73,40 +74,6 @@ const RENAMED_INLINE = "theta/parse/renamed-inline-field-name";
  */
 function renamedInlineFragment(field: string): string {
   return registryFragment(RENAMED_INLINE, { field });
-}
-
-/**
- * The theta-system-note channel contents from the settled in-memory
- * `SessionManager`, read directly off `getEntries()` (AGENTS.md
- * §"Assert on real observables").
- */
-function systemNoteContents(entries: readonly unknown[]): readonly string[] {
-  const notes: string[] = [];
-  for (const entry of entries) {
-    const e = entry as { customType?: string; content?: unknown; data?: unknown };
-    if (e.customType === "theta-system-note") {
-      if (typeof e.content === "string") notes.push(e.content);
-      else if (Array.isArray(e.content)) {
-        for (const part of e.content) {
-          const t = (part as { text?: string }).text;
-          if (typeof t === "string") notes.push(t);
-        }
-      }
-    } else if (e.customType === "theta-progress-entry") {
-      // PIC-72 (runtime-event-channel.md): the three migrated operator-note
-      // classes (parse/load/type diagnostic BATCH, structural-change,
-      // binder-model recovery) deliver through the `theta-progress-entry`
-      // custom-entry channel instead of `theta-system-note` whenever both
-      // entry members are present (entry-channel.ts). The entry's `data`
-      // carries the SAME `SystemNote` shape the message channel used to
-      // carry (PIC-71: byte-identical rendered content), so extracting its
-      // `content` keeps every existing substring assertion working
-      // unchanged — a channel-union repair, not a weakening.
-      const data = e.data as { content?: unknown } | undefined;
-      if (typeof data?.content === "string") notes.push(data.content);
-    }
-  }
-  return notes;
 }
 
 /**
@@ -212,7 +179,7 @@ describe("bug 0160 live: an inline `as \"WireName\"` rename is refused at regist
       // theta-side identifier `a`, which is the whole point of the standard
       // `<field>` rendering: the raw key differs between the token-joining
       // positions and `params:`, the identifier does not.
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = renamedInlineFragment("a");
       expect(
         notes.some((note) => note.includes(expectedFragment)),

@@ -77,13 +77,10 @@
 // child's single typed-query turn.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { expectPiPrintFixture } from "../../helpers/pi-print-fixture-harness";
 import {
   requireLiveHost,
   resolveAcceptanceHost,
-  spawnPiPrint,
 } from "./harness";
 import { parseThetaDocument, type ThetaDocument } from "../../../src/parser/theta-document";
 import { checkThetaImports } from "../../../src/extension/import-static-checks";
@@ -279,34 +276,21 @@ describe("H9a live — bugs 0422/0423 imported-schema `system:` wire-render and 
     // a skip or early return.
     await requireLiveHost();
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0422wire-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0422wire-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, "cfg.thetalib"), CFG_LIB, "utf8");
-      writeFileSync(join(thetaDir, "b0422childwire.theta"), child, "utf8");
-      writeFileSync(join(thetaDir, "b0422probewire.theta"), PROBE_WIRE, "utf8");
-
-      const probe = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0422probewire",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
+    await expectPiPrintFixture("b0422wire", {
+      "cfg.thetalib": CFG_LIB,
+      "b0422childwire.theta": child,
+      "b0422probewire.theta": PROBE_WIRE,
+    }, {
+      rootName: "",
+      slashInvocation: "/b0422probewire",
+      expectedStdout: WIRE_OK,
+      stdoutMessage: (probe) =>
         `probe: the imported schema's bare \`\${cfg}\` must render the WIRE key "Addend" into ` +
           `the child's system prompt, so the child adds 277 to 500 = 777 and the prober computes ` +
           `777 + 100 = ${WIRE_OK}. With the fix neutralised the bare object renders the theta-side ` +
           `key "addend", the child finds no "Addend" key → adds 0 → returns 500 → the prober ` +
           `answers ${WIRE_NEUTRALISED}. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
-      ).toContain(WIRE_OK);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+    });
   });
 
   it("DIRECTION 2 (0422): a walked-off imported field un-registers the callee at LOAD, so its `invoke` resolves Err", async () => {
@@ -336,32 +320,19 @@ describe("H9a live — bugs 0422/0423 imported-schema `system:` wire-render and 
     // a skip or early return.
     await requireLiveHost();
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0422typo-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0422typo-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, "cfg.thetalib"), CFG_LIB, "utf8");
-      writeFileSync(join(thetaDir, "b0422childtypo.theta"), child, "utf8");
-      writeFileSync(join(thetaDir, "b0422probetypo.theta"), PROBE_TYPO, "utf8");
-
-      const probe = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0422probetypo",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
+    await expectPiPrintFixture("b0422typo", {
+      "cfg.thetalib": CFG_LIB,
+      "b0422childtypo.theta": child,
+      "b0422probetypo.theta": PROBE_TYPO,
+    }, {
+      rootName: "",
+      slashInvocation: "/b0422probetypo",
+      expectedStdout: REFUSED_ANSWER,
+      stdoutMessage: (probe) =>
         `probe: the walked-off \`\${cfg.typo}\` child must REFUSE at LOAD ` +
           `(${LOAD_BAD_FIELD_CODE}) and never register, so its \`invoke\` resolves Err → d = 0 → ` +
           `the prober answers ${REFUSED_ANSWER}. A child the fix did not refuse would register and ` +
           `drive, printing a different number. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
-      ).toContain(REFUSED_ANSWER);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+    });
   });
 });

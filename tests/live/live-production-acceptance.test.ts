@@ -36,6 +36,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
+  collectSystemNotes,
   driveSlashCaptureText,
   driveSlashCaptureTurn,
   failLoudly,
@@ -924,42 +925,6 @@ describe("H8a-T — bug 0071: a .theta-callable call at wrong arity (Convention:
 // ===========================================================================
 
 /**
- * The `theta-system-note` channel contents from the settled in-memory
- * `SessionManager`, read directly off `getEntries()` (AGENTS.md §"Assert on
- * real observables"). Mirrors `./harness`'s unexported `collectSystemNotes`
- * (not imported: this cell reads the FULL entry list, not a per-drive slice,
- * since the diagnostic under test fires at load time, before any drive).
- */
-function systemNoteContents(entries: readonly unknown[]): readonly string[] {
-  const notes: string[] = [];
-  for (const entry of entries) {
-    const e = entry as { customType?: string; content?: unknown; data?: unknown };
-    if (e.customType === "theta-system-note") {
-      if (typeof e.content === "string") notes.push(e.content);
-      else if (Array.isArray(e.content)) {
-        for (const part of e.content) {
-          const t = (part as { text?: string }).text;
-          if (typeof t === "string") notes.push(t);
-        }
-      }
-    } else if (e.customType === "theta-progress-entry") {
-      // PIC-72 (runtime-event-channel.md): the three migrated operator-note
-      // classes (parse/load/type diagnostic BATCH, structural-change,
-      // binder-model recovery) deliver through the `theta-progress-entry`
-      // custom-entry channel instead of `theta-system-note` whenever both
-      // entry members are present (entry-channel.ts). The entry's `data`
-      // carries the SAME `SystemNote` shape the message channel used to
-      // carry (PIC-71: byte-identical rendered content), so extracting its
-      // `content` keeps every existing substring assertion working
-      // unchanged — a channel-union repair, not a weakening.
-      const data = e.data as { content?: unknown } | undefined;
-      if (typeof data?.content === "string") notes.push(data.content);
-    }
-  }
-  return notes;
-}
-
-/**
  * `theta/load/invoke-path-escape`'s registry code. DIAG-4
  * (`docs/spec_topics/diagnostics/diagnostic-shape.md:74`) makes the registry
  * *Message* column normative, so the fragment this cell asserts is READ from
@@ -1092,7 +1057,7 @@ describe("H8a-T — bug 0110: an out-of-root .theta tools: entry escapes contain
       // during `session.bindExtensions({})` inside `bootShippedExtension`
       // above — before any slash is driven, so the full entry list (not a
       // per-drive slice) is read here.
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       // DIAG-4: the fragment is derived from the registry row, not copied — see
       // `invokePathEscapeFragment`.
       const expectedFragment = invokePathEscapeFragment(
@@ -1258,7 +1223,7 @@ describe("H8a-U — bug 0111: a nested tools: entry escapes containment through 
       // naming the NESTED entry spec as written (not the nested callee's own
       // path) — `docs/spec_topics/diagnostics/placeholder-rendering-b.md`
       // category 5's `tools:`-entry rendering arm.
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = invokePathEscapeFragment(
         `${outSpec}/b111livefarcallee.theta`,
       );
@@ -1452,7 +1417,7 @@ describe("H8a-T — cell 62 (bug 0113): a settings thetaPaths glob whose static-
       // silence for a traversal failure inside a root that exists. The
       // warning fires at LOAD time, before any drive, so the full entry list
       // is the delta (mirrors the bug 0110 / bug 0084 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = unreadableSourceFragment('settings:"g/**/*.theta"');
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -2158,7 +2123,7 @@ describe("H8a-T — bug 0084: `--` in a while body draws theta/parse/increment-d
       // The theta-system-note channel (AGENTS.md §"Assert on real
       // observables"): the diagnostic fires at LOAD time, before any drive, so
       // the full entry list is the delta (mirrors the bug 0110 cell above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = incrementDecrementFragment("--");
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -2312,7 +2277,7 @@ describe("H8a-T — bug 0089: an alias-typed fn parameter iterated in a `for` re
       // for this caller's own declared type, so this fragment's ABSENCE is
       // the success signal — mirroring AGENTS.md's subagent-mode absence
       // convention, applied here to a load-time note instead of a drive's.
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const regressionFragment = nonArrayIterandFragment("L");
       expect(
         notes.some((note) => note.includes(regressionFragment)),
@@ -2461,7 +2426,7 @@ describe("H8a-T — bug 0095: a schema field carrying a brace-rooted union arm r
       // time, before any drive, so the full entry list is the delta (mirrors
       // the bug 0110 / 0084 / 0089 cells above). Post-fix nothing may name
       // `Cfg` as field-less, so this fragment's ABSENCE is the success signal.
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const regressionFragment = emptySchemaBodyFragment("Cfg");
       expect(
         notes.some((note) => note.includes(regressionFragment)),
@@ -2653,7 +2618,7 @@ describe("H8a-T — bug 0102: a params: default's string literal carrying a raw 
       // than off racy events: the diagnostic fires at LOAD time, before any
       // drive, so the full entry list is the delta (mirrors the bug 0110 /
       // 0084 / 0089 / 0095 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = literalNewlineInStringFragment();
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -2848,7 +2813,7 @@ describe("H8a-T — bug 0125: an alias-typed array's element, called past the st
       // than off racy events: the diagnostic fires at LOAD time, before any
       // drive, so the full entry list is the delta (mirrors the bug 0110 /
       // 0084 / 0089 / 0095 / 0102 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = unknownMethodFragment("frobnicate", "string");
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -3030,7 +2995,7 @@ describe("H8a-T — bug 0050: a plain fn call's provably mistyped argument does 
       // than off racy events: the diagnostic fires at LOAD time, before any
       // drive, so the full entry list is the delta (mirrors the bug 0110/
       // 0084/0089/0095/0102/0125 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = fnArgTypeMismatchFragment("g", 0, "s", "string", "integer");
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -3239,7 +3204,7 @@ describe("H8a-T — bug 0137: a literal invoke(...) call's provably mistyped arg
       // than off racy events: the diagnostic fires at LOAD time, before any
       // drive, so the full entry list is the delta (mirrors the bug 0110/
       // 0084/0089/0095/0102/0125/0050 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = invokeArgTypeMismatchFragment(0, "x", "string", "integer");
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -3414,7 +3379,7 @@ describe("H8a-T — bug 0139: an uppercase-first fn parameter name draws binding
       // than off racy events: the diagnostic fires at LOAD time, before any
       // drive, so the full entry list is the delta (mirrors the bug 0110/
       // 0084/0089/0095/0102/0125/0050/0137 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = bindingCaseMismatchFragment();
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -3568,7 +3533,7 @@ describe("H8a-T — bug 0142: a `/` quotient bound to an `integer` annotation dr
       // than off racy events: the diagnostic fires at LOAD time, before any
       // drive, so the full entry list is the delta (mirrors the bug 0110/
       // 0084/0089/0095/0102/0125/0050/0137/0139 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = integerNarrowingFragment();
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -3672,7 +3637,7 @@ describe("H8a-T — bug 0152: a `%` remainder by a static-zero integer divisor b
       // than off racy events: the diagnostic fires at LOAD time, before any
       // drive, so the full entry list is the delta (mirrors the bug 0110/
       // 0084/0089/0095/0102/0125/0050/0137/0139/0142 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = integerNarrowingFragment();
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -3808,7 +3773,7 @@ describe("H8a-T — bug 0148: a reserved keyword as an fn parameter name draws r
       // than off racy events: the diagnostic fires at LOAD time, before any
       // drive, so the full entry list is the delta (mirrors the bug 0110/0084/
       // 0089/0095/0102/0125/0050/0137/0139/0142 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = reservedKeywordFragment("let");
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -3997,7 +3962,7 @@ describe("H8a-T — bug 0149: an uppercase-first schema field name or params: ke
       // notes are told apart by which broken theta's own file path
       // `renderDiagnosticLine` (src/diagnostics/diagnostic.ts) prefixes onto
       // the rendered line, not by the message text.
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = bindingCaseMismatchFragment();
       const schemaNote = notes.some(
         (note) => note.includes(expectedFragment) && note.includes("b149liveschemabroken"),
@@ -4201,7 +4166,7 @@ describe("H8a-T — bug 0081: the array/ternary common-type union admits a spec-
       // than off racy events: the diagnostic fires at LOAD time, before any
       // drive, so the full entry list is the delta (mirrors the bug 0110/
       // 0084/0089/0095/0102/0125/0050/0137/0139/0142/0148/0149 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = arrayNoCommonTypeFragment();
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -4329,7 +4294,7 @@ describe("H8a-T — bug 0155: a ternary with two distinct named object-schema br
       // delta must carry NO array-no-common-type note, while the
       // array-literal contrast's delta must carry exactly the registered
       // *Message*.
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = arrayNoCommonTypeFragment();
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -4521,7 +4486,7 @@ describe("H8a-T — bug 0052: a repeated field name inside an inline object body
       // drive, so the full entry list is the delta (mirrors the bug 0110/
       // 0084/0089/0095/0102/0125/0050/0137/0139/0142/0148/0149/0081 cells
       // above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = duplicateInlineFieldNameFragment("a");
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -4962,7 +4927,7 @@ describe("H8a-T — bug 0059: a params: right-hand side spelling no Type product
       // drive, so the full entry list is the delta (mirrors the bug 0110/
       // 0084/0089/0095/0102/0125/0050/0137/0139/0142/0148/0149/0081/0052
       // cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = paramsTypeNotExpressionFragment("p");
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -5142,7 +5107,7 @@ describe("H8a-T — bug 0061: a schema object-body field type carrying text no T
       // drive, so the full entry list is the delta (mirrors the bug 0110/
       // 0084/0089/0095/0102/0125/0050/0137/0139/0142/0148/0149/0081/0052/
       // 0059 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = schemaTypeNotExpressionFragment("S");
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -5683,7 +5648,7 @@ describe("H8a-T — bug 0166: a params: default's unary `-` over a non-numeric l
       // observables"), read off the settled in-memory `SessionManager`: the
       // diagnostic fires at LOAD time, before any drive, so the full entry
       // list is the delta (mirrors the bug 0102/0110/0125 cells above).
-      const loadNotes = systemNoteContents(handle.sessionManager.getEntries());
+      const loadNotes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = defaultNotLiteralFragment("-true");
       expect(
         loadNotes.some((note) => note.includes(expectedFragment)),
@@ -5905,7 +5870,7 @@ describe("H8a-T — bug 0165: a params: default with no literal after `=` does n
       // observables"), read off the settled in-memory `SessionManager`: the
       // diagnostic fires at LOAD time, before any drive, so the full entry
       // list is the delta (mirrors the bug 0102/0110/0125/0166 cells above).
-      const loadNotes = systemNoteContents(handle.sessionManager.getEntries());
+      const loadNotes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = defaultWithoutLiteralFragment("p");
       expect(
         loadNotes.some((note) => note.includes(expectedFragment)),
@@ -6089,7 +6054,7 @@ describe("H8a-T — bug 0159: a stop-masked repeated inline field name draws dup
       // than off racy events: the diagnostic fires at LOAD time, before any
       // drive, so the full entry list is the delta (mirrors the bug 0052 cell
       // above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = duplicateInlineFieldNameFragment("a");
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -7416,7 +7381,7 @@ describe("H8a-T — bug 0179: an `array<T>`-declared sink fed by a nominal-place
       // bug 0089 / bug 0095 cells above). Post-fix there is nothing to reject
       // for this caller's own `ks`/`p.keys()` instance, so this fragment's
       // ABSENCE is the success signal.
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const regressionFragment = objectFieldMismatchFragment(
         "ks",
         "R",
@@ -7754,7 +7719,7 @@ describe("H8a-T — bug 0136: a member read's static type is the receiver's decl
       // than off racy events: both diagnostics fire at LOAD time, before any
       // drive, so the full entry list is the delta (mirrors the bug 0110/
       // 0084/0089/…/0149/0081 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
 
       // Registration-restored direction: absence of the pre-fix regression
       // fragment is the success signal (mirrors the bug 0089 cell's own
@@ -7904,7 +7869,7 @@ describe("H8a-T — bug 0126: a plain `for` body's method misuse of its loop var
       // observables"): the diagnostic fires at LOAD time, before any drive,
       // so the full entry list is the delta (mirrors the bug 0110/0084/0089/
       // …/0136 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = unknownMethodFragment("frobnicate", "string");
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -8138,7 +8103,7 @@ describe("H8a-T — bug 0185: a params: default naming an unresolvable Enum.Vari
       // than off racy events: the diagnostic fires at LOAD time, before any
       // drive, so the full entry list is the delta (mirrors the bug 0110/
       // 0084/0089/…/0126 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = unknownVariantFragment("Missing", "Sev");
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -8307,7 +8272,7 @@ describe("H8a-T — bug 0190: the fn-argument sink judges a provable member-read
       // than off racy events: the diagnostic fires at LOAD time, before any
       // drive, so the full entry list is the delta (mirrors the bug 0110/
       // 0084/0089/0095/0102/0125/0050 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = fnArgTypeMismatchFragment("g", 0, "n", "integer", "string");
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -8513,7 +8478,7 @@ describe("H8a-T — bug 0192: a params:-declared binding carries its declared ty
       // than off racy events: both verdicts land at LOAD time, before any
       // drive, so the full entry list is the delta (mirrors the bug 0110/0084/
       // 0089/…/0136/0126/0185/0190 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
 
       // Removal direction: absence of the pre-fix regression fragment is the
       // success signal (mirrors the bug 0089/0136 cells' own convention
@@ -8771,7 +8736,7 @@ describe("H8a-T — bug 0194: a withhold recorded for one loop variable does not
       // theta's own file path `renderDiagnosticLine`
       // (src/diagnostics/diagnostic.ts) prefixes onto the rendered line, the
       // discrimination bug 0149's cell above already uses.
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = fnArgTypeMismatchFragment("g", 0, "s", "string", "integer");
       expect(
         notes.some(
@@ -8978,7 +8943,7 @@ describe("H8a-T — bug 0197: a params: default whose member-access head resolve
       // second one — DIAG-4 makes the registry's Message column normative, and
       // `<expr>` is the offending sub-expression's own source span
       // (placeholder-rendering-a.md:49).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = defaultNotLiteralFragment("Box.sev");
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -10402,7 +10367,7 @@ describe("H8a-T — bug 0140: a bare declared-schema reference at a value positi
       // refusal to theta/parse/type-as-value specifically, since
       // hasLoadParseError alone (the assertions above) would equally deny
       // registration for ANY error-severity theta/parse/* code.
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = typeAsValueFragment("P");
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -11360,7 +11325,7 @@ describe("H8a-T — bug 0100 (cell 67): a dangling-`as` import specifier is refu
       // The theta-system-note channel: the refusal fires at LOAD time, before
       // any drive, so the full entry list is the delta (mirrors the bug 0110 /
       // bug 0084 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = malformedSpecifierListFragment();
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -11858,7 +11823,7 @@ describe("H8a-T — bug 0204 (cell 70, cell 69): a params: field over an inline 
       // rather than off racy events: the diagnostic fires at LOAD time,
       // before any drive, so the full entry list is the delta (mirrors the
       // bug 0059/0102/0081 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = paramsTypeNotExpressionFragment("f");
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -12385,7 +12350,7 @@ describe("H8a-T — bug 0175 cell 73: a params: default whose parse leaves a sec
       // than off racy events: the diagnostic fires at LOAD time, before any
       // drive, so the full entry list is the delta (mirrors the bug
       // 0102/0110/0125/0166/0204 cells above).
-      const loadNotes = systemNoteContents(handle.sessionManager.getEntries());
+      const loadNotes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = defaultNotLiteralFragment("2");
       expect(
         loadNotes.some((note) => note.includes(expectedFragment)),
@@ -12544,7 +12509,7 @@ describe("H8a-T — bug 0217 cell 74: a params: field carrying an inline enum[�
       // than off racy events: the diagnostic fires at LOAD time, before any
       // drive, so the full entry list is the delta (mirrors the bug
       // 0059/0102/0175/0204 cells above).
-      const loadNotes = systemNoteContents(handle.sessionManager.getEntries());
+      const loadNotes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = paramsTypeNotExpressionFragment("f");
       expect(
         loadNotes.some((note) => note.includes(expectedFragment)),
@@ -12663,7 +12628,7 @@ describe("H8a-T — bug 0211 (cell 76): a separator-degenerate import specifier 
 
       // The theta-system-note channel: the refusal fires at LOAD time, before
       // any drive, so the full entry list is the delta (mirrors cell 67).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = malformedSpecifierListFragment();
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -12974,7 +12939,7 @@ describe("cell 78 (bug 0128): an explicit `by kind` over a resolved non-literal 
       // than off racy events: the diagnostic, when it fires, fires at LOAD
       // time, before any drive, so the full entry list is the delta (mirrors
       // the bug 0102/0095/0110/0084/0089 cells above).
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = nonLiteralDiscriminatorFragment("kind", "Animal");
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -13184,7 +13149,7 @@ describe("H8a-T — bug 0145 cell 79: a `match` arm binder shadowing an enclosin
       // route that suppressed the diagnostic's DELIVERY while leaving the
       // emission in place would pass the registration assertions above and red
       // here; a route that removed the emission passes both.
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const refusal = letRhsMismatchFragmentCellD("m", "string", "integer");
       expect(
         notes.filter((note) => note.includes(refusal)),
@@ -13345,7 +13310,7 @@ describe("H8a-T cell 80 — bug 0130: an inline-object `let` annotation refuses 
       // same read the bug 0110 cell performs. The fragment is derived from the
       // registry row (DIAG-4) and carries element 2's conformant rendering, so
       // this half also scores `placeholder-rendering-a.md:27`.
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = cellC2ExpectedFragment();
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -13487,7 +13452,7 @@ describe("cell 81 (bug 0118): a `fn` under a `par for` body is theta/parse/neste
       // registration boolean alone cannot distinguish this refusal from any
       // other `theta/parse/*` error blocking the same gate, so the MESSAGE is
       // the assertion, exactly as bug 0140's cell 59 does.
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = nestedFnFragmentCellB2();
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -13639,7 +13604,7 @@ describe("cell 82 (bug 0224): an undeclared name spelled inside a `par for` body
       // registration boolean alone cannot distinguish this refusal from any
       // other `theta/parse/*` error blocking the same gate, so the MESSAGE is
       // the assertion, exactly as cell 81 and bug 0140's cell 59 do.
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = unknownIdentFragmentCellB("Zzz");
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -13792,7 +13757,7 @@ describe("H8a-T — bug 0222: the QRY-4 explicit-schema check withholds a refuse
           "not the withhold under test, would explain the subject's absence too. Registered: " +
           JSON.stringify(handle.registeredNames()),
       ).toBeDefined();
-      const controlNotes = systemNoteContents(handle.sessionManager.getEntries());
+      const controlNotes = collectSystemNotes(handle.sessionManager.getEntries());
       const mismatchFragment = cellDMismatchFragment();
       expect(
         controlNotes.some((note) => note.includes(mismatchFragment)),
@@ -13815,13 +13780,13 @@ describe("H8a-T — bug 0222: the QRY-4 explicit-schema check withholds a refuse
       // `explicit-schema-mismatch` note landed beside it; post-fix, the guard
       // this bug adds withholds the annotation before any conversion runs, so
       // no such note arrives.
-      // Scoped to the subject theta's OWN notes: `systemNoteContents` reads
+      // Scoped to the subject theta's OWN notes: `collectSystemNotes` reads
       // the full session entry list, which also carries the liveness
       // control's legitimate warning note (from `b222livewarn`) — an
       // unscoped read would find that note and misattribute it to the
       // subject, so every note is filtered to the ones citing the subject's
       // own planted file path first.
-      const allNotes = systemNoteContents(handle.sessionManager.getEntries());
+      const allNotes = collectSystemNotes(handle.sessionManager.getEntries());
       const subjectNotes = allNotes.filter((note) => note.includes("b222livesubject.theta"));
       expect(
         subjectNotes.length > 0,
@@ -14178,7 +14143,7 @@ describe("H8a-T -- bug 0158: a heterogeneous `match` still refuses registration 
       // planted refusal itself (not the drive above, since the refused
       // sibling never registered a command to drive): its load-time delta
       // must carry the registered *Message* verbatim.
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = matchArmTypeMismatchFragment();
       expect(
         notes.some((note) => note.includes(expectedFragment)),
@@ -14395,7 +14360,7 @@ describe("H8a-T -- bug 0273: an undeclared head in a `Result<T, E>` annotation's
       // fires before any drive, so the full entry list already carries it. The
       // rendered head is `Nope` -- a note naming anything else would mean the
       // resolution is reporting text the source does not contain.
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = unresolvedNamedTypeFragmentCell89("Nope");
       expect(
         notes.some((note) => note.includes(expectedFragment)),

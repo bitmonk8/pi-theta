@@ -68,28 +68,23 @@ import {
   plantThetaWorkspace,
   requireLiveProvider,
 } from "./harness";
-import { createRecordingUi } from "../helpers/execution-status-progress";
+import { createRecordingUi, milestoneEntries } from "../helpers/execution-status-progress";
+import { sleep } from "../helpers/fake-clock";
 
 /** Settle margin for any (wrongly) still-pending status tick before the
  *  absence read (STATUS_TICK_MS=200ms per `execution-status/types.ts`). */
 const ABSENCE_SETTLE_MS = 1000;
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** A `type:"custom"` `theta-progress-entry` entry carrying a `milestone`
- *  payload, read off the settled in-memory `SessionManager` (PIC-71). */
-function milestoneEntries(
+/** The object `milestone` payloads of the `theta-progress-entry` milestone
+ *  entries read off the settled in-memory `SessionManager` (PIC-71). */
+function milestonePayloads(
   entries: readonly unknown[],
 ): readonly { readonly milestone: Record<string, unknown> }[] {
   const found: { readonly milestone: Record<string, unknown> }[] = [];
-  for (const entry of entries) {
-    const e = entry as { type?: string; customType?: string; data?: unknown };
-    if (e.type !== "custom" || e.customType !== "theta-progress-entry") continue;
-    const data = e.data as { milestone?: unknown } | undefined;
-    if (data?.milestone !== undefined && typeof data.milestone === "object") {
-      found.push({ milestone: data.milestone as Record<string, unknown> });
+  for (const entry of milestoneEntries(entries)) {
+    const milestone = (entry as { data: { milestone: unknown } }).data.milestone;
+    if (typeof milestone === "object") {
+      found.push({ milestone: milestone as Record<string, unknown> });
     }
   }
   return found;
@@ -194,7 +189,7 @@ describe("RFC 0010 (H8a, live, L3) — parent-regime theta_progress lands one mi
 
       // Exactly one milestone entry, exact message.
       const entries = handle.sessionManager.getEntries();
-      const milestones = milestoneEntries(entries);
+      const milestones = milestonePayloads(entries);
       expect(
         milestones.length,
         "expected exactly one theta-progress-entry milestone; got " +
@@ -261,7 +256,7 @@ describe("RFC 0010 (H8a, live, L3) — parent-regime theta_progress lands one mi
 
       // The model-driven tool call landed a milestone entry (content not
       // pinned — a model may paraphrase its own tool-call argument).
-      const milestones = milestoneEntries(handle.sessionManager.getEntries());
+      const milestones = milestonePayloads(handle.sessionManager.getEntries());
       expect(
         milestones.length > 0,
         "no theta-progress-entry milestone landed from the model's own tool call. " +
