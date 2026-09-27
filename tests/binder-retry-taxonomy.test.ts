@@ -221,6 +221,18 @@ describe("V11f-T — the six failure-mode templates render verbatim (determinism
     ).toBe(
       "theta /code-review: argument binder unavailable (anthropic-messages: 503 upstream unavailable)",
     );
+    // The runtime-supplied `<message>` takes the rule-1 single-line
+    // sanitisation (defaulting-system-note-echo.md §System-note rendering):
+    // CR/LF and ASCII-whitespace runs collapse to one U+0020, edges trimmed.
+    expect(
+      renderBinderSystemNote("code-review", {
+        kind: "transport",
+        provider: "anthropic-messages",
+        message: " 400 bad\r\nline  two\n",
+      }),
+    ).toBe(
+      "theta /code-review: argument binder unavailable (anthropic-messages: 400 bad line two)",
+    );
   });
 
   it("renders the malformed-envelope and cancelled rows (fixed suffixes)", () => {

@@ -37,7 +37,7 @@
 
 import type { ValidationIssue } from "../runtime/query-error";
 import type { DepthViolationIssue, DepthWalkResult } from "../runtime/depth-walk";
-import { capSystemNote, renderFailureNote } from "./system-note";
+import { capSystemNote, renderFailureNote, sanitizeSystemNoteSubstring } from "./system-note";
 
 /**
  * The worst-case budgeted binder ATTEMPT count per slash invocation
@@ -81,7 +81,9 @@ export type BinderFailureSurface =
  * through {@link renderFailureNote}. The `transport` row (its own
  * `(<provider>: <message>)` parenthetical grammar) and the `cancelled` row (no
  * suffix) do not use the em-dash boundary, so they are composed directly and
- * passed through the rule-2 length cap {@link capSystemNote}.
+ * passed through the rule-2 length cap {@link capSystemNote}; the transport
+ * row's runtime-supplied `<message>` first passes through the rule-1
+ * single-line sanitisation {@link sanitizeSystemNoteSubstring}.
  */
 export function renderBinderSystemNote(
   thetaName: string,
@@ -115,9 +117,12 @@ export function renderBinderSystemNote(
     case "transport":
       // The transport row uses the `(<provider>: <message>)` parenthetical
       // rather than the em-dash suffix boundary; `<provider>` is the
-      // classifier's `Model<Api>.api` value rendered verbatim.
+      // classifier's `Model<Api>.api` value rendered verbatim. The
+      // runtime-supplied `<message>` (a provider `errorMessage` or a thrown
+      // value's text) may carry a `\n`/`\r`, so it takes the rule-1
+      // single-line sanitisation before the rule-2 cap.
       return capSystemNote(
-        `theta /${thetaName}: argument binder unavailable (${surface.provider}: ${surface.message})`,
+        `theta /${thetaName}: argument binder unavailable (${surface.provider}: ${sanitizeSystemNoteSubstring(surface.message)})`,
       );
     case "cancelled":
       return capSystemNote(`theta /${thetaName}: argument binding cancelled`);
