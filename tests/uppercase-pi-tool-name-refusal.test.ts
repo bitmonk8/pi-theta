@@ -1,10 +1,8 @@
-import { expectedMessage } from "./helpers/registry-oracle";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { expectedMessage, readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import { callableSetDeps as deps, findCode as withCode, resolveList, thetaCallee } from "./helpers/e2e-s1";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import {
   productionLoadSuite,
   theta,
@@ -170,32 +168,12 @@ import type { CallableSetResult } from "../src/parser/callable-set";
 // --- Registry Message strings (diagnostics/code-registry-load.md) -----------
 
 /** The live sharded load registry — the *Message* column DIAG-4 makes normative. */
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../docs/spec_topics/diagnostics/code-registry-load.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const REGISTRY = readRegistry(["load"]);
 
 // Bug 0320's fix moved `theta/parse/invoke-non-theta-extension` (a PARSE code)
 // in front of the `.theta`-path arm's `resolveThetaCallee` call, so the C5 test
 // below now needs the PARSE registry page's Message, not the LOAD page's.
-const PARSE_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const PARSE_REGISTRY = readRegistry(["parse"]);
 
 /** The new code this report registers: the Pi-tool arm's own name-shape rule. */
 const INVALID_PI_TOOL_CODE = "theta/load/invalid-pi-tool-name";

@@ -185,6 +185,25 @@ export function expectedMessage(
   return message;
 }
 
+/**
+ * `expectedMessage`, additionally asserting no `<…>` placeholder survives the
+ * fill — a leftover token means the registry row changed shape under the
+ * caller's substitutions.
+ */
+export function expectedFilledMessage(
+  registry: readonly Pick<RegistryRow, "code" | "message">[],
+  code: string,
+  subs: Readonly<Record<string, string>>,
+): string {
+  const message = expectedMessage(registry, code, subs);
+  expect(
+    message,
+    `${code}: an unsubstituted <…> placeholder remains — the registry row's ` +
+      "Message template changed shape and this file's substitutions are stale",
+  ).not.toMatch(/<[a-z]+>/);
+  return message;
+}
+
 /** Fill the named discovery descriptors, leaving unknown placeholders intact. */
 export function interpolate(template: string, subs: Record<string, string>): string {
   return template.replace(/<([a-z-]+)>/g, (whole, name: string) => subs[name] ?? whole);
@@ -454,8 +473,8 @@ export function paramsRefusal(field: string): string {
 }
 
 /** Codes asserted by the bug-0113 family's unreadable-source witnesses. */
-const UNREADABLE_SOURCE_CODE = "theta/load/unreadable-source";
-const MISSING_SOURCE_CODE = "theta/load/missing-source";
+export const UNREADABLE_SOURCE_CODE = "theta/load/unreadable-source";
+export const MISSING_SOURCE_CODE = "theta/load/missing-source";
 
 /**
  * The bug-0113-family pin shared by the glob-universe and tree-walk-lstat
@@ -490,4 +509,29 @@ export function expectUnreadableSourceFailure(
     "a universe walk never emits missing-source — a pattern resolving to zero " +
       "paths is silent (package-and-settings.md:29)",
   ).toHaveLength(0);
+}
+
+/**
+ * The package-side tail shared by the bug 0075/0076/0113 package witnesses:
+ * `diagnostic` carries `severity` (`severityReason` cites the row cell), its
+ * message frame is the `code` row's Message template (DIAG-4), and its
+ * descriptor renders the normative `package:"<pkg>"` form
+ * (placeholder-rendering-b.md §5).
+ */
+export function expectPackageSourceDiagnostic(
+  diagnostic: Diagnostic,
+  code: string,
+  severity: Diagnostic["severity"],
+  severityReason: string,
+  pkg: string,
+): void {
+  expect(diagnostic.severity, severityReason).toBe(severity);
+  expect(
+    diagnostic.message,
+    "DIAG-4: the message is the registry row's Message template",
+  ).toMatch(templateToRegExp(loadRowMessage(code)));
+  expect(
+    diagnostic.message,
+    "the descriptor names the offending package (placeholder-rendering-b.md §5)",
+  ).toContain(`package:"${pkg}"`);
 }

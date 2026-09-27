@@ -170,7 +170,7 @@ function declLine(name: string): string {
  */
 function malformedFieldLine(): string {
   const code = "theta/parse/malformed-schema-field";
-  return line(code, "malformed schema field; each field is 'name: Type' or 'name as \"WireName\": Type'");
+  return line(code, msg(code, []));
 }
 
 /** The code bug 0176 §Fix route A adds for a QUOTED inline field-name key. */

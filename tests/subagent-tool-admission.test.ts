@@ -1,7 +1,12 @@
-import { callableSetOf, piToolNames, runProductionLoad, theta, type LoadOutcome } from "./helpers/production-load-harness";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import {
+  callableSetOf,
+  disposeWorkspace,
+  piToolNames,
+  plantThetaWorkspace,
+  runProductionLoad,
+  theta,
+  type LoadOutcome,
+} from "./helpers/production-load-harness";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ResolvedCallable } from "../src/parser/callable-set";
 import { inferChildTrust } from "../src/runtime/subagent-launcher";
@@ -146,24 +151,18 @@ const THETAS: readonly PlantedTheta[] = [
 // --- Load harness ----------------------------------------------------------
 
 let outcome: LoadOutcome;
-let workspaceDir: string;
+let workspaceDir: string | undefined;
 
 beforeAll(async () => {
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-rfc0005-admission-"));
-  const projectThetaDir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(projectThetaDir, { recursive: true });
-  for (const l of THETAS) {
-    writeFileSync(join(projectThetaDir, `${l.stem}.theta`), l.text, "utf8");
-  }
-  // A minimal valid settings file pins the fixture's settings read to a known
-  // value. An ABSENT settings file is silent (package-and-settings.md
+  // A minimal valid settings file ("{}") pins the fixture's settings read to a
+  // known value. An ABSENT settings file is silent (package-and-settings.md
   // §Failure modes), so the plant is hermeticity, not noise suppression.
-  writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
+  workspaceDir = plantThetaWorkspace("theta-rfc0005-admission-", THETAS, "{}");
   outcome = await runProductionLoad(workspaceDir, { registryTools: FAKE_ALL_TOOLS });
 });
 
 afterAll(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
+  disposeWorkspace(workspaceDir);
 });
 
 describe("RFC-0005 — subagent-mode extension-tool admission", () => {

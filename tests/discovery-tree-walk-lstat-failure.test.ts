@@ -1,10 +1,12 @@
 import { hitsFor } from "./helpers/e2e-s1";
 import {
-  loadRowMessage,
   interpolate,
-  templateToRegExp,
   expectUnreadableSourceFailure,
+  expectPackageSourceDiagnostic,
+  MISSING_SOURCE_CODE as MISSING_SOURCE,
+  UNREADABLE_SOURCE_CODE as UNREADABLE_SOURCE,
 } from "./helpers/registry-oracle";
+import { THETA_BODY } from "./helpers/discovery-scratch-harness";
 import { describe, expect, it } from "vitest";
 import { discoverThetas, type DiscoveryInput } from "../src/discovery/discovery-walk";
 import { discoverPackageThetas } from "../src/discovery/package-discovery";
@@ -17,8 +19,11 @@ import {
   ancestors,
   mergeDirs,
   buildPackages,
+  buildDiscovery,
   packageInput,
   DISCOVERY_BASE,
+  DISCOVERY_NODE_MODULES as NM,
+  type DiscoveryFakeSpec as FakeSpec,
   DISCOVERY_GLOBAL_ROOT as GLOBAL_ROOT,
   DISCOVERY_PROJECT_ROOT as PROJECT_ROOT,
   namedTheta as named,
@@ -96,43 +101,21 @@ import {
 // ===========================================================================
 // The registry row (DIAG-4) — every expected message below is sourced from the
 // Message column of docs/spec_topics/diagnostics/code-registry-load.md.
+// Fixtures follow; the code constants, `FakeSpec`, `THETA_BODY` and `NM` are
+// shared helper exports.
 // ===========================================================================
 
-const MISSING_SOURCE = "theta/load/missing-source";
-const UNREADABLE_SOURCE = "theta/load/unreadable-source";
-
-// ===========================================================================
-// Fixtures.
-// ===========================================================================
-
-const HOME = "/home/theta";
-const CWD = "/project";
 const SETTINGS_BASE = "/project/.pi";
 const PREFIX_ROOT = "/project/.pi/g";
 const DENIED_SUB = "/project/.pi/g/sub";
-const NM = "/project/node_modules";
-
-/** A body that parses far enough to register (the walk only reads bytes). */
-const THETA_BODY = "mode: prompt\n---\n";
 
 /** The conventional roots' ancestor chains plus the settings-base chain, in
  *  every settings fixture, so a cell's diagnostic set is about the path under
  *  test alone and the fixture's directory shape stays self-consistent. */
 const BASE = mergeDirs(DISCOVERY_BASE, ancestors(DENIED_SUB));
 
-interface FakeSpec {
-  readonly dirs?: Record<string, readonly string[]>;
-  readonly files?: Record<string, string>;
-}
-
-function build(spec: FakeSpec): FakeFileSystem {
-  return new FakeFileSystem({
-    homedir: HOME,
-    cwd: CWD,
-    dirs: mergeDirs(BASE, spec.dirs ?? {}),
-    files: spec.files ?? {},
-  });
-}
+/** `buildDiscovery` over this file's `BASE`. */
+const build = (spec: FakeSpec): FakeFileSystem => buildDiscovery(spec, BASE);
 
 /**
  * A `FileSystem` decorator that rejects `lstat` for exactly one path with a
@@ -451,24 +434,18 @@ describe("listTree's per-entry lstat rejection reports its traversal failure (pa
         `TreeWalk.unreadable, so it is always reported. ` +
         `Observed diagnostics=${JSON.stringify(diagnostics)}`,
     ).toBe(1);
-    const diagnostic = hits[0]!;
-    expect(
-      diagnostic.severity,
-      "the `Package pi.theta` row's Unreadable cell is a warning " +
-        "(discovery-sources.md:56)",
-    ).toBe("warning");
-    expect(
-      diagnostic.message,
-      "DIAG-4: the message is the registry row's Message template",
-    ).toMatch(templateToRegExp(loadRowMessage(UNREADABLE_SOURCE)));
     // Post-0461 the descriptor renders the normative `package:"<name>"` form
     // (placeholder-rendering-b.md §5), collapsing the pi.theta-vs-theta/
     // distinction the pre-fix category prose carried — the kind:value grammar
     // has no slot for the manifest key, so that assertion drops.
-    expect(
-      diagnostic.message,
-      "the descriptor names the offending package (placeholder-rendering-b.md §5)",
-    ).toContain('package:"beta"');
+    expectPackageSourceDiagnostic(
+      hits[0]!,
+      UNREADABLE_SOURCE,
+      "warning",
+      "the `Package pi.theta` row's Unreadable cell is a warning " +
+        "(discovery-sources.md:56)",
+      "beta",
+    );
     expect(
       diagnostics.filter((d) => d.code === MISSING_SOURCE),
       "a universe walk never emits missing-source",

@@ -524,6 +524,8 @@ export function buildSettings(project: SettingsFileSpec, global: SettingsFileSpe
 
 export const DISCOVERY_GLOBAL_ROOT = "/home/theta/.pi/agent/theta";
 export const DISCOVERY_PROJECT_ROOT = "/project/.pi/theta";
+/** The project-local `node_modules` package root under `SETTINGS_CWD`. */
+export const DISCOVERY_NODE_MODULES = "/project/node_modules";
 
 /** The two conventional roots' ancestor chains, registered in every fixture.
  *  An absent conventional root is skipped BEFORE classification today (DISC-2's
@@ -531,13 +533,20 @@ export const DISCOVERY_PROJECT_ROOT = "/project/.pi/theta";
  *  roots any more; they keep each fixture's directory shape self-consistent. */
 export const DISCOVERY_BASE = mergeDirs(ancestors(DISCOVERY_GLOBAL_ROOT), ancestors(DISCOVERY_PROJECT_ROOT));
 
-/** Build a discovery fixture with the conventional home and working directory. */
-export function buildDiscovery(spec: Omit<FakeFileSystemOptions, "homedir" | "cwd">): FakeFileSystem {
+/** The fixture shape the discovery-failure witnesses pass to `buildDiscovery`. */
+export type DiscoveryFakeSpec = Pick<FakeFileSystemOptions, "dirs" | "files" | "errors">;
+
+/** Build a discovery fixture with the conventional home and working directory,
+ *  its directories merged over the optional `base` map (`mergeDirs`). */
+export function buildDiscovery(
+  spec: Omit<FakeFileSystemOptions, "homedir" | "cwd">,
+  base: Record<string, readonly string[]> = {},
+): FakeFileSystem {
   return new FakeFileSystem({
     ...spec,
     homedir: SETTINGS_HOME,
     cwd: SETTINGS_CWD,
-    dirs: spec.dirs ?? {},
+    dirs: mergeDirs(base, spec.dirs ?? {}),
     files: spec.files ?? {},
   });
 }

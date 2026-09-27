@@ -1,12 +1,10 @@
 import { readCorpus } from "./helpers/corpus-reader";
-import { readRegistry, registryHintOf } from "./helpers/registry-oracle";
+import { expectedMessage, readRegistry, registryHintOf } from "./helpers/registry-oracle";
 import { disposeWorkspace, plantThetaWorkspace, runProductionLoad as loadWorkspace } from "./helpers/production-load-harness";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
 import {
   parseThetaDocument,
   type ParseThetaDocumentDeps,
@@ -112,26 +110,6 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 const LOAD_REGISTRY = readRegistry(["load"]);
 const PARSE_REGISTRY = readRegistry(["parse"]);
 
-/** Source a code's registered *Message* template and fill its `<…>` placeholders. */
-function rendered(
-  registry: readonly { code: string; message: string }[],
-  code: string,
-  subs: Readonly<Record<string, string>> = {},
-): string {
-  let message = registryMessage(registry, code) as string | undefined;
-  expect(
-    message,
-    `${code} has no row in the sharded registry, so DIAG-4 has no normative ` +
-      "string for this cell to source",
-  ).toBeDefined();
-  let out = message as string;
-  for (const [placeholder, value] of Object.entries(subs)) {
-    // `replaceAll` — the shadowed-callable template repeats `<name>`.
-    out = out.replaceAll(placeholder, value);
-  }
-  return out;
-}
-
 const MALFORMED = "theta/load/malformed-tool-entry";
 const CALLEE_HAS_ERRORS = "theta/load/callee-has-errors";
 const UNRESOLVABLE_PATH = "theta/load/unresolvable-theta-path";
@@ -142,7 +120,7 @@ const UNKNOWN_IDENT = "theta/parse/unknown-identifier";
 
 /** The grammar rejection rendered for one entry text (`<value>` is unquoted). */
 function malformedMessage(entry: string): string {
-  return rendered(LOAD_REGISTRY, MALFORMED, { "<value>": entry });
+  return expectedMessage(LOAD_REGISTRY, MALFORMED, { "<value>": entry });
 }
 
 // ===========================================================================
@@ -640,7 +618,7 @@ describe("bug 0106 (A4) — the four controls stay separable (§Fix constraint 2
       "DIAG-4: the callee-has-errors Message is unchanged." + observed(outcome, "ctlwell"),
     ).toEqual([
       `${CALLEE_HAS_ERRORS}: ` +
-        rendered(LOAD_REGISTRY, CALLEE_HAS_ERRORS, {
+        expectedMessage(LOAD_REGISTRY, CALLEE_HAS_ERRORS, {
           "<path>": "./zbroken.theta",
         }),
     ]);
@@ -699,7 +677,7 @@ describe("bug 0106 (A5) — a well-formed entry naming a missing file keeps its 
         observed(outcome, "ctlmissing"),
     ).toEqual([
       `${UNRESOLVABLE_PATH}: ` +
-        rendered(LOAD_REGISTRY, UNRESOLVABLE_PATH, {
+        expectedMessage(LOAD_REGISTRY, UNRESOLVABLE_PATH, {
           "<path>": "./nosuchfile.theta",
         }),
     ]);
@@ -837,7 +815,7 @@ describe("bug 0106 (B1) — a two-token entry still seeds its first token as the
     expect(
       diags[0]?.message,
       "DIAG-4: the unknown-identifier Message names the discarded token",
-    ).toBe(rendered(PARSE_REGISTRY, UNKNOWN_IDENT, { "<name>": "bash" }));
+    ).toBe(expectedMessage(PARSE_REGISTRY, UNKNOWN_IDENT, { "<name>": "bash" }));
   });
 });
 
@@ -918,7 +896,7 @@ describe("bug 0106 (B6) — the two pre-empting gates read the same derived name
     expect(
       malformed[0]?.message,
       "DIAG-4: the argument-shape Message names the Pi tool the derivation supplied",
-    ).toBe(rendered(PARSE_REGISTRY, TOOL_ARG_SHAPE, { "<name>": "read" }));
+    ).toBe(expectedMessage(PARSE_REGISTRY, TOOL_ARG_SHAPE, { "<name>": "read" }));
   });
 
   it(`${SHADOWED_CALL}: \`- read bash\` puts \`read\` in the callables set (toolCallableName)`, () => {
@@ -944,7 +922,7 @@ describe("bug 0106 (B6) — the two pre-empting gates read the same derived name
         "closed grammar rejects — the falsehood bug 0106 measures, kept " +
         "deliberately because closing it costs the reachability group (C) pins",
     ).toBe(
-      rendered(PARSE_REGISTRY, SHADOWED_CALL, {
+      expectedMessage(PARSE_REGISTRY, SHADOWED_CALL, {
         "<name>": "read",
         "<binder>": "let binding at line 6",
       }),
@@ -1123,7 +1101,7 @@ const FILE_HEAD_LOCATION = "1:1";
 
 /** The escape refusal rendered for one entry spec AS WRITTEN (category 5). */
 function escapeMessage(spec: string): string {
-  return rendered(LOAD_REGISTRY, INVOKE_PATH_ESCAPE, { "<path>": spec });
+  return expectedMessage(LOAD_REGISTRY, INVOKE_PATH_ESCAPE, { "<path>": spec });
 }
 
 /**

@@ -10,7 +10,6 @@ import {
   emitDiagnosticBatch,
   type SystemNote,
   type SystemNoteChannelDeps,
-  type SystemNoteSender,
 } from "../src/extension/system-note-channel";
 import {
   computeBinderModelRecoveryNote,
@@ -19,6 +18,7 @@ import {
 import { createModelReferenceMatcher } from "../src/parser/model-reference-matcher";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { model, registryOf } from "./helpers/model-registry-fixture";
+import { makeRecordingChannel, type SentNote } from "./helpers/recording-system-note-channel";
 
 // RFC 0010 (execution-status.md EXST-8; runtime-event-channel.md PIC-71/72) —
 // bug 0469's fix witnesses, migrated per behaviour-matrix rows B52-B54/B64/B65
@@ -33,23 +33,16 @@ import { model, registryOf } from "./helpers/model-registry-fixture";
 
 interface RecordingChannel {
   readonly deps: SystemNoteChannelDeps;
-  readonly sentMessages: { customType: string; content: string }[];
+  readonly sentMessages: SentNote[];
 }
 
+/** The canonical `makeRecordingChannel` double, optionally wired to an entry channel. */
 function recordingSystemNoteDeps(entryChannel?: ReturnType<typeof createEntryChannel>): RecordingChannel {
-  const sentMessages: { customType: string; content: string }[] = [];
-  const pi: SystemNoteSender = {
-    sendMessage: (message): void => {
-      sentMessages.push({ customType: message.customType, content: message.content });
-    },
+  const { deps, sent } = makeRecordingChannel();
+  return {
+    deps: { ...deps, ...(entryChannel !== undefined ? { entryChannel } : {}) },
+    sentMessages: sent,
   };
-  const deps: SystemNoteChannelDeps = {
-    pi,
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-    ...(entryChannel !== undefined ? { entryChannel } : {}),
-  };
-  return { deps, sentMessages };
 }
 
 /** A fake `pi` exposing `appendEntry`/`registerEntryRenderer`, recording every call. */
@@ -370,24 +363,11 @@ describe("T-ENT — B45-normalization / bug 0268 regression: byte-identical POSI
     emitDiagnosticBatch(mixedSpellingDiagnosticBatch(), deps);
 
     expect(sentMessages).toHaveLength(1);
-    // sentMessages only records customType/content in this harness; capture
-    // the raw sendMessage payload directly via a dedicated pi double so the
-    // structured details are inspectable too.
     expect(sentMessages[0]!.content).not.toContain("\\");
   });
 
   it("the two realizations' file arrays are byte-identical (PIC-71)", () => {
-    const capturedMessages: { content: string; details?: unknown }[] = [];
-    const messagePi: SystemNoteSender = {
-      sendMessage: (message): void => {
-        capturedMessages.push({ content: message.content, details: message.details });
-      },
-    };
-    const messageDeps: SystemNoteChannelDeps = {
-      pi: messagePi,
-      ui: { notify: (): void => {} },
-      emitDiagnostic: (): void => {},
-    };
+    const { deps: messageDeps, sentMessages: capturedMessages } = recordingSystemNoteDeps(undefined);
     emitDiagnosticBatch(mixedSpellingDiagnosticBatch(), messageDeps);
     expect(capturedMessages).toHaveLength(1);
     const messageFiles = diagnosticsFileArray(capturedMessages[0]!.details);

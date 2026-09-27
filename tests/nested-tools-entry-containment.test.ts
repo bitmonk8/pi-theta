@@ -1,5 +1,5 @@
 import { callableSetOf, plantThetaFile as plant, runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
-import { expectedMessage as filledRegistryMessage, readRegistry } from "./helpers/registry-oracle";
+import { expectedFilledMessage, readRegistry } from "./helpers/registry-oracle";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -78,26 +78,12 @@ const PROMPT_MODE_CALLABLE_CODE = "theta/load/prompt-mode-callable";
 const CALLEE_HAS_ERRORS_CODE = "theta/load/callee-has-errors";
 const UNRESOLVABLE_THETA_PATH_CODE = "theta/load/unresolvable-theta-path";
 
-/** Source a code's registered *Message* template and fill its `<…>` placeholders. */
-function expectedMessage(
-  code: string,
-  subs: Readonly<Record<string, string>>,
-): string {
-  const message = filledRegistryMessage(REGISTRY, code, subs);
-  expect(
-    message,
-    `${code}: an unsubstituted <…> placeholder remains — the registry row's ` +
-      "Message template changed shape and this file's substitutions are stale",
-  ).not.toMatch(/<[a-z]+>/);
-  return message;
-}
-
 /**
  * `invoke path '<path>' resolves outside every active discovery root`, with
  * `<path>` rendered as the nested entry spec was written.
  */
 function escapeMessage(path: string): string {
-  return expectedMessage(INVOKE_PATH_ESCAPE_CODE, { "<path>": path });
+  return expectedFilledMessage(REGISTRY, INVOKE_PATH_ESCAPE_CODE, { "<path>": path });
 }
 
 // --- Planted discovery workspace -------------------------------------------
@@ -642,7 +628,7 @@ describe("bug 0111 cell 3 — a multi-entry nested callee with no escape loses n
           outcome.notifications,
           `${code} co-fired at the chain rejected on containment, so the author is ` +
             "directed at the callee's contents instead of the entry's path",
-        ).not.toContain(expectedMessage(code, { "<path>": path }));
+        ).not.toContain(expectedFilledMessage(REGISTRY, code, { "<path>": path }));
       }
     }
   });

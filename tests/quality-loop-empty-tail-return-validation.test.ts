@@ -39,12 +39,8 @@
 // pi-integration-contract/subagent.md PIC-59 (the `ok` arm's carriage);
 // functions.md §"Empty-tail body" (FN-4: an empty tail infers `null`).
 
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+import { describe, expect, it } from "vitest";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionCommandContext,
   ModelRegistry,
@@ -61,6 +57,14 @@ import {
 import { executeBody } from "../src/runtime/statement-executor";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
+import { rootWith } from "./helpers/fixture-dispatch-harness";
+import {
+  disposeWorkspace,
+  plantThetaWorkspace,
+  runProductionLoad,
+  type LoadOutcome,
+  type PlantedThetaFile,
+} from "./helpers/production-load-harness";
 import { ajv } from "./helpers/scripted-live-session-harness";
 import { fakeExecutableHost, makeFakeJsonChildLauncher } from "./helpers/fake-json-child";
 import { waitForValue as waitFor } from "./helpers/fake-file-watcher";
@@ -105,36 +109,6 @@ const IN_FILE_SUBAGENT_FN = [
   "",
 ].join("\n");
 
-interface LoadRecorder {
-  readonly toasts: { message: string; type: string }[];
-}
-
-function loadPi(): ExtensionAPI {
-  return {
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    registerCommand: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerFlag: (): void => {},
-    on: (): void => {},
-  } as unknown as ExtensionAPI;
-}
-
-function loadCtx(cwd: string, recorder: LoadRecorder): ExtensionContext {
-  return {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, type: string): void => {
-        recorder.toasts.push({ message, type });
-      },
-    },
-  } as unknown as ExtensionContext;
-}
-
 /**
  * Run the REAL load pass (discovery + compose, the same entry the H8a fixture
  * path uses) over a planted `.pi/theta` corpus, and return which thetas
@@ -142,70 +116,51 @@ function loadCtx(cwd: string, recorder: LoadRecorder): ExtensionContext {
  * stderr mirror is captured too, since that is where a load diagnostic's CODE
  * is rendered (the toast carries the message only).
  */
-async function loadCorpus(files: Record<string, string>): Promise<{
-  readonly registered: readonly string[];
-  readonly stderr: string;
-  readonly toasts: readonly { message: string; type: string }[];
-}> {
-  const workspace = mkdtempSync(join(tmpdir(), "theta-loadpath-"));
-  const thetaDir = join(workspace, ".pi", "theta");
-  mkdirSync(thetaDir, { recursive: true });
-  for (const [name, text] of Object.entries(files)) {
-    writeFileSync(join(thetaDir, name), text, "utf8");
-  }
-  const recorder: LoadRecorder = { toasts: [] };
-  const stderrSpy = vi
-    .spyOn(process.stderr, "write")
-    .mockImplementation((): boolean => true);
+async function loadCorpus(fixtures: readonly PlantedThetaFile[]): Promise<LoadOutcome> {
+  const workspace = plantThetaWorkspace("theta-loadpath-", fixtures);
   try {
-    const thetas = await discoverAndComposeFixtures(loadPi(), loadCtx(workspace, recorder));
-    return {
-      registered: thetas.map((t) => t.slashName),
-      stderr: stderrSpy.mock.calls.map((c) => String(c[0])).join(""),
-      toasts: recorder.toasts,
-    };
+    return await runProductionLoad(workspace);
   } finally {
-    stderrSpy.mockRestore();
-    rmSync(workspace, { recursive: true, force: true });
+    disposeWorkspace(workspace);
   }
 }
 
 describe("the load path's reach over a typed invoke of an empty-tail callee", () => {
   it("A: cross-file — `invoke<R>(\"./child.theta\")` against an empty-tail callee FIRES theta/parse/invoke-return-type-mismatch and un-registers the caller (the cross-file mirror of cell B, per the spec's Empty-tail callee compatibility clause)", async () => {
-    const outcome = await loadCorpus({
-      "caller.theta": TYPED_INVOKE_CALLER,
-      "child.theta": EMPTY_TAIL_CALLEE,
-    });
+    const outcome = await loadCorpus([
+      { stem: "caller", text: TYPED_INVOKE_CALLER },
+      { stem: "child", text: EMPTY_TAIL_CALLEE },
+    ]);
 
     // The error-severity return-type mismatch convicts the caller: it must not
     // register. The callee is itself valid (a no-tail subagent theta) and still
     // registers — the mismatch is at the caller's annotated invoke site.
     expect(outcome.registered).not.toContain("caller");
     expect(outcome.registered).toContain("child");
-    expect(outcome.stderr).toMatch(/theta\/parse\/invoke-return-type-mismatch/);
+    expect(outcome.diagnosticLines.join("\n")).toMatch(/theta\/parse\/invoke-return-type-mismatch/);
     // The toast carries the mismatch message. `<actual>` is the callee's
     // inferred final-value type `null` (FN-4 empty tail); `<callee>` renders per
     // the category-7 rule (the verbatim path literal here), pinned loosely so
     // the assertion holds whatever the cross-file render form settles on while
     // still locking the code, the shape, and the `null` actual.
     expect(
-      outcome.toasts.some((t) =>
+      outcome.notifications.some((message) =>
         /invoke<Schema> annotation incompatible with callee '.*' return type null/.test(
-          t.message,
+          message,
         ),
       ),
     ).toBe(true);
   });
 
   it("B: in-file — the same relation at a `subagent fn` return annotation FIRES theta/parse/invoke-return-type-mismatch and un-registers the theta (so cell A is a reach limit, not a dead probe)", async () => {
-    const outcome = await loadCorpus({ "ctl.theta": IN_FILE_SUBAGENT_FN });
+    const outcome = await loadCorpus([{ stem: "ctl", text: IN_FILE_SUBAGENT_FN }]);
 
     expect(outcome.registered).not.toContain("ctl");
-    expect(outcome.stderr).toMatch(/theta\/parse\/invoke-return-type-mismatch/);
+    expect(outcome.diagnosticLines.join("\n")).toMatch(/theta\/parse\/invoke-return-type-mismatch/);
     expect(
-      outcome.toasts.some((t) =>
+      outcome.notifications.some((message) =>
         /invoke<Schema> annotation incompatible with callee 'f' return type string/.test(
-          t.message,
+          message,
         ),
       ),
     ).toBe(true);
@@ -250,15 +205,13 @@ const NOOP_CHECKPOINT: Checkpoint = {
  */
 function rootDouble(): RuntimeRoot {
   return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    clock: {
+    ...rootWith(NOOP_CHECKPOINT, "inv-1", {
       now: (): number => Date.now(),
       wallNow: (): number => Date.now(),
       setTimeout: (fn: () => void, ms: number): unknown => setTimeout(fn, ms),
       clearTimeout: (handle: unknown): void =>
         clearTimeout(handle as ReturnType<typeof setTimeout>),
-    },
+    }),
     schemaValidator: ajv(),
   } as unknown as RuntimeRoot;
 }

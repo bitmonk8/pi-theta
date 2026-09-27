@@ -1,5 +1,12 @@
 import { hitsFor, byCode } from "./helpers/e2e-s1";
-import { loadRowMessage, interpolate, templateToRegExp } from "./helpers/registry-oracle";
+import {
+  loadRowMessage,
+  interpolate,
+  expectPackageSourceDiagnostic,
+  MISSING_SOURCE_CODE as MISSING_SOURCE,
+  UNREADABLE_SOURCE_CODE as UNREADABLE_SOURCE,
+} from "./helpers/registry-oracle";
+import { THETA_BODY } from "./helpers/discovery-scratch-harness";
 import { describe, expect, it } from "vitest";
 import { discoverThetas, type DiscoveryInput } from "../src/discovery/discovery-walk";
 import {
@@ -11,10 +18,12 @@ import {
   FakeFileSystem,
   ReaddirDeniedFileSystem,
   ancestors,
-  mergeDirs,
   buildPackages,
+  buildDiscovery,
   packageInput,
   DISCOVERY_BASE as BASE,
+  DISCOVERY_NODE_MODULES as NM,
+  type DiscoveryFakeSpec as FakeSpec,
   DISCOVERY_GLOBAL_ROOT as GLOBAL_ROOT,
   DISCOVERY_PROJECT_ROOT as PROJECT_ROOT,
   namedTheta as named,
@@ -158,40 +167,12 @@ import {
 // ===========================================================================
 // The registry rows (DIAG-4) — every expected message below is sourced from
 // the Message column of docs/spec_topics/diagnostics/code-registry-load.md,
-// never pasted prose. Helper shapes mirror tests/load-warning-delivery.test.ts.
+// never pasted prose. Fixtures follow; the code constants, `FakeSpec`,
+// `THETA_BODY` and `NM` are shared helper exports.
 // ===========================================================================
 
-const MISSING_SOURCE = "theta/load/missing-source";
-const UNREADABLE_SOURCE = "theta/load/unreadable-source";
-
-// ===========================================================================
-// Fixtures. Shapes mirror tests/discovery-walk.test.ts:23-85.
-// ===========================================================================
-
-const HOME = "/home/theta";
-const CWD = "/project";
-const NM = "/project/node_modules";
-
-/** A body that parses far enough to register (the walk only reads bytes). */
-const THETA_BODY = "mode: prompt\n---\n";
-
-interface FakeSpec {
-  readonly dirs?: Record<string, readonly string[]>;
-  readonly files?: Record<string, string>;
-  /** Per-path `.code` rejections applied to EVERY seam member (the fake's own
-   *  `errors` map) — the control's blunt injection, not this defect's seam. */
-  readonly errors?: Record<string, string>;
-}
-
-function build(spec: FakeSpec): FakeFileSystem {
-  return new FakeFileSystem({
-    homedir: HOME,
-    cwd: CWD,
-    dirs: mergeDirs(BASE, spec.dirs ?? {}),
-    files: spec.files ?? {},
-    errors: spec.errors ?? {},
-  });
-}
+/** `buildDiscovery` over the conventional roots' ancestor chains. */
+const build = (spec: FakeSpec): FakeFileSystem => buildDiscovery(spec, BASE);
 
 /**
  * A `FileSystem` decorator that rejects `readdir` for exactly one path with a
@@ -758,25 +739,19 @@ describe("bug 0076 — a package directory whose readdir rejects reports its fai
         `(:159-164) and scans an empty name list. Observed ` +
         `diagnostics=${JSON.stringify(diagnostics)}`,
     ).toBeGreaterThanOrEqual(1);
-    const diagnostic = hits[0]!;
-    expect(
-      diagnostic.severity,
-      "the Package `pi.theta` row's Unreadable cell is a warning (:54)",
-    ).toBe("warning");
     // The registry frame is pinned byte-exact (DIAG-4). Post-0461 the
     // descriptor slot renders the normative `package:"<name>"` form
     // (placeholder-rendering-b.md §5) — the same bytes for both the
     // `pi.theta`-contributed directory and the conventional `theta/`
     // fallback, since the kind:value grammar has no slot for the manifest-key
     // distinction the pre-fix category prose carried.
-    expect(
-      diagnostic.message,
-      "DIAG-4: the message is the registry row's Message template",
-    ).toMatch(templateToRegExp(loadRowMessage(UNREADABLE_SOURCE)));
-    expect(
-      diagnostic.message,
-      "the descriptor names the offending package (placeholder-rendering-b.md §5)",
-    ).toContain('package:"beta"');
+    expectPackageSourceDiagnostic(
+      hits[0]!,
+      UNREADABLE_SOURCE,
+      "warning",
+      "the Package `pi.theta` row's Unreadable cell is a warning (:54)",
+      "beta",
+    );
   });
 
   it("RED 15: a directory a `pi.theta` entry names, whose readdir rejects a clean-leaf ENOENT while lstat reports a directory, emits a missing-source ERROR naming the package", async () => {
@@ -829,25 +804,19 @@ describe("bug 0076 — a package directory whose readdir rejects reports its fai
         `the \`theta/\` row's disposition applied to both rows. Observed ` +
         `diagnostics=${JSON.stringify(diagnostics)}`,
     ).toBe(1);
-    const diagnostic = hits[0]!;
-    expect(
-      diagnostic.severity,
-      "the `Package pi.theta entry` row's Missing cell is an error (:54)",
-    ).toBe("error");
     // The registry frame is pinned byte-exact (DIAG-4). Post-0461 the
     // descriptor slot renders the normative `package:"<name>"` form
     // (placeholder-rendering-b.md §5) — the same bytes for both the
     // `pi.theta`-contributed directory and the conventional `theta/`
     // fallback, since the kind:value grammar has no slot for the manifest-key
     // distinction the pre-fix category prose carried.
-    expect(
-      diagnostic.message,
-      "DIAG-4: the message is the registry row's Message template",
-    ).toMatch(templateToRegExp(loadRowMessage(MISSING_SOURCE)));
-    expect(
-      diagnostic.message,
-      "the descriptor names the offending package (placeholder-rendering-b.md §5)",
-    ).toContain('package:"beta"');
+    expectPackageSourceDiagnostic(
+      hits[0]!,
+      MISSING_SOURCE,
+      "error",
+      "the `Package pi.theta entry` row's Missing cell is an error (:54)",
+      "beta",
+    );
   });
 
   it("control 16 (green): a package's conventional `theta/` fallback whose readdir rejects a clean-leaf ENOENT while lstat reports a directory stays SILENT", async () => {

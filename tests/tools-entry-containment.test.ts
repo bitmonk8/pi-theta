@@ -1,4 +1,4 @@
-import { expectedMessage as filledRegistryMessage, readRegistry } from "./helpers/registry-oracle";
+import { expectedFilledMessage, readRegistry } from "./helpers/registry-oracle";
 import {
   disposeWorkspace,
   plantThetaFile as plant,
@@ -66,20 +66,6 @@ const PROMPT_MODE_CALLABLE_CODE = "theta/load/prompt-mode-callable";
 const CALLEE_HAS_ERRORS_CODE = "theta/load/callee-has-errors";
 const UNRESOLVABLE_THETA_PATH_CODE = "theta/load/unresolvable-theta-path";
 
-/** Source a code's registered *Message* template and fill its `<…>` placeholders. */
-function expectedMessage(
-  code: string,
-  subs: Readonly<Record<string, string>>,
-): string {
-  const message = filledRegistryMessage(REGISTRY, code, subs);
-  expect(
-    message,
-    `${code}: an unsubstituted <…> placeholder remains — the registry row's ` +
-      "Message template changed shape and this file's substitutions are stale",
-  ).not.toMatch(/<[a-z]+>/);
-  return message;
-}
-
 /**
  * `invoke path '<path>' resolves outside every active discovery root`.
  *
@@ -90,12 +76,12 @@ function expectedMessage(
  * implements on this surface.
  */
 function escapeMessage(path: string): string {
-  return expectedMessage(INVOKE_PATH_ESCAPE_CODE, { "<path>": path });
+  return expectedFilledMessage(REGISTRY, INVOKE_PATH_ESCAPE_CODE, { "<path>": path });
 }
 
 /** `invoke '<callee>' passes too few arguments: expected <required> non-defaulted, got <provided>`. */
 function tooFew(callee: string, required: number, provided: number): string {
-  return expectedMessage(ARITY_TOO_FEW_CODE, {
+  return expectedFilledMessage(REGISTRY, ARITY_TOO_FEW_CODE, {
     "<callee>": callee,
     "<required>": String(required),
     "<provided>": String(provided),
@@ -688,7 +674,7 @@ describe("bug 0110 cells H1-H2 — a path-rejected entry draws no callee-derived
       "the entry was rejected on its declared mode rather than on its path, so the " +
         "author is directed at the callee's frontmatter instead of the entry's path",
     ).not.toContain(
-      expectedMessage(PROMPT_MODE_CALLABLE_CODE, {
+      expectedFilledMessage(REGISTRY, PROMPT_MODE_CALLABLE_CODE, {
         "<path>": `${outSpecDir}/promptfar.theta`,
       }),
     );
@@ -715,7 +701,7 @@ describe("bug 0110 cells H1-H2 — a path-rejected entry draws no callee-derived
       "the entry was rejected on its callee's own parse errors rather than on its " +
         "path, so a fix to the callee's `params:` would leave the entry registered",
     ).not.toContain(
-      expectedMessage(CALLEE_HAS_ERRORS_CODE, {
+      expectedFilledMessage(REGISTRY, CALLEE_HAS_ERRORS_CODE, {
         "<path>": `${outSpecDir}/brokenfar.theta`,
       }),
     );

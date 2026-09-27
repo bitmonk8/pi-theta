@@ -125,7 +125,10 @@ import { createProductionProducerDeps } from "../src/extension/production-theta-
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { executeBody } from "../src/runtime/statement-executor";
 import type { RuntimeRoot } from "../src/runtime-root";
+import type { Clock } from "../src/seams/clock";
 import { codes, parseDoc } from "./helpers/e2e-s1";
+import { rootWith } from "./helpers/fixture-dispatch-harness";
+import { SEAM_NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
 
 // ===========================================================================
 // The registered code and its normative message (DIAG-2 / DIAG-4).
@@ -792,12 +795,7 @@ describe("bug 0028 (b) enum root — a declared `enum` annotation reaches the re
         on: (): void => {},
       } as unknown as ExtensionAPI,
       root: {
-        checkpoint: { before: (): Promise<void> => Promise.resolve() },
-        idSource: {
-          newInvocationId: (): string => "inv-1",
-          newToolCallId: (): string => "tc-1",
-        },
-        clock: { wallNow: (): number => 0 },
+        ...rootWith(SEAM_NOOP_CHECKPOINT, "inv-1", { wallNow: (): number => 0 } as unknown as Clock),
         schemaValidator: ajv(),
       } as unknown as RuntimeRoot,
       modelRegistry: {
@@ -1144,12 +1142,7 @@ describe("bug 0028 (a) params: — a cross-referencing schema's transitive $defs
         on: (): void => {},
       } as unknown as ExtensionAPI,
       root: {
-        checkpoint: { before: (): Promise<void> => Promise.resolve() },
-        idSource: {
-          newInvocationId: (): string => "inv-1",
-          newToolCallId: (): string => "tc-1",
-        },
-        clock: { wallNow: (): number => 0 },
+        ...rootWith(SEAM_NOOP_CHECKPOINT, "inv-1", { wallNow: (): number => 0 } as unknown as Clock),
         schemaValidator: ajv(),
       } as unknown as RuntimeRoot,
       modelRegistry: {
