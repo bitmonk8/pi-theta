@@ -2,6 +2,7 @@
 description: "D9 placement & breakdown reviewer - reviews one shard of production source files through the placement/breakdown lens, files candidate findings into quality/intake/"
 mode: subagent
 model: "anthropic/claude-opus-5-5"
+thinking: high
 tools: read, grep, bash, write
 tool_loop:
   max_rounds: 120

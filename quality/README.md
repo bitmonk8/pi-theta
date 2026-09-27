@@ -73,7 +73,8 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
    model x effort benchmark; D8
    simplification: `anthropic/claude-opus-5-5` at `thinking: xhigh`, per the
    2026-09-26 model x effort benchmark; D9 placement &
-   breakdown: `anthropic/claude-opus-5-5`). Candidates land in `intake/`, shaped by
+   breakdown: `anthropic/claude-opus-5-5` at `thinking: high`, per the
+   2026-09-27 model x effort benchmark). Candidates land in `intake/`, shaped by
    `TEMPLATE.md`. Reviewed files are marked in `state.json` at the reviewed
    sha — fix commits re-dirty them, so the next cycle re-reviews exactly what
    changed. Each worker's closing notes (D9's KEEP-WHOLE dispositions, every
