@@ -133,13 +133,6 @@ async function isDirectory(fs: FileSystem, path: string): Promise<boolean> {
   );
 }
 
-async function isFileHelper(fs: FileSystem, path: string): Promise<boolean> {
-  return fs.lstat(path).then(
-    (stat) => stat.isFile(),
-    () => false,
-  );
-}
-
 async function readdirOr(fs: FileSystem, path: string): Promise<readonly string[] | undefined> {
   return fs.readdir(path).then(
     (names) => names,
@@ -503,13 +496,13 @@ async function thetasInDirectory(
   // regardless of whether any `.theta` is found in it below (bug 0339 —
   // presence, not `.theta`-containment, is the watch-arming membership test).
   roots.add(dir);
+  // Every byte-exact `*.theta` child is a candidate, as in `enumerateDirectory`:
+  // readability is decided by `validateAndRead`, which reports an unreadable one
+  // as `theta/load/unreadable` (DISC-2 rule 1, discovery-sources.md:66).
   for (const name of entries.names) {
     const { stem, ext } = splitExtension(name);
     if (ext !== "theta") continue;
-    const abs = joinPosix(dir, name);
-    if (await isFileHelper(fs, abs)) {
-      out.set(abs, stem);
-    }
+    out.set(joinPosix(dir, name), stem);
   }
   return out;
 }

@@ -38,7 +38,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { discoverThetas, type DiscoveryInput } from "../src/discovery/discovery-walk";
+import { discoverPackageThetas } from "../src/discovery/package-discovery";
 import { FakeFileSystem } from "./helpers/fake-file-system";
+import { FakeClock } from "./helpers/fake-clock";
 import { byCode } from "./helpers/e2e-s1";
 import { makeHarness, mintWorkspace } from "./helpers/package-merge-e2e-harness";
 
@@ -183,5 +185,51 @@ describe("b0463 face (3) — package readability (discoverThetas + FakeFileSyste
     expect(hits[0]!.message).toContain("pkgread.theta");
     // DISC-2 rule 1: an unreadable file does not register.
     expect(thetas.some((t) => t.name === "pkgread")).toBe(false);
+  });
+});
+
+describe("PTQ-1516 — an unreadable `.theta` child of a package `theta/` dir reaches the readability stage", () => {
+  it("discoverPackageThetas hands the EACCES child on, and discoverThetas warns theta/load/unreadable", async () => {
+    // Face (3) above feeds the candidate straight in; this drives the package
+    // walk's conventional `theta/` scan, whose former `lstat` pre-filter
+    // dropped the child before `validateAndRead` could report it.
+    const unreadablePath = `${PKG_DIR}/pkgread.theta`;
+    const fs = new FakeFileSystem({
+      homedir: HOME,
+      cwd: CWD,
+      dirs: {
+        "/project/node_modules": ["pkg-a"],
+        "/project/node_modules/pkg-a": ["package.json", "theta"],
+        [PKG_DIR]: ["ok.theta", "pkgread.theta"],
+      },
+      files: {
+        "/project/node_modules/pkg-a/package.json": JSON.stringify({ name: "pkg-a" }),
+        [`${PKG_DIR}/ok.theta`]: THETA_BODY,
+      },
+      errors: { [unreadablePath]: "EACCES" },
+    });
+
+    const packageWalk = await discoverPackageThetas({ fs, clock: new FakeClock(), settings: {} });
+    expect(packageWalk.thetas.map((t) => t.path).sort()).toEqual([
+      `${PKG_DIR}/ok.theta`,
+      unreadablePath,
+    ]);
+
+    const { thetas, diagnostics } = await discoverThetas(
+      packageInput(
+        fs,
+        packageWalk.thetas.map((pkg) => ({
+          path: pkg.path,
+          stem: pkg.name,
+          descriptorValue: pkg.descriptorValue,
+        })),
+      ),
+    );
+    const hits = byCode(diagnostics, UNREADABLE_FILE);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.severity).toBe("warning");
+    expect(hits[0]!.file).toBe(unreadablePath);
+    expect(thetas.some((t) => t.name === "pkgread")).toBe(false);
+    expect(thetas.some((t) => t.name === "ok")).toBe(true);
   });
 });
