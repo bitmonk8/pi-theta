@@ -1,7 +1,6 @@
 import { TRIAGE_DEF, BODY } from "./helpers/triage-fixture";
 import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { registryMessageOf } from "./helpers/load-row-harness";
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -19,6 +18,7 @@ import {
   loadCleanly as loadCleanlyShared,
   type LoadedParams as SharedLoadedParams,
 } from "./helpers/e2e-s1";
+import { inlineDefName, slugOfCanonicalForm } from "./helpers/canonical-slug-oracle";
 
 // Bug 0041 — a `params:` right-hand side written as a YAML block mapping is not
 // a theta type expression, yet it loads with no diagnostic: the recovered
@@ -228,10 +228,10 @@ const G_CANONICAL =
   '{"additionalProperties":false,"properties":{"a":{"$ref":"#/$defs/Triage"}},"required":["a"],"type":"object"}';
 
 /** SHA-256 of the canonical-form bytes, first 16 hex characters, lowercased. */
-const G_SLUG = createHash("sha256").update(G_CANONICAL, "utf8").digest("hex").slice(0, 16);
+const G_SLUG = slugOfCanonicalForm(G_CANONICAL);
 
 /** The synthesised `$defs` key control G's inline object hoists under. */
-const G_INLINE = `__inline_${G_SLUG}`;
+const G_INLINE = inlineDefName(G_CANONICAL);
 
 /**
  * The same oracle for the (c1) over-refusal fence: the two-field inline
@@ -253,11 +253,8 @@ const MF_FRAGMENT = {
 const MF_CANONICAL =
   '{"additionalProperties":false,"properties":{"a":{"$ref":"#/$defs/Triage"},"b":{"type":"integer"}},"required":["a","b"],"type":"object"}';
 
-/** SHA-256 of the canonical-form bytes, first 16 hex characters, lowercased. */
-const MF_SLUG = createHash("sha256").update(MF_CANONICAL, "utf8").digest("hex").slice(0, 16);
-
 /** The synthesised `$defs` key the fence's inline object hoists under. */
-const MF_INLINE = `__inline_${MF_SLUG}`;
+const MF_INLINE = inlineDefName(MF_CANONICAL);
 
 // ===========================================================================
 // Fixture sources. One body, one frontmatter shape, one `params:` block —

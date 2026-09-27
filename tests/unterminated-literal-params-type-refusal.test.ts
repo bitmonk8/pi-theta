@@ -6,7 +6,14 @@ import {
 } from "../src/parser/type-grammar";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from "./helpers/e2e-s1";
+import {
+  annotSrc,
+  body,
+  expectGroup as expectGroupShared,
+  type DiagnosticCell,
+  paramsSrc as paramsBlockSrc,
+  parseDoc,
+} from "./helpers/e2e-s1";
 import { registryMessageOf } from "./helpers/load-row-harness";
 
 // =====================================================================
@@ -196,25 +203,13 @@ function UNCLOSED(): Exp {
 // ends `let a = 1` + `a`, and every fixture carries `mode: prompt`.
 // ===========================================================================
 
-const FM = "---\nmode: prompt\n---\n";
-const TAIL = "let a = 1\na\n";
-
-function body(stmt: string): string {
-  return `${FM}${stmt}\n${TAIL}`;
-}
-
 /**
  * A `mode: prompt` theta whose `params:` field `p` carries `type` as a
  * SINGLE-quoted YAML scalar, so the interior double quote and any backslash
  * reach the theta type grammar intact — the spelling §Reproduction measures.
  */
 function paramsSrc(type: string): string {
-  return `---\nmode: prompt\nparams:\n  p: '${type}'\n---\n${TAIL}`;
-}
-
-/** The `@<T>` query annotation — the position whose lowering IS the document root. */
-function annotSrc(type: string): string {
-  return body("let r = @<" + type + ">`hi`");
+  return paramsBlockSrc(`  p: '${type}'`);
 }
 
 /** U1 — 0229 residual 1's spelling: the wire-name literal never closes. */

@@ -3,11 +3,10 @@ import { assertKeysSorted, inlineDefName } from "./helpers/canonical-slug-oracle
 import { describe, expect, it } from "vitest";
 import { buildBinderEnvelopeSchema } from "../src/binder/binder-envelope";
 import { renderBinderParamLine } from "../src/binder/binder-system-prompt";
-import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
-import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import type { LoweredSchema } from "../src/seams/schema-validator";
 import { ajv } from "./helpers/scripted-live-session-harness";
 import { yamlQuoted, parseDoc, diagLines } from "./helpers/e2e-s1";
+import { loweredParamsDocument, makeTypePositionLoweringReader } from "./helpers/type-position-lowering-read";
 
 // Bug 0056 — theta has ONE type grammar and FOUR positions that lower a type
 // expression to JSON Schema, and only three of them own a literal sublanguage
@@ -269,141 +268,11 @@ type Position = (typeof POSITIONS)[number];
 /** The three positions that hoist an inline object under a minted `$defs` name. */
 const HOISTING_POSITIONS = ["params", "field", "alias"] as const;
 
-function loweredParamsDocument(doc: ThetaDocument): Record<string, unknown> | undefined {
-  return doc.frontmatter?.params?.loweredSchema as Record<string, unknown> | undefined;
-}
-
-/** What one `Type` position yields for one type source. */
-interface PositionRead {
-  /** Every diagnostic the whole-document load raised, rendered. */
-  readonly diags: readonly string[];
-  /** The fragment AT the type position, absent when the load produced none. */
-  readonly fragment?: unknown;
-  /** The whole lowered document, for the `$ref`-closure and AJV checks. */
-  readonly document?: LoweredSchema;
-  /** The document's `$defs`, with the position's own wrapper name removed. */
-  readonly defs: Record<string, unknown>;
-}
-
-/**
- * Read one type source at one of the four positions. Never throws on a refused
- * load — the caller decides whether an absent fragment is the subject or a
- * broken fixture, and `fragmentOf` below is the loud reader.
- *
- * The `@<T>` annotation returns its lowered document AS the fragment, so its
- * root `$defs` closure is split off to keep the four positions comparable: at
- * the other three the closure lives on the enclosing `params:` document, never
- * on the fragment.
- */
-function readAt(position: Position, typeSource: string): PositionRead {
-  if (position === "annotation") {
-    const doc = parseDoc(`---\nmode: prompt\n---\n${DECLS}let inert = 1\ninert\n`, "bug0056.theta");
-    const schemas = doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
-    const enums = doc.body.statements.filter((s): s is EnumDecl => s.kind === "enum");
-    const lowered = lowerQueryResponseSchema(typeSource, schemas, enums);
-    if (lowered === undefined) {
-      return { diags: diagLines(doc), defs: {} };
-    }
-    const { $defs, ...root } = lowered as Record<string, unknown>;
-    return {
-      diags: diagLines(doc),
-      fragment: root,
-      document: lowered,
-      defs: ($defs ?? {}) as Record<string, unknown>,
-    };
-  }
-  const source =
-    position === "params"
-      ? `---\nmode: prompt\nparams:\n  p: ${yamlQuoted(typeSource)}\n---\n${DECLS}let inert = 1\ninert\n`
-      : position === "field"
-        ? `---\nmode: prompt\nparams:\n  p: S\n---\n${DECLS}schema S { a: ${typeSource} }\nlet inert = 1\ninert\n`
-        : `---\nmode: prompt\nparams:\n  a: M\n---\n${DECLS}schema M = ${typeSource}\nlet inert = 1\ninert\n`;
-  const doc = parseDoc(source, "bug0056.theta");
-  const document = loweredParamsDocument(doc);
-  const defs = { ...((document?.["$defs"] ?? {}) as Record<string, unknown>) };
-  const wrapper = position === "field" ? "S" : position === "alias" ? "M" : undefined;
-  let fragment: unknown;
-  if (document !== undefined) {
-    if (position === "params") {
-      fragment = (document["properties"] as Record<string, unknown>)["p"];
-    } else if (position === "field") {
-      const s = defs["S"] as Record<string, unknown> | undefined;
-      fragment = (s?.["properties"] as Record<string, unknown> | undefined)?.["a"];
-    } else {
-      fragment = defs["M"];
-    }
-  }
-  if (wrapper !== undefined) {
-    // The wrapper `$defs` entry is the position's own scaffolding, not a name
-    // the type source reached, so it is dropped to keep the minted-name
-    // comparisons across positions like-for-like.
-    delete defs[wrapper];
-  }
-  return {
-    diags: diagLines(doc),
-    ...(document !== undefined ? { fragment, document: document as LoweredSchema } : {}),
-    defs,
-  };
-}
-
-/**
- * The fragment at one position, loud on every way a fixture can fail to reach
- * the lowering: a diagnostic (which withholds the whole lowered document at the
- * `params:` positions) or an absent document.
- */
-function fragmentOf(label: string, position: Position, typeSource: string): unknown {
-  const read = readAt(position, typeSource);
-  expect(
-    read.diags,
-    `${label} [${position}]: \`${typeSource}\` is grammar-admitted at every type-annotation ` +
-      `position (grammar.md:105, type-system.md:15), so this fixture must load with NO ` +
-      `diagnostics or the lowering under assertion never runs; observed ` +
-      `${JSON.stringify(read.diags)}`,
-  ).toEqual([]);
-  if (read.document === undefined) {
-    throw new Error(
-      `${label} [${position}]: \`${typeSource}\` produced NO lowered document, so there is ` +
-        `nothing for AJV to enforce at that position; diagnostics ${JSON.stringify(read.diags)}`,
-    );
-  }
-  return read.fragment;
-}
-
-/** The `$defs` entry a hoisting position minted, never absent. */
-function defOf(
-  label: string,
-  position: Position,
-  typeSource: string,
-  name: string,
-): Record<string, unknown> {
-  const read = readAt(position, typeSource);
-  const entry = read.defs[name];
-  if (entry === undefined) {
-    throw new Error(
-      `${label} [${position}]: \`${typeSource}\` must hoist under \`${name}\` — the name ` +
-        `schema-subset.md:73 mints from the LOWERED fragment — or the \`$ref\` at the type ` +
-        `position dangles; observed \`$defs\` keys ${JSON.stringify(Object.keys(read.defs))}`,
-    );
-  }
-  return entry as Record<string, unknown>;
-}
-
-/** The def name a hoisting position's `$ref` points at, loud on a non-`$ref`. */
-function refNameOf(label: string, position: Position, typeSource: string): string {
-  const fragment = fragmentOf(label, position, typeSource) as Record<string, unknown>;
-  const ref = fragment["$ref"];
-  if (typeof ref !== "string") {
-    throw new Error(
-      `${label} [${position}]: a brace-rooted \`${typeSource}\` hoists (schema-subset.md:73), ` +
-        `so the fragment at the position is a \`$ref\`; observed ${JSON.stringify(fragment)}`,
-    );
-  }
-  const match = /^#\/\$defs\/(.+)$/.exec(ref);
-  if (match?.[1] === undefined) {
-    throw new Error(`${label} [${position}]: unreadable \`$ref\` pointer ${JSON.stringify(ref)}`);
-  }
-  return match[1];
-}
+const { readAt, fragmentOf, defOf, refNameOf } = makeTypePositionLoweringReader({
+  decls: DECLS,
+  path: "bug0056.theta",
+  admittedAt: "grammar.md:105, type-system.md:15",
+});
 
 /** The whole lowered `params:` document of a theta that MUST load. */
 function paramsDocument(label: string, typeSource: string): LoweredSchema {

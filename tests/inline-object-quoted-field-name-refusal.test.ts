@@ -10,7 +10,7 @@ import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { buildTypedQueryValidation } from "../src/runtime/typed-query-validation";
 import { type LoweredSchema } from "../src/seams/schema-validator";
 import { capturingAjv as ajv } from "./helpers/scripted-live-session-harness";
-import { atEveryPosition, parseDoc, typePositions } from "./helpers/e2e-s1";
+import { atEveryPosition, diagLines, parseDoc, typePositions } from "./helpers/e2e-s1";
 
 // Bug 0176 — the inline field-name slot admits a QUOTED key. `{"a": string}`
 // loads with zero diagnostics at all eleven `Type` positions and lowers a JSON
@@ -241,11 +241,6 @@ function annotSrc(type: string): string {
 // ===========================================================================
 // Parse + assertion helpers. Loud on every unexpected disposition.
 // ===========================================================================
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
 
 function lines(src: string, path = "bug0176.theta"): string[] {
   return diagLines(parseDoc(src, path));

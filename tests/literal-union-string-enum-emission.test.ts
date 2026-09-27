@@ -14,7 +14,7 @@ import {
 import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 import type { LoweredSchema } from "../src/seams/schema-validator";
 import { ajv } from "./helpers/scripted-live-session-harness";
-import { parseDoc } from "./helpers/e2e-s1";
+import { enumDeclsOf, parseDoc, schemaDeclsOf } from "./helpers/e2e-s1";
 import { assertKeysSorted, inlineDefName } from "./helpers/canonical-slug-oracle";
 
 // Bug 0055 — `docs/spec_topics/schema-subset.md:80` states ONE step-3 emission
@@ -217,7 +217,7 @@ function lowerSource(label: string, source: string): Record<string, unknown> {
 function declsOf(
   label: string,
   body: string,
-): { readonly schemas: SchemaDecl[]; readonly enums: EnumDecl[] } {
+): { readonly schemas: readonly SchemaDecl[]; readonly enums: readonly EnumDecl[] } {
   const doc = parseDoc(`---\nmode: prompt\n---\n${body}\n`, "bug0055.theta");
   const lines = doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
   expect(
@@ -225,10 +225,7 @@ function declsOf(
     `${label}: the fixture body must load with NO diagnostics or the lowering under ` +
       `assertion never runs; observed ${JSON.stringify(lines)}`,
   ).toEqual([]);
-  return {
-    schemas: doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema"),
-    enums: doc.body.statements.filter((s): s is EnumDecl => s.kind === "enum"),
-  };
+  return { schemas: schemaDeclsOf(doc), enums: enumDeclsOf(doc) };
 }
 
 /** One `@<T>` annotation lowered against a body, never `undefined`. */

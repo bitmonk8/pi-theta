@@ -3,13 +3,12 @@ import { PARSE_REGISTRY_PATH, registryMessageOf } from "./helpers/load-row-harne
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { buildBodyTypeSchemas } from "../src/parser/body-type-lowering";
 import { hoistInlineObjectType, lowerParamsFieldType } from "../src/parser/params";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { type LoweredSchema } from "../src/seams/schema-validator";
-import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
+import { capturingAjv as ajv } from "./helpers/scripted-live-session-harness";
 import {
   annotSrc,
   body,
@@ -270,19 +269,6 @@ const { lines, expectList } = diagnosticListHarness("bug0052.theta");
 
 /** The subject of this report: two fields of one inline body sharing a name. */
 const DUP = "{a: integer, a: string}";
-
-/** A real `AjvSchemaValidator` plus the diagnostics it emitted. */
-function ajv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diagnostic[] } {
-  const emitted: Diagnostic[] = [];
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return {
-    validator: new AjvSchemaValidator({ emit: (d) => emitted.push(d), slugOf }),
-    emitted,
-  };
-}
 
 /** The error-severity codes of one source, in emission order. */
 function errorCodes(doc: ThetaDocument): string[] {

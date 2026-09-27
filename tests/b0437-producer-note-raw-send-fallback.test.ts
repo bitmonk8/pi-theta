@@ -59,18 +59,15 @@ import {
   SYSTEM_NOTE_DELIVERY_FAILED_CODE,
   type SystemNoteChannelDeps,
 } from "../src/extension/system-note-channel";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
+import { parseThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import { type LoweredSchema } from "../src/seams/schema-validator";
 import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 import {
   makeRecordingChannel,
   type ChannelFixture,
 } from "./helpers/recording-system-note-channel";
+import { parseDeps } from "./helpers/e2e-s1";
 
 const SYSTEM_NOTE_CHANNEL_TYPE = "theta-system-note";
 
@@ -351,16 +348,6 @@ interface CapturedNote {
 /** The `theta-system-note` entries among the captured messages. */
 function channelNotes(notes: readonly CapturedNote[]): CapturedNote[] {
   return notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL_TYPE);
-}
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
 }
 
 function parse(path: string, src: string) {

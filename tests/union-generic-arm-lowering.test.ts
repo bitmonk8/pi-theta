@@ -3,13 +3,12 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { PARSE_REGISTRY_PATH, registryLineOf } from "./helpers/load-row-harness";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 import { type LoweredSchema } from "../src/seams/schema-validator";
-import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
-import { yamlQuoted, parseDoc, diagLines } from "./helpers/e2e-s1";
+import { capturingAjv as ajv } from "./helpers/scripted-live-session-harness";
+import { yamlQuoted, parseDoc, diagLines, enumDeclsOf, schemaDeclsOf as schemaDeclsOfDoc } from "./helpers/e2e-s1";
 import { compareCodePoint, expectRefsClosed as expectRefsClosedShared, inlineDefName } from "./helpers/canonical-slug-oracle";
 
 // Bug 0043 — `lowerTypeExpr` (src/parser/params-lowering.ts) tests for a generic
@@ -215,10 +214,7 @@ function schemaDeclsOf(body: string): {
   readonly enums: readonly EnumDecl[];
 } {
   const doc = parseDoc(`---\nmode: prompt\n---\n${body}let inert = 1\ninert\n`, "bug0043.theta");
-  return {
-    schemas: doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema"),
-    enums: doc.body.statements.filter((s): s is EnumDecl => s.kind === "enum"),
-  };
+  return { schemas: schemaDeclsOfDoc(doc), enums: enumDeclsOf(doc) };
 }
 
 /**
@@ -315,19 +311,6 @@ function fragmentOf(label: string, position: Position, typeSource: string): unkn
     );
   }
   return read.fragment;
-}
-
-/** A real `AjvSchemaValidator` (the shipped V8c seam) plus the diagnostics it emits. */
-function ajv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diagnostic[] } {
-  const emitted: Diagnostic[] = [];
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return {
-    validator: new AjvSchemaValidator({ emit: (d) => emitted.push(d), slugOf }),
-    emitted,
-  };
 }
 
 /**

@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaDocument } from "../src/parser/theta-document";
 import { productionSchemaSlugOf } from "../src/extension/production-composition";
 import {
   createRegistrationCache,
@@ -13,7 +12,7 @@ import {
 import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 import { type LoweredSchema } from "../src/seams/schema-validator";
 import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
-import { parseAndLowerAnnotation, parseDoc } from "./helpers/e2e-s1";
+import { diagLines, parseAndLowerAnnotation, parseDoc } from "./helpers/e2e-s1";
 import { assertKeysSorted, compareCodePoint, slugOfCanonicalForm } from "./helpers/canonical-slug-oracle";
 
 // Bug 0099 — one canonical schema hash, three sites that do not compute it.
@@ -203,11 +202,6 @@ describe("bug 0099 (0) — oracle honesty", () => {
 // Shipped-path loaders. Every absent intermediate throws naming the unmet
 // precondition; a refused parse must never read as a pass.
 // ===========================================================================
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
 
 /**
  * Load `@<annotation>` through the SHIPPED path: `parseThetaDocument` for the

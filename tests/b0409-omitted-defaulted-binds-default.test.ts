@@ -64,13 +64,12 @@ import type {
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import {
   parseThetaDocument,
-  type ParseThetaDocumentDeps,
   type ThetaDocument,
 } from "../src/parser/theta-document";
+import { parseDeps } from "./helpers/e2e-s1";
 import { executeBody } from "../src/runtime/statement-executor";
 import {
   createProductionProducerDeps,
@@ -93,17 +92,6 @@ import { makeOk, type ResultValue, type ThetaValue } from "../src/runtime/value"
 // ===========================================================================
 // Shared parse + production-executor harness.
 // ===========================================================================
-
-function parseDeps(): ParseThetaDocumentDeps {
-  return {
-    systemNote: {
-      pi: { sendMessage: (): void => {} },
-      ui: { notify: (): void => {} },
-      emitDiagnostic: (): void => {},
-    } as unknown as SystemNoteChannelDeps,
-    modelMatcher: { resolve: (): "resolved" => "resolved" } as ModelReferenceMatcher,
-  };
-}
 
 /** Parse `.theta` source, failing LOUDLY on any error-severity diagnostic. */
 function parse(path: string, src: string): ThetaDocument {
