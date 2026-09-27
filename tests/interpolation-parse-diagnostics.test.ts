@@ -1146,14 +1146,14 @@ const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SEEDED_INVALID_DIR = "tests/fixtures/h7b-invalid/";
 
 /** Census pins — bump in the SAME commit that adds/removes a committed theta
- * source. Last re-measured at the D10-lens commit: 1 new `.pi/theta` worker
- * (lens-d10-verification), 50 -> 51 theta files, 62 -> 63 templates,
- * 195 -> 204 interpolations. */
-const EXPECTED_SHIPPED_THETA = 51;
+ * source. Last re-measured at the D1-lens commit: 1 new `.pi/theta` worker
+ * (lens-d1-design), 51 -> 52 theta files, 63 -> 64 templates,
+ * 204 -> 214 interpolations. */
+const EXPECTED_SHIPPED_THETA = 52;
 const EXPECTED_SHIPPED_THETALIB = 3;
-/** Measured at the D10-lens commit: the corpus's own count of `@`-templates and interpolations. */
-const EXPECTED_TEMPLATES = 63;
-const EXPECTED_INTERPOLATIONS = 204;
+/** Measured at the D1-lens commit: the corpus's own count of `@`-templates and interpolations. */
+const EXPECTED_TEMPLATES = 64;
+const EXPECTED_INTERPOLATIONS = 214;
 
 /**
  * The token classes expressions.md:25–40 refuses, as raw substrings. A committed

@@ -26,11 +26,12 @@ Personal, uncommitted thetas go directly in `.localpi/` (see its README); a
 Arguments (bound by an LLM binder, so free-form text works):
 `max_cycles` (default 3), `lenses` (comma-separated lens roster, default
 `"D2,D4,D7,D8,D9"` - every default-roster lens passed its supervised wave;
-D6 and D10 are worker-backed but opt-in (`lenses=D6`, `lenses=D10`) until
-each passes its supervised wave; start-up refuses an id lacking a
-surfaces.json entry or a worker),
+D6, D10 and D1 are worker-backed but opt-in (`lenses=D6`, `lenses=D10`,
+`lenses=D1`) until each passes its supervised wave; start-up refuses an id
+lacking a surfaces.json entry or a worker),
 `shard_loc` (target lines per review shard, default `"0"` = each lens's
-surfaces.json `shard_loc` - D2 6000, D4 6000, D6 6000, D7 3000, D8 12000,
+surfaces.json `shard_loc` - D1 6000 (capped at 5555 by its
+`context_tokens: 200000`), D2 6000, D4 6000, D6 6000, D7 3000, D8 12000,
 D9 6000, D10 6000 (its shards also file-capped at `max_files: 60`) -
 each capped at floor(`context_tokens`/3/12) LOC when the lens declares its
 pinned model's window (D4: 128000 -> 3555, after a 4985-LOC shard overflowed
@@ -80,7 +81,9 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
    2026-09-27 model x effort benchmark; D6 error posture:
    `anthropic/claude-opus-5-5` at `thinking: high`, operator pick
    2026-09-27; D10 verification posture: `anthropic/claude-opus-5-5` at
-   `thinking: high`, operator pick 2026-09-27). Candidates land in `intake/`,
+   `thinking: high`, operator pick 2026-09-27; D1 design consistency:
+   `anthropic/claude-fable-5-1` at `thinking: high`, operator pick
+   2026-09-27). Candidates land in `intake/`,
    shaped by
    `TEMPLATE.md`. Reviewed files are marked in `state.json` at the reviewed
    sha — fix commits re-dirty them, so the next cycle re-reviews exactly what
@@ -420,6 +423,74 @@ doc. Clustering: dirname keying gives one `docs/bugs` lane per wave
 its supervised wave passes — run it explicitly (`lenses=D10`); the roster
 flip is a separate commit, as it was for D4/D8/D9.
 
+## D1 — design consistency & boundaries
+
+D1 (`lens-d1-design.theta`, `anthropic/claude-fable-5-1` at `thinking: high`)
+reviews every file under `src/` for two classes. This repository has a
+language spec but NO architecture/layering document, so there is no written
+structure to hunt divergence from: only SELF-INCONSISTENCY with a
+DEMONSTRATED COST counts, and every finding says so explicitly. Layering and
+dependency-direction claims are never filed — there is no pinned import
+direction (parser, binder, runtime and extension import each other today); a
+future human-authored `docs/reference/architecture.md` would unlock a
+`layering` class as a separate change.
+
+- **divergent-solutions** — the same problem solved differently in two or
+  more places that owe each other consistency: mechanism-shaped, not
+  copy-shaped (a token-level copy is D4's; the clone map is the brief's
+  NEGATIVE check, and triage re-runs it). Fileable ONLY with the cost
+  demonstrated — drift that already happened (git/bug-doc citable) or a
+  concrete misread a maintainer following way A makes on way B; symmetry
+  alone ("A does it this way, so B should") is the canonical D1 false
+  positive.
+- **wide-surface** — a CONTRACT surface (schema, registry, wire envelope,
+  options object, exported type union) wider than every producer and
+  consumer, counted BOTH ways with stated searches, where the width invites
+  a wrong call. The house EXPORT-STYLE EXEMPTION is baked in: an `export`
+  keyword with no external importer is NOT a finding when the declaration is
+  alive (`*Deps` interfaces, diagnostic code/message/hint anchors, kind
+  discriminators); a fully-dead field/arm is D2's; a spec-mirrored arm is
+  pinned even if only one value is produced today.
+
+The pinned model is `anthropic/claude-fable-5-1`, and the brief + triage
+block carry its benchmark countermeasures: `reported_by` is dictated
+character-for-character (a mismatch triages `malformed`); every stated
+search names the exact command + hit count run in-session, triage re-runs
+each verbatim and a non-reproducing search is a false positive; a resolved
+PTQ suppresses a filing only when its fix demonstrably covered the site.
+Cross-lens dedupe is explicit in both directions: a D1 candidate whose root
+cause a D2/D4/D8/D9 candidate or PTQ also states is a `duplicate` naming the
+survivor — the more mechanical lens wins.
+
+**Fix contract**: intake-ratified like D8/D9 — every accurate, in-class,
+costed finding is capped at `questionable` (a `confirmed` D1 verdict is a
+triage defect); whether to unify, and to what, is the human's. Ruling flow
+(the same store commands as D8):
+
+```
+# ratify the unification/narrowing: this MINTS the issue (the accept --note IS the ruling)
+node tools/quality/store.mjs accept --finding quality/intake/<f> --note \
+  "RATIFIED: <the unified shape / the narrowed surface>"
+
+# keep the divergence or the wide surface for a recorded reason (a TRIAGE_LOG
+# row; D1 findings name no d9_host/d8_host, so no durable exemption is written)
+node tools/quality/store.mjs reject --finding quality/intake/<f> \
+  --verdict human-keep-whole --reason "<the concrete reason>"
+
+# defer without recording a durable ruling: the cited files are not re-filed until they change
+node tools/quality/store.mjs reject --finding quality/intake/<f> \
+  --verdict human-defer --reason "..."
+```
+
+Boundaries: wrong-home/affinity claims → D9; host size → D9; over-built
+machinery → D8; token-similar copies and parallel pairs → D4; dead code →
+D2; tests/ → D7; naming and taste are never filed. Clustering: dirname
+keying like D2/D4. The human is expected to run D1 at `budget <= 5`.
+
+**Opt-in**: D1 is worker-backed but NOT in the default `lenses` roster until
+its supervised wave passes — run it explicitly (`lenses=D1`); the roster
+flip is a separate commit, as it was for D4/D8/D9.
+
 ## Extending to more lenses
 
 Add a lens = one surfaces.json entry (+ `shard_loc`) + one worker theta in
@@ -430,6 +501,7 @@ predicate) + a triage step-4 scope block + a fix-brief rules block.
 
 | lens | reviews | model | fix contract |
 |---|---|---|---|
+| D1 | design consistency in `src/` (**opt-in** pending its supervised wave) | `anthropic/claude-fable-5-1` (`thinking: high`) | intake-ratified |
 | D2 | cruft in `src/` | `anthropic/claude-opus-5-5` (`thinking: high`) | autonomous |
 | D4 | duplication & drift in `src/` | `anthropic/claude-opus-5-5` (`thinking: xhigh`) | clone/drift autonomous; parallel intake-ratified |
 | D6 | error posture in `src/` (**opt-in** pending its supervised wave) | `anthropic/claude-opus-5-5` (`thinking: high`) | divergence-with-anchor autonomous; unanchored intake-ratified |
@@ -454,6 +526,6 @@ issues were kept.
 ## Committing note
 
 The repo's parse gate (`tests/committed-fixture-parse-gate.test.ts`) pins exact
-counts of committed `.theta`/`.thetalib` files (currently 51/3, including the
+counts of committed `.theta`/`.thetalib` files (currently 52/3, including the
 `.pi/theta/` loop) — adding or removing a committed theta means bumping the
 counts in the same commit.

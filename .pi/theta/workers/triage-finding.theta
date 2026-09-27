@@ -171,6 +171,31 @@ Method — run every step:
    human ruling (NEVER confirmed). Citation-FORM defects (line-form cites,
    stale grammar line numbers) → out-of-scope (a mechanical gate owns them).
    Coverage gaps, test smells, behaviour bugs → out-of-scope.
+   lens: D1 — design consistency in src/ ONLY; d1_class selects the check.
+   reported_by must be exactly "lens-d1-design (anthropic/claude-fable-5-1)" —
+   a mismatch is malformed (the identity is dictated; this lens's model has
+   misnamed itself in benchmark runs). Re-run EVERY stated search verbatim
+   FIRST: a stated command whose hit count does not reproduce refutes the
+   citation (fabricated-search claims are a known failure mode of this lens's
+   model — treat a non-reproducing search as false-positive naming it, not as
+   drift). divergent-solutions: confirm every cited way at its lines; run
+   node tools/quality/clone-scan.mjs map --files <a one-line manifest of the
+   first cited file> — a clone group covering the observation makes this D4's
+   (out-of-scope, route); confirm the demonstrated cost is real (the cited
+   drift commit / bug record exists; the misread is concrete) — symmetry-only
+   ("A does it, so B should" with no cost) = false-positive, the canonical D1
+   rejection. wide-surface: re-count producers AND consumers per cited
+   field/arm with your own searches; the export-style exemption applies (an
+   alive declaration with no external importer is house style = false-
+   positive); a fully-dead field/arm = out-of-scope (D2); a spec-mirrored arm
+   = false-positive (the D2 precedent list). Cross-lens dedupe both
+   directions: a D1 candidate whose root cause an open/filed D2/D4/D8/D9
+   candidate or PTQ also states = duplicate naming the survivor (the more
+   mechanical lens wins). Layering/dependency-direction claims, wrong-home
+   claims = out-of-scope (D9 or nothing — no layering doc exists). Verdicts:
+   accurate, in-class, costed → questionable — accounting verified; whether to
+   unify (and to what) is a design decision for a human ruling (NEVER
+   confirmed). Everything else rejects with the refuting evidence.
    Any other lens: value = out-of-scope (no triage rules exist for it).
 5. Dedupe. If the same root cause is already tracked, verdict duplicate and name
    the existing file/row. Existing issues and resolved issues:

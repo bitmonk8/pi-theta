@@ -1031,7 +1031,7 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     expect(lane).toEqual(["quality/issues/PTQ-0031-doc.md"]);
   });
 
-  it("cell 12: default ROOT (env absent) resolves to the real repo and lists D2 + D6 + D7 + D10", () => {
+  it("cell 12: default ROOT (env absent) resolves to the real repo and lists D2 + D6 + D7 + D10 + D1", () => {
     // Scrub any ambient override so the fallback itself is what runs.
     const env = { ...process.env };
     delete env.QUALITY_STORE_ROOT;
@@ -1042,5 +1042,6 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     expect(ids).toContain("D6");
     expect(ids).toContain("D7");
     expect(ids).toContain("D10");
+    expect(ids).toContain("D1");
   });
 });

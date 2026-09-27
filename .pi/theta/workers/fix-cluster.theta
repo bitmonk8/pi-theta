@@ -148,6 +148,13 @@ Per-lens rules — apply per issue, by its lens: frontmatter:
   apply exactly the quoted wording, nothing else. Never touch code or tests
   for a D10 issue; never delete or rename a bug doc; never edit any record
   line the issue does not cite.
+- lens: D1 (design consistency in src/): implement EXACTLY the ratified
+  unification or narrowing under ## Triage — nothing beyond it. Behaviour
+  identical at every call site; if the ruling creates or grows a shared
+  helper/module, the D4 HOME BAND and Imports rules apply verbatim (run
+  size-scan loc --host before choosing the home; no new cross-directory
+  import edge that does not already exist); update only the tests the
+  ruling names. No ruling under ## Triage → SKIP with a note.
 
 Guidance from a previous rejected attempt — address it explicitly if present:
 ${extra}

@@ -1,4 +1,16 @@
 {
+  "D1": {
+    "description": "design consistency & boundaries: the same problem solved differently in places that owe each other consistency (mechanism-level, below D4's token floor, with the drift/misread cost demonstrated), and contract surfaces wider than every producer and consumer (counted both ways; house export style exempt) — never layering claims (no layering doc exists), never taste; accounting and a unification hypothesis, never the design; over the production TypeScript sources",
+    "include": [
+      "src/"
+    ],
+    "exclude": [],
+    "ext": [
+      ".ts"
+    ],
+    "shard_loc": 6000,
+    "context_tokens": 200000
+  },
   "D2": {
     "description": "simplicity & cruft: dead code, vestigial names/flags/params, leftover scaffolding, commented-out code — over the production TypeScript sources",
     "include": [
