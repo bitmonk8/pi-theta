@@ -927,7 +927,111 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     expect(runStore(root, ["note", "--finding", "quality/intake/headless.md", "--text", "x"]).status).toBe(1);
   });
 
-  it("cell 12: default ROOT (env absent) resolves to the real repo and lists D2 + D6 + D7", () => {
+  it("cell 29: per-lens max_files caps shard file counts (default 15; the --max-files flag overrides; < 1 dies loud)", () => {
+    // A many-small-files surface (D10's fix-record docs) needs a per-lens
+    // file cap so shards can pack toward shard_loc instead of closing at the
+    // historical flag-default of 15 files. surfaces.json max_files is that
+    // seam, read exactly like shard_loc: flag > surfaces.json > default 15.
+    for (let i = 1; i <= 17; i++) {
+      writeFile(root, `docs/bugs/${String(i).padStart(4, "0")}-r.md`, makeLines(1));
+    }
+    git(root, "add", "-A");
+    git(root, "commit", "-q", "-m", "seed bug docs");
+    const surfaces = JSON.parse(readFile(root, "quality/surfaces.json"));
+    surfaces.X = { include: ["docs/bugs/"], exclude: [], ext: [".md"], shard_loc: 6000, max_files: 3 };
+    surfaces.Y = { include: ["docs/bugs/"], exclude: [], ext: [".md"], shard_loc: 6000 };
+    writeFile(root, "quality/surfaces.json", JSON.stringify(surfaces, null, 2) + "\n");
+
+    // Per-lens key: 17 one-line files at max_files 3 -> 6 shards (3x5 + 2).
+    const withKey = runStore(root, ["shard", "--lens", "X", "--wave", "w29a"]).stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+    expect(withKey, "surfaces.json max_files caps each shard's file count").toHaveLength(6);
+    const first = readFileSync(join(root, withKey[0]!), "utf8")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    expect(first).toHaveLength(3);
+
+    // No key: the 15 default binds -> 2 shards (15 + 2).
+    const noKey = runStore(root, ["shard", "--lens", "Y", "--wave", "w29b"]).stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+    expect(noKey, "a lens without max_files keeps the 15-file default").toHaveLength(2);
+
+    // Explicit flag beats the per-lens key: 17 files at 2 -> 9 shards.
+    const flagged = runStore(root, ["shard", "--lens", "X", "--wave", "w29c", "--max-files", "2"]).stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+    expect(flagged, "an explicit --max-files overrides the surfaces.json key").toHaveLength(9);
+
+    // A cap below 1 (flag or key) dies loud instead of sharding uselessly.
+    const bad = runStore(root, ["shard", "--lens", "X", "--wave", "w29d", "--max-files", "0"]);
+    expect(bad.status).toBe(1);
+    expect(bad.stderr).toContain("--max-files");
+  });
+
+  it("cell 30: a .md docs surface (dir prefix + full-file-path include) round-trips needs-review / mark-reviewed / re-due / clusters", () => {
+    // Pins the whole non-src surface class D10 rides on: state.json keying,
+    // prefix + full-path includes, ext filtering, newline counting and
+    // dirname clustering are extension-agnostic.
+    writeFile(root, "docs/bugs/0001-a.md", makeLines(3));
+    writeFile(root, "docs/bugs/0002-b.md", makeLines(4));
+    writeFile(root, "docs/bugs/note.txt", makeLines(2));
+    writeFile(root, "docs/reference/coverage-matrix.md", makeLines(5));
+    writeFile(root, "docs/reference/other.md", makeLines(5));
+    git(root, "add", "-A");
+    git(root, "commit", "-q", "-m", "seed docs");
+    const surfaces = JSON.parse(readFile(root, "quality/surfaces.json"));
+    surfaces.M = {
+      include: ["docs/bugs/", "docs/reference/coverage-matrix.md"],
+      exclude: [],
+      ext: [".md"],
+      shard_loc: 6000,
+    };
+    writeFile(root, "quality/surfaces.json", JSON.stringify(surfaces, null, 2) + "\n");
+
+    // needs-review: exactly the .md set — note.txt fails ext, other.md fails
+    // the includes (a full-file-path include matches only itself).
+    const due = runStore(root, ["needs-review", "--lens", "M"]).stdout.trim().split("\n");
+    expect(due).toEqual([
+      "docs/bugs/0001-a.md",
+      "docs/bugs/0002-b.md",
+      "docs/reference/coverage-matrix.md",
+    ]);
+
+    // mark-reviewed drops the whole set.
+    const head = git(root, "rev-parse", "HEAD").trim();
+    const manifests = runStore(root, ["shard", "--lens", "M", "--wave", "w30"]).stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+    expect(manifests).toHaveLength(1);
+    runStore(root, ["mark-reviewed", "--lens", "M", "--sha", head, "--manifest", manifests[0]!]);
+    expect(runStore(root, ["needs-review", "--lens", "M"]).stdout).toBe("");
+
+    // A committed edit re-dues exactly the edited record.
+    writeFile(root, "docs/bugs/0002-b.md", makeLines(4) + "edited\n");
+    git(root, "add", "-A");
+    git(root, "commit", "-q", "-m", "edit one bug doc");
+    expect(runStore(root, ["needs-review", "--lens", "M"]).stdout).toBe("docs/bugs/0002-b.md\n");
+
+    // clusters keys a docs/bugs/-located issue by dirname: one docs/bugs lane.
+    writeIssue(root, "PTQ-0031-doc.md", { location: "docs/bugs/0002-b.md:3-4", id: "PTQ-0031", lens: "D10" });
+    const rows = runStore(root, ["clusters"]).stdout.trim().split("\n").filter(Boolean).map((l) => l.split("\t"));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]![0]).toBe("docs/bugs");
+    const lane = readFileSync(join(root, rows[0]![1]!), "utf8")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    expect(lane).toEqual(["quality/issues/PTQ-0031-doc.md"]);
+  });
+
+  it("cell 12: default ROOT (env absent) resolves to the real repo and lists D2 + D6 + D7 + D10", () => {
     // Scrub any ambient override so the fallback itself is what runs.
     const env = { ...process.env };
     delete env.QUALITY_STORE_ROOT;
@@ -937,5 +1041,6 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     expect(ids).toContain("D2");
     expect(ids).toContain("D6");
     expect(ids).toContain("D7");
+    expect(ids).toContain("D10");
   });
 });

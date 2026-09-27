@@ -81,6 +81,12 @@ Judge, in order:
    spelling greps to zero live consumers (bug-doc history quoting the old
    text is fine); tests updated only as the issue or ruling names, none
    weakened; no file outside the cited sites touched.
+   For issues whose lens: is D10 the bar is: the re-pointed citation
+   resolves (open the target; the symbol/test exists and asserts the claimed
+   observable); the claim's wording is byte-identical unless the ruling
+   quoted new wording (then exactly it); no code or test file changed; the
+   citation-form gates still pass on the edited file; no other record
+   touched.
 3. Honesty. Do not take the diff's or any report's word for anything you can
    check directly.
 

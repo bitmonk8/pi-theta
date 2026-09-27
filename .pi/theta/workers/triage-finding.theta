@@ -148,6 +148,29 @@ Method — run every step:
    Dead error path → out-of-scope (D2); over-built machinery → out-of-scope
    (D8); copy-shaped duplication → out-of-scope (D4); tests/ → out-of-scope
    (D7); no divergence (missing everywhere, or a plain bug) → out-of-scope.
+   lens: D10 — verification posture; claim side must be under docs/bugs/ or
+   docs/reference/coverage-matrix.md (a claim location outside them =
+   out-of-scope); the evidence side may cite anything, read-only — you NEVER
+   execute tests for a D10 candidate. reported_by must be exactly
+   "lens-d10-verification (anthropic/claude-opus-5-5)" — a mismatch is
+   malformed. d10_class selects the check. unwitnessed-claim / memory-evidence:
+   re-run EVERY stated search verbatim (command + hit count must reproduce);
+   then run at least one search of YOUR OWN shaping per evidence representation
+   (bug-doc witness lines, test filenames AND it()/describe() titles,
+   coverage-matrix rows, AGENTS.md gate names) — an absence claim that searched
+   the wrong representation is false-positive naming the found witness; a
+   filing against an honesty marker (pending/open/wontfix wording) is
+   false-positive. decayed-pointer: confirm the pointer does not resolve as
+   stated AND check whether the named equivalent exists — unambiguous
+   equivalent named and verified → confirmed (the fix is a mechanical
+   re-point, wording untouched); no equivalent or ambiguous → questionable —
+   decay verified; the record's wording is a human's to change.
+   overstated-strength: open the cited evidence and confirm its level (default
+   suite / live suite / gate / scratch probe) against the claim's wording —
+   accurate → questionable — accounting verified; rewording a record is a
+   human ruling (NEVER confirmed). Citation-FORM defects (line-form cites,
+   stale grammar line numbers) → out-of-scope (a mechanical gate owns them).
+   Coverage gaps, test smells, behaviour bugs → out-of-scope.
    Any other lens: value = out-of-scope (no triage rules exist for it).
 5. Dedupe. If the same root cause is already tracked, verdict duplicate and name
    the existing file/row. Existing issues and resolved issues:

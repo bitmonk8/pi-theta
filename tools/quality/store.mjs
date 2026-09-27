@@ -6,7 +6,12 @@
 //
 // Store layout (all version-controlled except quality/tmp/):
 //   quality/surfaces.json   lens -> { include[], exclude[], ext[], shard_loc,
-//                           context_tokens? } over git-tracked files.
+//                           context_tokens?, max_files? } over git-tracked files.
+//                           max_files = per-lens shard file cap (default 15;
+//                           an explicit --max-files still overrides) — lets a
+//                           many-small-files surface (D10's fix-record docs)
+//                           pack shards toward shard_loc instead of closing
+//                           at 15 files.
 //                           context_tokens = the PINNED worker model's context
 //                           window; when present it caps the effective shard
 //                           size at floor(context_tokens / 3 / 12) LOC (~⅓ of
@@ -35,11 +40,12 @@
 //   needs-review --lens D2
 //       Print every surface file needing review: absent from state, or changed
 //       since its recorded sha (per-sha batched `git diff --name-only`).
-//   shard --lens D2 --wave <id> [--target-loc 6000] [--max-files 15] [--max-shards N]
+//   shard --lens D2 --wave <id> [--target-loc 6000] [--max-files N] [--max-shards N]
 //       Partition the needs-review set path-contiguously, loc-balanced; write
 //       quality/tmp/<wave>/<lens>/shard-NN.txt manifests; print manifest paths.
 //       --target-loc absent or 0 resolves to the lens's own surfaces.json
-//       shard_loc (falling back to 6000). --max-shards > 0 emits only that
+//       shard_loc (falling back to 6000). --max-files absent resolves to the
+//       lens's own surfaces.json max_files (falling back to 15). --max-shards > 0 emits only that
 //       many shards (the path-contiguous prefix); the rest stay unwritten and
 //       due. --max-shards absent or 0 = unlimited.
 //   mark-reviewed --lens D2 --sha <sha> --manifest <file>
@@ -508,8 +514,9 @@ switch (cmd) {
     const contextTokens = Number(s.context_tokens ?? 0);
     const contextCapLoc = contextTokens > 0 ? Math.floor(contextTokens / 3 / 12) : Infinity;
     const targetLoc = Math.min(requestedLoc, contextCapLoc);
-    const maxFiles = Number(flags["max-files"] ?? 15);
+    const maxFiles = Number(flags["max-files"] ?? s.max_files ?? 15);
     const maxShards = Number(flags["max-shards"] ?? 0);
+    if (!Number.isFinite(maxFiles) || maxFiles < 1) die("--max-files must be a number >= 1");
     if (!Number.isFinite(requestedLoc) || requestedLoc < 500) die("--target-loc must be a number >= 500, or 0 = the lens's surfaces.json shard_loc");
     if (targetLoc < 500) die(`context_tokens ${contextTokens} caps the shard at ${contextCapLoc} LOC — below the 500-LOC floor; fix quality/surfaces.json`);
     if (!Number.isFinite(maxShards) || maxShards < 0) die("--max-shards must be a non-negative number (0 = unlimited)");

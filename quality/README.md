@@ -26,11 +26,12 @@ Personal, uncommitted thetas go directly in `.localpi/` (see its README); a
 Arguments (bound by an LLM binder, so free-form text works):
 `max_cycles` (default 3), `lenses` (comma-separated lens roster, default
 `"D2,D4,D7,D8,D9"` - every default-roster lens passed its supervised wave;
-D6 is worker-backed but opt-in (`lenses=D6`) until its supervised wave
-passes; start-up refuses an id lacking a surfaces.json entry or a worker),
+D6 and D10 are worker-backed but opt-in (`lenses=D6`, `lenses=D10`) until
+each passes its supervised wave; start-up refuses an id lacking a
+surfaces.json entry or a worker),
 `shard_loc` (target lines per review shard, default `"0"` = each lens's
 surfaces.json `shard_loc` - D2 6000, D4 6000, D6 6000, D7 3000, D8 12000,
-D9 6000 -
+D9 6000, D10 6000 (its shards also file-capped at `max_files: 60`) -
 each capped at floor(`context_tokens`/3/12) LOC when the lens declares its
 pinned model's window (D4: 128000 -> 3555, after a 4985-LOC shard overflowed
 kimi mid-turn in wave qw20260917095931); the cap binds explicit shard_loc
@@ -78,7 +79,9 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
    breakdown: `anthropic/claude-opus-5-5` at `thinking: high`, per the
    2026-09-27 model x effort benchmark; D6 error posture:
    `anthropic/claude-opus-5-5` at `thinking: high`, operator pick
-   2026-09-27). Candidates land in `intake/`, shaped by
+   2026-09-27; D10 verification posture: `anthropic/claude-opus-5-5` at
+   `thinking: high`, operator pick 2026-09-27). Candidates land in `intake/`,
+   shaped by
    `TEMPLATE.md`. Reviewed files are marked in `state.json` at the reviewed
    sha — fix commits re-dirty them, so the next cycle re-reviews exactly what
    changed. Each worker's closing notes (D9's KEEP-WHOLE dispositions, every
@@ -132,7 +135,7 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
 
 | Path | What | Versioned |
 |---|---|---|
-| `surfaces.json` | lens → reviewable file set (include/exclude prefixes + extensions over git-tracked files) + per-lens `shard_loc` and optional `context_tokens` (pinned model window; caps shards at ~⅓ window / 12 t/LOC) | yes |
+| `surfaces.json` | lens → reviewable file set (include/exclude prefixes + extensions over git-tracked files) + per-lens `shard_loc`, optional `context_tokens` (pinned model window; caps shards at ~⅓ window / 12 t/LOC) and optional `max_files` (per-shard file cap, default 15; D10 pins 60) | yes |
 | `state.json` | lens → { file → commit sha last reviewed at } | yes |
 | `TEMPLATE.md` | finding file shape (one finding, one root cause, evidence-first) | yes |
 | `TRIAGE_LOG.md` | append-only rejection ledger (re-file prevention; `parked` rows too) | yes |
@@ -370,6 +373,53 @@ divergence is a bug (routing note, never a filing).
 its supervised wave passes — run it explicitly (`lenses=D6`); the roster flip
 is a separate commit, as it was for D4/D8/D9.
 
+## D10 — verification posture
+
+D10 (`lens-d10-verification.theta`, `anthropic/claude-opus-5-5` at `thinking:
+high`) audits the FIX-RECORD STORE — `docs/bugs/` plus
+`docs/reference/coverage-matrix.md` (CHANGELOG.md is excluded: one 9.5k-line
+file re-dirtied by every release commit, its claims duplicating the bug docs'
+Status lines) — for claim→evidence chains, never code. Four classes:
+
+- **unwitnessed-claim** — a fixed/verified claim whose named evidence does
+  not exist in the tree (witness test absent, cited command impossible as
+  written), or a fixed-Status record naming no witness where the house format
+  carries one.
+- **decayed-pointer** — the witness pointer no longer resolves AS STATED
+  (test renamed/merged/moved, anchor gone, path moved) though an equivalent
+  may exist; the filing names the equivalent when it found one.
+- **memory-evidence** — "verified live"/"demoed"/"observed" with nothing
+  citable. An honesty marker ("pending live verification", `Status: open`,
+  `wontfix`) is the culture WORKING — never filed itself; the class targets
+  UNMARKED claims or markers contradicted by a stronger claim in the same
+  record.
+- **overstated-strength** — evidence weaker than the wording: unit-only
+  evidence worded as live/host-level proof; a corpus-wide claim discharged by
+  a scratch probe where AGENTS.md pins a gate as the discharge; a
+  `tests/live/**`-only witness presented as continuously verified.
+
+**Read-only, execution-free**: the lens (and triage) NEVER runs tests — the
+wave's green baseline gate at `review_sha` IS the execution witness for
+default-suite tests; `tests/live/**` witnesses are cited as existence+shape
+only. Absence claims enumerate every evidence representation (bug-doc Witness
+lines, test filenames AND it()/describe() titles, coverage-matrix rows,
+AGENTS.md gate names) with one stated search per representation. Citation
+FORM is never filed — mechanical gates own it; D10 files only claim STRENGTH
+and pointer/witness DECAY.
+
+**Split fix contract**: a `decayed-pointer` with an unambiguous verified
+equivalent triages `confirmed` — the fix is a mechanical re-point, the
+claim's wording byte-identical; anything that would reword a Status/Witness/
+claim is capped at `questionable` and intake-ratified (`accept --note
+"RATIFIED: …"` quoting the replacement wording) — the human owns the record's
+wording. Fix lanes never touch code or tests, never delete or rename a bug
+doc. Clustering: dirname keying gives one `docs/bugs` lane per wave
+(`cluster_max` caps it; file-disjoint parts apply).
+
+**Opt-in**: D10 is worker-backed but NOT in the default `lenses` roster until
+its supervised wave passes — run it explicitly (`lenses=D10`); the roster
+flip is a separate commit, as it was for D4/D8/D9.
+
 ## Extending to more lenses
 
 Add a lens = one surfaces.json entry (+ `shard_loc`) + one worker theta in
@@ -386,6 +436,7 @@ predicate) + a triage step-4 scope block + a fix-brief rules block.
 | D7 | test quality in `tests/` | `anthropic/claude-opus-5-5` (`thinking: high`) | autonomous |
 | D8 | simplification in `src/` | `anthropic/claude-opus-5-5` (`thinking: xhigh`) | intake-ratified |
 | D9 | placement & breakdown in `src/` | `anthropic/claude-opus-5-5` (`thinking: high`) | intake-ratified |
+| D10 | claim→evidence decay in `docs/bugs/` + coverage matrix (**opt-in** pending its supervised wave) | `anthropic/claude-opus-5-5` (`thinking: high`) | decayed-pointer autonomous; claim rewording intake-ratified |
 
 
 Workers: triage, fixer and fix review all `anthropic/claude-opus-5-5` (the
@@ -403,6 +454,6 @@ issues were kept.
 ## Committing note
 
 The repo's parse gate (`tests/committed-fixture-parse-gate.test.ts`) pins exact
-counts of committed `.theta`/`.thetalib` files (currently 50/3, including the
+counts of committed `.theta`/`.thetalib` files (currently 51/3, including the
 `.pi/theta/` loop) — adding or removing a committed theta means bumping the
 counts in the same commit.

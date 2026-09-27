@@ -67,5 +67,18 @@
       ".ts"
     ],
     "shard_loc": 6000
+  },
+  "D10": {
+    "description": "verification posture: claim→evidence chains in the fix-record store — fixed/verified claims whose named witness is absent, decayed witness pointers, live-verification claims with nothing citable, evidence presented above its strength; claim wording and pointers only, never test code (D7's), never citation FORM (mechanically gated); over docs/bugs/ and the coverage matrix",
+    "include": [
+      "docs/bugs/",
+      "docs/reference/coverage-matrix.md"
+    ],
+    "exclude": [],
+    "ext": [
+      ".md"
+    ],
+    "shard_loc": 6000,
+    "max_files": 60
   }
 }

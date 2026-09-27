@@ -10,7 +10,7 @@ triage appends its note under that heading.
 ---
 id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
 title: <symptom as one sentence; names the code, not the fix>
-lens: D2                     # D2 | D4 | D6 | D7 | D8 | D9 - the lens that filed this
+lens: D2                     # D2 | D4 | D6 | D7 | D8 | D9 | D10 - the lens that filed this
 status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
 verdict: pending             # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
 locations:                   # every cited site, repo-relative path:line-range
@@ -26,6 +26,7 @@ d8_host: src/example/file.ts # D8 only: the exemption key, <path> or <path>#<fun
 challenges_spec: expressions.md#anchor # D8 only, optional: set when arguing against a spec clause
 d6_class: posture-divergence # D6 only: posture-divergence | swallowed | text-drift
 d6_anchor: none              # D6 only: the anchor pinning the right side (spec clause | allow-broad-catch token | diagnostic code | bug doc), or none
+d10_class: decayed-pointer   # D10 only: unwitnessed-claim | decayed-pointer | memory-evidence | overstated-strength
 wave: <wave id>
 reported_by: <worker> (<model>)
 date: <YYYY-MM-DD>
@@ -47,7 +48,9 @@ every copy's path:line-range + excerpt, the identical/renamed-only/diverged
 verdict, the clone-map group id when one exists. D8: the counted concept/layer
 inventory, the reimplemented facility's own citation, or the documented-vs-
 fighting usage quotes, or the data-size claim at the call sites. D6: both
-sides' excerpts plus the sibling-class argument and the quoted anchor.>
+sides' excerpts plus the sibling-class argument and the quoted anchor. D10:
+the claim quoted verbatim plus every search (command + hit count) per
+evidence representation.>
 
 ## Why this is a problem
 <Anchor to a named principle with mechanical evidence: dead code proven dead,

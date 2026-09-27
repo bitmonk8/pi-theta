@@ -139,6 +139,15 @@ Per-lens rules — apply per issue, by its lens: frontmatter:
   spelling, then grep the OLD spelling across src/, tests/, docs/ and
   re-point every consumer in the same change. An issue naming no right side
   and carrying no ruling → SKIP with a note (never pick a posture silently).
+- lens: D10 (verification posture in docs/bugs/ and the coverage matrix):
+  decayed-pointer only, unless the ## Triage ruling quotes replacement
+  wording. DECAYED-POINTER: re-point the citation to the verified equivalent
+  witness named in the issue/ruling — the claim's wording stays byte-
+  identical; the repaired citation must satisfy the citation-form gates
+  (file + symbol, never path:line into a converted file). RULED REWORD:
+  apply exactly the quoted wording, nothing else. Never touch code or tests
+  for a D10 issue; never delete or rename a bug doc; never edit any record
+  line the issue does not cite.
 
 Guidance from a previous rejected attempt — address it explicitly if present:
 ${extra}

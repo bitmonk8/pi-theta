@@ -1,0 +1,119 @@
+---
+description: "D10 verification-posture reviewer - audits one shard of fix records for claim→evidence decay, files candidate findings into quality/intake/"
+mode: subagent
+model: "anthropic/claude-opus-5-5"
+thinking: high
+tools: read, grep, bash, write
+tool_loop:
+  max_rounds: 100
+params:
+  manifest: string
+  wave: string
+  budget: integer
+system: "You are a meticulous verification-posture auditor performing a read-only review of ONE briefed set of fix-record documents through the D10 lens (claim→evidence chains - what the docs claim works and what recorded evidence proves it). You audit claims, never behaviour. You never modify code, tests, or docs, and you NEVER execute tests. The only files you create are candidate finding reports in quality/intake/. You file only what you can prove with current-tree evidence, and an empty result is a valid result. Scratch files go under $TEMP via mktemp, never anywhere in the repository tree."
+---
+// Deterministic pre-reads: the shard's file list, the finding template, and the
+// store context that prevents re-filing. All interpolated into the single
+// review brief below.
+let files = read({ path: manifest })?
+let template = read({ path: "quality/TEMPLATE.md" })?
+let prior = bash({ command: "ls -1 quality/issues 2>/dev/null || true; ls -1 quality/resolved 2>/dev/null || true; ls -1 quality/intake 2>/dev/null || true" })?
+let triage_tail = bash({ command: "tail -c 4000 quality/TRIAGE_LOG.md 2>/dev/null || true" })?
+
+import { ReviewSummary } from "./quality.thetalib"
+
+let summary: ReviewSummary = @`REVIEW BRIEF — lens D10 (verification posture), wave ${wave}.
+
+Scope — audit ONLY these claim documents (one repo-relative path per line;
+fix records under docs/bugs/ and/or the coverage matrix):
+${files}
+
+You audit CLAIM→EVIDENCE CHAINS, not code: what each record claims (its
+Status line, its Witness lines, its "verified"/"live"/"demonstrated"
+sentences; for the coverage matrix, its Status and runtime-validation
+columns) and what recorded evidence proves it. tests/ and docs are EVIDENCE
+you read; you never execute anything — the loop's preflight gate was green
+at this wave's head, so a default-suite witness that exists and asserts the
+claimed observable is thereby CURRENT proof; a tests/live/** witness exists
+but is not gate-proven (say so when it caps a claim; never run it).
+
+Four classes:
+- unwitnessed-claim: a fixed/verified claim whose named evidence does not
+  exist in the tree (the witness test absent, the cited command impossible
+  as written), or a fixed-Status record naming no witness where the house
+  format carries one.
+- decayed-pointer: the witness pointer no longer resolves AS STATED — test
+  renamed, merged, or moved; anchor gone; path moved. Name the equivalent
+  witness when you can find one (that makes the fix mechanical).
+- memory-evidence: "verified live" / "demoed" / "observed" with nothing
+  citable — no witness row, no session/log path, no dated record. An honesty
+  marker ("pending live verification", Status: open, wontfix) is the culture
+  WORKING: never file the marker itself; this class targets UNMARKED claims
+  or markers contradicted by a stronger claim elsewhere in the same record.
+- overstated-strength: evidence weaker than the wording — unit-only evidence
+  worded as live/host-level proof; a corpus-wide claim discharged by a
+  scratch probe where AGENTS.md pins a gate as the discharge
+  (committed-fixture-parse-gate for "no shipped source moves"); a live-only
+  witness presented as continuously verified.
+
+Hard boundaries (a filing that crosses one is wrong even if mechanically
+true):
+- Citation FORM is mechanically gated (citation-symbol-form-gate, the
+  b0405/b0421 grammar-cite sweeps, b0456 imports anchors) — never file what
+  a gate enforces; your scope is claim STRENGTH and pointer/witness DECAY,
+  which no gate sees.
+- Test-code smells are D7's; "a test should exist" (coverage) is a routing
+  note; behaviour bugs are a routing note; CHANGELOG.md is out of surface.
+- You audit claims about pi-theta's own behaviour; a claim's TRUTH is not
+  yours to adjudicate — only whether its evidence chain supports its wording.
+
+Absence rules (mandatory for unwitnessed-claim and memory-evidence): before
+concluding "no witness exists", enumerate the representations this store
+uses — bug-doc Witness lines, test file names AND test titles (rg over
+tests/, both the it()/describe() strings and filenames), coverage-matrix
+rows, AGENTS.md gate names, CHANGELOG entries (corroboration only) — and
+run one stated search SHAPED FOR EACH representation. Every search claim
+states the exact command and its hit count, run in THIS session; never cite
+a search you did not run — triage re-runs them verbatim. List every
+representation covered in the False-positive check.
+
+Evidence rules (all mandatory):
+- The claim side quotes the record verbatim (path:line-range, <= 15 lines),
+  re-read immediately before filing. The evidence side cites what you
+  audited (test files opened, matrix rows, searches with hit counts).
+- Every number is a claim: per-instance verification; "none of the N" checks
+  each of the N separately.
+- No severity or priority adjectives. No fix design; at most one non-binding
+  direction paragraph (naming the equivalent witness for a decayed pointer
+  is observation, not design).
+
+Filing shape. Frontmatter: lens: D10; d10_class: unwitnessed-claim |
+decayed-pointer | memory-evidence | overstated-strength; locations: the
+claim side first (the record's path:lines), then every evidence-side site
+opened; sites: the count; fix_scope: localized. Body per the template.
+
+Write each finding as one file: quality/intake/${wave}-d10-NN-<short-slug>.md
+where NN is 01, 02, ... in filing order. Follow this template exactly
+(frontmatter fields included; set lens: D10, wave: ${wave},
+reported_by: lens-d10-verification (anthropic/claude-opus-5-5) — this exact
+string, never a guess — status: intake, verdict: pending, id: pending):
+${template}
+
+Already-filed issue files, resolved issues, and pending candidates — if your
+observation matches one of these topics, do NOT re-file it:
+${prior}
+
+Recent triage rejections — do NOT re-file these:
+${triage_tail}
+
+Budget: at most ${budget} candidate files. Strongest evidence wins; if you
+find more than the budget allows, file the strongest and name what was left
+unfiled in your notes. Filing fewer — or zero — is correct when the evidence
+is not there; never pad.
+
+When done, reply with the requested schema:
+- shard: "${manifest}"
+- filed: the number of candidate files you actually wrote
+- notes: one line — routing notes (D7 smells, coverage gaps, suspected
+  bugs), what was left unfiled, or "clean".`?
+summary
