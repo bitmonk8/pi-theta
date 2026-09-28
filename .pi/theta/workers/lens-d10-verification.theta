@@ -49,7 +49,13 @@ Four classes:
   and re-pointing a citation is NOT rewording the claim, so a decayed
   pointer with a verified equivalent witness is fileable (and confirmable)
   even when the pin sits mid-sentence in prose. Name the equivalent witness
-  when you can find one (that makes the fix mechanical).
+  when you can find one (that makes the fix mechanical). A flipped pin —
+  the cited cell/test still exists but a later fix re-pinned or flipped
+  what it asserts — is this class too: when the flipping fix's own record
+  or the flipped cell's comment confirms the flip and the cited record
+  carries no coordination note, triage confirms it with a templated dated
+  coordination note quoted in its ruling (the fixer appends it verbatim),
+  so cite the flip's confirmation and the note's absence.
 - memory-evidence: "verified live" / "demoed" / "observed" with nothing
   citable — no witness row, no session/log path, no dated record. An honesty
   marker ("pending live verification", Status: open, wontfix) is the culture

@@ -417,8 +417,10 @@ Status lines) — for claim→evidence chains, never code. Four classes:
   written), or a fixed-Status record naming no witness where the house format
   carries one.
 - **decayed-pointer** — the witness pointer no longer resolves AS STATED
-  (test renamed/merged/moved, anchor gone, path moved) though an equivalent
-  may exist; the filing names the equivalent when it found one. Witness pins
+  (test renamed/merged/moved, anchor gone, path moved, or a later fix
+  re-pinned/flipped what a cited cell asserts — a flipped pin) though an
+  equivalent may exist; the filing names the equivalent when it found one.
+  Witness pins
   inside a record's `## Fix` section are in scope (re-pointing a citation is
   not rewording). Filings cluster by the DELETING COMMIT: one filing per
   deleting sha (`git log --diff-filter=D -- <path>`) listing every affected
@@ -445,7 +447,17 @@ and pointer/witness DECAY.
 
 **Split fix contract**: a `decayed-pointer` with an unambiguous verified
 equivalent triages `confirmed` — the fix is a mechanical re-point, the
-claim's wording byte-identical; an `unwitnessed-claim` whose witnesses DO
+claim's wording byte-identical; a flipped pin triages `confirmed` when the
+flipping fix's own record or the flipped cell's comment confirms the flip
+and the cited record carries no coordination note — the triage note quotes
+the exact templated note (`### Coordination note — <date>, bug <NNNN>
+(<version>)` plus one short paragraph naming the flipping commit/fix, the
+re-pinned cells + test file, what they now assert, ending "The wording
+above stands as a dated record; current disposition: …") and the fix
+APPENDS it verbatim, no other edits; it stays `questionable` when the
+successor recorded a deliberate no-note choice, the cited claim quotes
+shipped wording (0325-shaped), or any wording change beyond the appended
+note is needed; an `unwitnessed-claim` whose witnesses DO
 exist in the tree also triages `confirmed` — the triage note names each
 verified witness (test file + describe/test title, or coverage-matrix row)
 and the fix ADDS a `## Fix` witness section/line naming exactly those,

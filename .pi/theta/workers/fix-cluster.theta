@@ -39,6 +39,17 @@ Rules:
 - Deleting production code may orphan tests that existed only to exercise the
   deleted cruft: delete those tests with it and say so in your notes, per issue.
   Never weaken or delete an assertion that guards live behavior.
+- Coordination notes (every lens): when a change re-pins or flips existing
+  witness cells/tests — changes an asserted value, renames or deletes a cited
+  test — grep docs/bugs/ for records citing those test files/cell ids and
+  append a dated coordination note to each such record in the same change.
+  Shape, appended at the very end of the record, every existing line
+  byte-identical:
+  "### Coordination note — <date>, bug <NNNN> (<version>)" then one short
+  paragraph naming the flipping fix (bug or PTQ id + version; sha when known),
+  the re-pinned cells + test file, and what they now assert, ending "The
+  wording above stands as a dated record; current disposition:
+  docs/bugs/<successor record>.md."
 - Never edit anything under quality/. Never run git commands that change state
   (add, commit, restore, checkout, stash) — the orchestrator owns git and the
   store. Reading git history is fine. Sole exception: the shed revert below
@@ -146,13 +157,18 @@ Per-lens rules — apply per issue, by its lens: frontmatter:
   re-point every consumer in the same change. An issue naming no right side
   and carrying no ruling → SKIP with a note (never pick a posture silently).
 - lens: D10 (verification posture in docs/bugs/ and the coverage matrix):
-  three authorised shapes, selected by d10_class and the ## Triage ruling —
+  four authorised shapes, selected by d10_class and the ## Triage ruling —
   anything else (memory-evidence, overstated-strength, any unruled reword)
   is SKIP with a note. DECAYED-POINTER: re-point the citation to the
   verified equivalent witness named in the issue/ruling — the claim's
   wording stays byte-identical; the repaired citation must satisfy the
   citation-form gates (file + symbol, never path:line into a converted
-  file). CONFIRMED UNWITNESSED-CLAIM: ADD a "## Fix" witness section (or a
+  file). CONFIRMED COORDINATION NOTE (a flipped pin whose ## Triage ruling
+  quotes the exact templated note): APPEND the triage-quoted note verbatim
+  at the very end of the cited record — no other edits, every existing
+  line stays byte-identical; a confirmed flipped-pin issue whose ruling
+  quotes no note text → SKIP with a note. CONFIRMED UNWITNESSED-CLAIM:
+  ADD a "## Fix" witness section (or a
   witness line where the record already carries one) naming ONLY the
   witness tests/cells the ## Triage ruling verified — each as file +
   describe/test title (citation-form-gate compliant, never path:line); the

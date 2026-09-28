@@ -58,6 +58,15 @@ Judge, in order:
    cruft introduced? Any weakened or deleted test that guarded live behavior (a
    test deleted together with the cruft it exercised is fine when an issue's fix
    implies it)? Untracked leftover files in git status?
+   Witness-flip coordination notes (every lens): when the diff re-pins or
+   flips existing witness cells/tests — changes an asserted value, renames or
+   deletes a cited test — grep docs/bugs/ for records citing those test
+   files/cell ids: each must gain, in this same change, an appended dated
+   coordination note ("### Coordination note — <date>, bug <NNNN> (<version>)"
+   shape) with every pre-existing record line byte-identical. A flipped
+   witness whose citing record got no note is must_fix; the appended notes
+   are required by the fixer's house rule, not collateral — a per-lens
+   "nothing else touched" bar treats them as part of the fix.
    For issues whose lens: is D7 the bar is: the smell is gone AND the suite is
    not weakened — a replaced assertion observes something real, a deleted test
    verifiably verified nothing and nothing cites it, helper dedupe kept every
@@ -98,7 +107,11 @@ Judge, in order:
    For issues whose lens: is D10 the bar is: for a decayed-pointer, the
    re-pointed citation resolves (open the target; the symbol/test exists
    and asserts the claimed observable) and the claim's wording is
-   byte-identical; for a confirmed unwitnessed-claim, the diff ADDS a
+   byte-identical; for a confirmed flipped-pin coordination note, the diff
+   APPENDS exactly the note text the ## Triage ruling quotes, at the very
+   end of the cited record — byte-identical to the quote, nothing else —
+   and every pre-existing record line is byte-identical; for a confirmed
+   unwitnessed-claim, the diff ADDS a
    witness section/line naming exactly the witnesses the ## Triage ruling
    verified — no more, no fewer (open each: the file exists and carries
    the named describe/test title) — while every pre-existing record line
