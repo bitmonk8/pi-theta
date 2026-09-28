@@ -56,6 +56,7 @@ import {
   type FnTail,
 } from "../runtime/subagent-envelope";
 import type { SubagentChildControlPlane } from "../runtime/subagent-launch-file";
+import type { SubagentPlacementPresentation } from "../runtime/subagent-placement";
 import {
   inferChildTrust,
   placeSubagentChild,
@@ -71,6 +72,7 @@ import {
 import {
   SUBAGENT_CHILD_OUTCOME_CHANNEL,
   SUBAGENT_CHILD_OUTCOME_API_VERSION,
+  type PlacementEventBus,
   type SubagentChildOutcome,
   type SubagentChildOutcomePayload,
 } from "../runtime/subagent-placement-registry";
@@ -174,6 +176,61 @@ export interface SubagentSpawnRegimeDeps {
   readonly trackForwardingSources: (
     sources: readonly ForwardingSignalSource[],
   ) => () => void;
+}
+
+/**
+ * RFC 0012 §7: emit one child outcome event with the subscriber containment
+ * subagent.md #subagent-child-outcome-event requires — a subscriber's throw
+ * must not alter the child's terminal path (skip a shutdown request, or
+ * re-enter a caller's catch that would write a second envelope) and mints no
+ * diagnostic. Shared by the drive's terminal arms and the load-pass
+ * marked-root registration refusal, the event's two emitters. `outcomeEvents`
+ * absent (`pi.events` missing) ⇒ structural no-op.
+ */
+export function emitSubagentChildOutcomeContained(
+  outcomeEvents: Pick<PlacementEventBus, "emit"> | undefined,
+  payload: SubagentChildOutcomePayload,
+): void {
+  if (outcomeEvents === undefined) {
+    return;
+  }
+  try {
+    outcomeEvents.emit(SUBAGENT_CHILD_OUTCOME_CHANNEL, payload);
+  } catch { // allow-broad-catch: RFC 0012 §7 — a foreign outcome subscriber's throw is contained, never alters the child's terminal path — pi-integration-contract/subagent.md
+    // Swallowed: advisory event; no registry row (DIAG-2).
+  }
+}
+
+/**
+ * RFC-0012 §7 / bug 0493 D1 (a): a VISIBLE child (the interactive TUI in a
+ * multiplexer pane) has no `-p` exit to end its process, so it asks the host
+ * to shut down — `ctx.shutdown()` defers until the session is idle, the
+ * process exits and the pane closes. A headless child (`pipe`, or a
+ * non-visible backend) never reaches this: its `-p` run ends the process.
+ * `shutdown` is presence-probed `typeof`-only (sdk-inventory.ts
+ * `ctx.shutdown`); an absent member leaves the pane open, with no diagnostic.
+ * Module-scope so the load-pass marked-root registration-refusal site
+ * (production-composition.ts) requests shutdown through the same presentation
+ * gate and probe as the drive.
+ */
+export function requestVisibleChildShutdown(
+  presentation: SubagentPlacementPresentation | undefined,
+  // Named `shutdownHost`, not `ctx` (inventory-closure-audit.ts's canonical-`ctx`
+  // carrier rule reserves the literal identifier `ctx` for a parameter typed
+  // exactly `ExtensionContext` / `ExtensionCommandContext`): this helper is
+  // shared with the load-pass refusal site (production-composition.ts), which
+  // holds only the pass's `ExtensionContext`, not a per-dispatch command
+  // context, and this helper only ever presence-probes `shutdown` — it never
+  // reads any OTHER command-context-only member.
+  shutdownHost: { readonly shutdown?: unknown },
+): void {
+  if (presentation !== "visible") {
+    return;
+  }
+  const shutdown = shutdownHost.shutdown;
+  if (typeof shutdown === "function") {
+    (shutdown as () => void).call(shutdownHost);
+  }
 }
 
 /**
@@ -865,10 +922,11 @@ export class SubagentSpawnRegime {
     // process-local bus, exactly once per drive (the latch makes the
     // exactly-once claim structural). Envelope first, event second: the
     // parent-facing PIC-59 contract precedes the advisory bus event. A
-    // subscriber's throw is contained here — it must not skip the Ok arm's
-    // shutdown request or re-enter the regime catch (which would write a
-    // second envelope, violating PIC-59's single-envelope rule) — and mints
-    // no diagnostic (DIAG-2: no registry row exists for it).
+    // subscriber's throw is contained (`emitSubagentChildOutcomeContained`) —
+    // it must not skip the Ok arm's shutdown request or re-enter the regime
+    // catch (which would write a second envelope, violating PIC-59's
+    // single-envelope rule) — and mints no diagnostic (DIAG-2: no registry
+    // row exists for it).
     const outcomeEvents = this.#input.subagentOutcomeEvents;
     let outcomeEmitted = false;
     const emitOutcome = (outcome: SubagentChildOutcome): void => {
@@ -876,16 +934,11 @@ export class SubagentSpawnRegime {
         return;
       }
       outcomeEmitted = true;
-      const payload: SubagentChildOutcomePayload = {
+      emitSubagentChildOutcomeContained(outcomeEvents, {
         apiVersion: SUBAGENT_CHILD_OUTCOME_API_VERSION,
         outcome,
         slug: theta.slashName,
-      };
-      try {
-        outcomeEvents.emit(SUBAGENT_CHILD_OUTCOME_CHANNEL, payload);
-      } catch { // allow-broad-catch: RFC 0012 §7 — a foreign outcome subscriber's throw is contained, never alters the child's terminal path — pi-integration-contract/subagent.md
-        // Swallowed: advisory event; no registry row (DIAG-2).
-      }
+      });
     };
     // RFC 0015 (operator ruling 2026-09-23): the drive's PIC-76 outcome
     // projection, returned so the dispatch entry can close the regime path's
@@ -1343,19 +1396,16 @@ export class SubagentSpawnRegime {
    * host to shut down — `ctx.shutdown()` defers until the session is idle, the
    * process exits and the pane closes. Called on the `Ok` path ONLY: an `Err`
    * child lingers by design so a human can read or continue the live session
-   * (settled, not overdue — §8). A headless child (`pipe`, or a non-visible
-   * backend) never reaches this: its `-p` run ends the process. `shutdown` is
-   * presence-probed `typeof`-only (sdk-inventory.ts `ctx.shutdown`); an absent
-   * member leaves the pane open, the `Err` behaviour, with no diagnostic.
+   * WHILE THE LAUNCHING PARENT PROCESS LIVES — bug 0493 D1 (b)'s PIC-65
+   * layer-2 watchdog bounds an unattended linger to one poll interval past
+   * uncontrolled parent death (settled, not overdue — §8). A headless child
+   * (`pipe`, or a non-visible backend) never reaches this: its `-p` run ends
+   * the process. `shutdown` is presence-probed `typeof`-only (sdk-inventory.ts
+   * `ctx.shutdown`); an absent member leaves the pane open, the `Err`
+   * behaviour, with no diagnostic.
    */
   #requestVisibleChildShutdown(ctx: ExtensionCommandContext): void {
-    if (this.#input.subagentControlPlane?.launch?.presentation !== "visible") {
-      return;
-    }
-    const shutdown = (ctx as { readonly shutdown?: unknown }).shutdown;
-    if (typeof shutdown === "function") {
-      (shutdown as () => void).call(ctx);
-    }
+    requestVisibleChildShutdown(this.#input.subagentControlPlane?.launch?.presentation, ctx);
   }
 
   /**

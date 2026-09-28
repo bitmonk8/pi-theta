@@ -55,6 +55,7 @@ import { SUBAGENT_PARAMS_ENV } from "../src/runtime/subagent-params";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 import { FakeClock } from "./helpers/fake-clock";
 import { placedWithoutExit } from "./helpers/result-channel-harness";
+import { inertWatchdogSeams } from "./helpers/inert-parent-watchdog";
 
 // ===========================================================================
 // Tier 1 — node:net adapters.
@@ -359,6 +360,7 @@ describe("RFC-0012 §3 — the composition root routes the child's envelope to i
     const client = fakeChannelClient();
     const overrides: ComposeSeamOverrides = {
       subagentExecutableHost: fakeExecutableHost(),
+      subagentParentWatchdogSeams: inertWatchdogSeams(),
       subagentControlPlane: {
         env: {
           PATH: "/usr/bin",
@@ -388,6 +390,7 @@ describe("RFC-0012 §3 — the composition root routes the child's envelope to i
     const captured: string[] = [];
     const wiring = await composeExtensionInstance(pi, ctx, {
       subagentExecutableHost: fakeExecutableHost(),
+      subagentParentWatchdogSeams: inertWatchdogSeams(),
       subagentControlPlane: {
         env: { [SUBAGENT_ROOT_ENV_MARKER]: "refused", [SUBAGENT_PARENT_PID_ENV]: "1" },
         entry: { kind: "theta" },
@@ -407,6 +410,7 @@ describe("RFC-0012 §3 — the composition root routes the child's envelope to i
     const { pi, ctx } = fakeHost();
     const wiring = await composeExtensionInstance(pi, ctx, {
       subagentExecutableHost: fakeExecutableHost(),
+      subagentParentWatchdogSeams: inertWatchdogSeams(),
       subagentControlPlane: {
         env: { [SUBAGENT_ROOT_ENV_MARKER]: "clean", [SUBAGENT_PARENT_PID_ENV]: "1" },
         entry: { kind: "theta" },

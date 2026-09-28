@@ -249,6 +249,29 @@ theta 1.0 surface.
   formatted from the error (prompt or subagent mode alike). A subagent theta reached
   via `invoke(...)` is not a slash-dispatch boundary and cascades to its parent
   instead.
+- **Print-mode failure surface.** When `ctx.mode` is `print` or `json` and the
+  process is not a subagent child (the subagent-root regime is inactive), a
+  top-level SLSH-3 `Err` note (the `cancelled` rendering and the stamp-failure
+  fallback arm included) or either runtime-panic framing is also written to
+  stderr as its rendered content plus a newline, and `process.exitCode` is set
+  to `1` (assigned only, never `process.exit()`; a numeric code greater than `1`
+  already set is kept). `tui` and `rpc` never qualify. Without the surface such
+  an ending gives no process-boundary signal: text print mode (`pi -p`) prints
+  and sets the exit code only from a trailing assistant message, so it exits `0`
+  with empty stdout; `--mode json` streams every session event (the note
+  included) to stdout and exits `0`; and in a new session a drive ending before
+  any assistant turn writes no session file (a run on a session that already has
+  a file — `-c`, `--session <existing file>`, `--session-id <existing id>`,
+  `--fork` — appends every entry to it, the note included). When the note falls
+  to the delivery fallback chain and `ctx.hasUI` is `false` (always so under
+  `pi -p` and `--mode json`), its content reaches stderr twice (the mirrored
+  delivery-failed diagnostic, then the surface's line); with a bound UI context
+  the diagnostic goes to a UI toast and stderr carries the surface's line once.
+  An SDK embedder that passes no `mode` binding reads `ctx.mode === "print"`
+  (the host runner's default, with or without a UI context) and gets the same
+  surface. Binder short-circuit notes (`argument binder unavailable`,
+  `argument binding cancelled`) are excluded and still exit `0` (bug 0494). See
+  [Slash-Command Invocation — Print-mode failure surface](../spec_topics/slash-invocation.md#slsh-3-print-mode-failure-surface).
 
 Per-`kind` system-note templates (SLSH-4; renderers emit the surrounding template
 verbatim, only `<…>` placeholders interpolated; the table is exhaustive over the

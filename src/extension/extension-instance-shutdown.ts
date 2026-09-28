@@ -8,6 +8,7 @@ import type {
   PlacementRegistrationBinding,
 } from "../runtime/subagent-placement-registry";
 import type { ResultChannelClient } from "../runtime/subagent-result-channel";
+import type { SubagentParentWatchdogHandle } from "../runtime/subagent-parent-watchdog";
 import type { Clock } from "../seams/clock";
 import { evalShutdownShortCircuitWithReadFailover } from "./drain-state";
 import type { ExecutionStatusBus } from "./execution-status/types";
@@ -49,6 +50,8 @@ export interface ExtensionInstanceState {
   shutdownEventsObserved: number;
   liveStatusBus: ExecutionStatusBus | undefined;
   liveResultChannel: ResultChannelClient | undefined;
+  /** Bug 0493 D1 (b): this instance's armed parent-liveness watchdog, disposed at `session_shutdown`. */
+  liveParentWatchdog: SubagentParentWatchdogHandle | undefined;
   readonly supersededGenerations: SupersededGeneration[];
   readonly placementBinding: PlacementRegistrationBinding;
   readonly placementRegistry: PlacementRegistry;
@@ -220,6 +223,14 @@ export function handleSessionShutdown(
     // un-degraded. `dispose()` is idempotent and never throws.
     state.liveStatusBus?.dispose();
     state.liveStatusBus = undefined;
+    // Bug 0493 D1 (b): the poll interval is unref'd (never holds the process
+    // open by itself) but hygiene still clears it at every shutdown reason,
+    // a host reload included: the reload builds a fresh extension instance,
+    // and this instance's handle must not keep polling beside it. A repeat
+    // `session_start` on THIS instance reuses the armed handle instead.
+    // `dispose()` is idempotent.
+    state.liveParentWatchdog?.dispose();
+    state.liveParentWatchdog = undefined;
     state.supersededGenerations.length = 0;
     // RFC-0012 §3: the child's result channel closes AFTER the five
     // sub-steps have run — sub-step 3 awaits the in-flight invocation

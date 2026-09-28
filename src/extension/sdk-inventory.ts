@@ -332,17 +332,23 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     // (host-interfaces-core.md #model-registry-pin).
     { id: "ctx.modelRegistry.getProviderAuthStatus", kind: "ctx-member" },
     // RFC-0012 §7: a VISIBLE subagent child (interactive TUI in a multiplexer
-    // pane) requests its own shutdown after an `Ok` envelope so the pane
-    // closes; the host defers it until the session is idle. Presence-probed
-    // `typeof`-only inside the child regime; absent leaves the pane open (the
-    // `Err` behaviour), no diagnostic. Never called in the parent.
+    // pane) requests its own shutdown so the pane closes, at two sites: after
+    // an `Ok` envelope, and after the load pass's marked-root registration-
+    // refusal envelope and outcome event (a refused root has no session worth
+    // reading). The host defers it until the session is idle. Presence-probed
+    // `typeof`-only inside the child regime; absent leaves the pane open until
+    // the parent-liveness watchdog ends the child after parent death, no
+    // diagnostic. Never called in the parent.
     { id: "ctx.shutdown", kind: "ctx-member" },
     { id: "ctx.ui", kind: "ctx-member" },
     { id: "ctx.hasUI", kind: "ctx-member" },
-    // RFC 0015 (D3): the run-mode discriminator (`ExtensionMode`) the run-card
-    // composition gate reads — the card's entry appends are TUI-only
-    // (`ctx.mode === "tui"`), per the RFC's "Modes and degradation". A
-    // presence RECORD like `ctx.hasUI`: advisory input, never a capability gate.
+    // RFC 0015 (D3): the run-mode discriminator (`ExtensionMode`) two
+    // composition gates read — the run card's entry appends are TUI-only
+    // (`ctx.mode === "tui"`), per the RFC's "Modes and degradation", and the
+    // bug-0493 D2 print-mode failure surface is defined only for
+    // `"print"` / `"json"` outside the subagent-root regime
+    // (production-composition.ts `printModeFailureSurface`). A presence RECORD
+    // like `ctx.hasUI`: advisory input, never a capability gate.
     { id: "ctx.mode", kind: "ctx-member" },
     // The H8a per-theta run-drive resolves a chained (non-first) query off-session
     // through pi-ai's `complete()` against the dispatch context's current model.

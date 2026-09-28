@@ -17,6 +17,7 @@ import type { ResultChannelClient } from "../src/runtime/subagent-result-channel
 import { SUBAGENT_PARENT_PID_ENV } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 import { FakeClock } from "./helpers/fake-clock";
+import { inertWatchdogSeams } from "./helpers/inert-parent-watchdog";
 
 interface Harness {
   readonly pi: ExtensionAPI;
@@ -94,6 +95,7 @@ describe("RFC-0012 §3 — the factory latches, reuses and closes the child's re
           {
             clock: new FakeClock(),
             subagentExecutableHost: fakeExecutableHost(),
+            subagentParentWatchdogSeams: inertWatchdogSeams(),
             subagentControlPlane: {
               env: { [SUBAGENT_ROOT_ENV_MARKER]: "clean", [SUBAGENT_PARENT_PID_ENV]: "1" },
               entry: { kind: "theta" },
@@ -150,6 +152,7 @@ describe("RFC-0012 §3 — the factory latches, reuses and closes the child's re
           {
             clock: new FakeClock(),
             subagentExecutableHost: fakeExecutableHost(),
+            subagentParentWatchdogSeams: inertWatchdogSeams(),
             subagentControlPlane: {
               env: { [SUBAGENT_ROOT_ENV_MARKER]: "clean", [SUBAGENT_PARENT_PID_ENV]: "1" },
               entry: { kind: "theta" },

@@ -79,12 +79,13 @@ export const SUBAGENT_SPAWN_FAILED_CODE = "theta/runtime/subagent-spawn-failed";
 // presence is now expressed by the presence of the root-slug marker.
 
 /**
- * The env var carrying the parent PID to the child. Its live reader is the
- * control-plane authentication gate (`authenticateControlPlane`,
- * `production-subagent-host.ts`): the child compares it against its real
- * `ppid` and drops every control-plane carriage on a mismatch. It is also the
- * input reserved for the RECORDED BUT UNIMPLEMENTED child-side parent-PID
- * watchdog (PIC-65 orphan-prevention class-2 fallback). This is NOT the
+ * The env var carrying the parent PID to the child. It has two live readers.
+ * The control-plane authentication gate (`authenticateControlPlane`,
+ * `production-subagent-host.ts`) compares it against the child's real `ppid`
+ * and drops every control-plane carriage on a mismatch. The child-side
+ * parent-liveness watchdog (`armSubagentParentWatchdog`,
+ * `subagent-parent-watchdog.ts`; PIC-65 orphan-prevention layer 2) polls the
+ * pid it names and ends the child once that process is gone. This is NOT the
  * invoke-depth counter — that rides `SUBAGENT_INVOKE_DEPTH_ENV` below.
  */
 export const SUBAGENT_PARENT_PID_ENV = "PI_THETA_SUBAGENT_PARENT_PID";
@@ -302,6 +303,21 @@ export const SUBAGENT_PER_LAUNCH_CONTROL_PLANE_ENV_KEYS: readonly string[] = Obj
 );
 
 /**
+ * Bug 0493 D1 (c): the re-kick opt-out marker pi-config's OWN subagent
+ * children set (`subagent-pi.mjs`), read raw (unauthenticated, no ppid gate)
+ * by its pi-retry fork's stall re-kicker as the sole opt-out from an infinite
+ * session-level "continue the task" re-kick. `buildSubagentChildEnv` writes
+ * `"1"` on every launch so a pi-theta subagent child is treated identically to
+ * one of pi-config's own — a child whose supervisor speaks PIC-59 envelopes
+ * must never be independently re-kicked by a session-level babysitter. The
+ * marker rides the launch env, so it reaches only children whose placement
+ * passes that env through: `pipe` and `inheritsEnv: true` backends. An
+ * `inheritsEnv: false` child (the `exec` default included) never carries it
+ * (subagent.md#subagent-launch-contract).
+ */
+export const SUBAGENT_REKICK_OPT_OUT_ENV = "PI_SUBAGENT_CHILD";
+
+/**
  * Build the child environment: full inheritance of the parent env — MINUS the
  * per-launch control plane (see `SUBAGENT_PER_LAUNCH_CONTROL_PLANE_ENV_KEYS`) —
  * plus this launch's own control-plane carriage: the optional `controlPlane`
@@ -337,9 +353,10 @@ export function buildSubagentChildEnv(
     delete inherited[key];
   }
   // The parent PID is the child's control-plane authentication key (and the
-  // reserved, unimplemented PIC-65 watchdog input); the invoke depth is the
-  // wire-level INV-4 counter the child seeds its chain from (two DISTINCT
-  // carriages — the PID is not the depth).
+  // PIC-65 layer-2 parent-liveness watchdog input, bug 0493 D1 (b) —
+  // `armSubagentParentWatchdog` reads this exact carriage); the invoke depth
+  // is the wire-level INV-4 counter the child seeds its chain from (two
+  // DISTINCT carriages — the PID is not the depth).
   // The PIC-58 root marker (when set) subsumes the old child marker: it selects
   // the subagent-root regime and suppresses the child's own file watcher.
   return {
@@ -348,6 +365,20 @@ export function buildSubagentChildEnv(
     ...(rootSlug !== undefined ? { [SUBAGENT_ROOT_ENV_MARKER]: rootSlug } : {}),
     [SUBAGENT_PARENT_PID_ENV]: String(parentPid),
     [SUBAGENT_INVOKE_DEPTH_ENV]: String(invokeDepth),
+    // Bug 0493 D1 (c): the foreign re-kick opt-out marker pi-config's OWN
+    // subagent children set (`subagent-pi.mjs`) and its pi-retry fork's stall
+    // re-kicker reads raw from `process.env` — written LAST so a stale
+    // inherited value (or an attempt to clear it via `controlPlane`) is always
+    // overwritten. Deliberately NOT a `SUBAGENT_CONTROL_PLANE_ENV_KEYS` member
+    // (bug 0474): it is advisory, unauthenticated, sibling-extension-interop
+    // data, not this launch's own control plane, and every launcher along a
+    // chain re-writing the same `"1"` is exactly the intended idempotent
+    // heritability — the session-level babysitter must see a theta child as
+    // supervised at every hop of the chain whose placement passes this env
+    // through (`pipe`, `inheritsEnv: true` backends; an `inheritsEnv: false`
+    // launch file carries only the control-plane keys, so the marker stops
+    // there).
+    [SUBAGENT_REKICK_OPT_OUT_ENV]: "1",
   };
 }
 

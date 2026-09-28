@@ -427,13 +427,25 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         })(),
       channel,
     );
-    if (resolvedEvent === undefined) {
-      return;
+    // `undefined` ⇒ the stamp-failure fallback already delivered the note;
+    // sending again would double it, but the ending still owes its surface.
+    if (resolvedEvent !== undefined) {
+      sendSystemNote(
+        buildRuntimeEventNote(resolvedEvent, { topLevelCascade: true, userFacingTemplate: content }),
+        channel,
+      );
     }
-    sendSystemNote(
-      buildRuntimeEventNote(resolvedEvent, { topLevelCascade: true, userFacingTemplate: content }),
-      channel,
-    );
+    // Bug 0493 D2: a print/json parent (never a subagent child, whose own
+    // failure surface is its PIC-59 envelope — the composition root defines
+    // this seam iff neither applies) mirrors the SAME rendered content to
+    // stderr and marks the process failed, so a top-level Err/cancelled ending
+    // before any assistant turn is observable at the process boundary: the
+    // pinned host alone exits 0 (text-mode `pi -p` with empty stdout,
+    // `--mode json` with the note among its streamed events). It fires on the
+    // stamp-failure arm too: how the note was delivered does not change how
+    // the drive ended.
+    this.#input.printModeFailureSurface?.mirrorLine(content);
+    this.#input.printModeFailureSurface?.markFailed();
   }
 
   /**
@@ -457,6 +469,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       { content: framing, display: true, details: { diagnostics: [diagnostic] } },
       this.#systemNoteChannel(),
     );
+    // Bug 0493 D2: mirrors `emitTopLevelErrNote`'s surface call — see there.
+    this.#input.printModeFailureSurface?.mirrorLine(framing);
+    this.#input.printModeFailureSurface?.markFailed();
   }
 
   /**
