@@ -17,6 +17,12 @@ let extra = guidance == "" ? "(none)" : guidance
 
 import { FixReport } from "./quality.thetalib"
 
+// Semantic re-inventory rule (Rules block below) — the evidence for the class
+// it closes: PTQ-1422 (the unification's inventory grepped the replaced
+// two-comparison spelling; an inline /^[A-Z]/ regex survived), PTQ-1239
+// (strings only, sibling helpers noted-not-filed), bug 0488 ("single-sourcing"
+// landed with two mints remaining), bug 0383 (one row migrated to its builder,
+// three left inline).
 let r: FixReport = @`FIX TASK — resolve this cluster of confirmed code-quality issues.
 
 Issue files, one per line — read each fully; they carry the evidence and a
@@ -50,6 +56,11 @@ Rules:
   the re-pinned cells + test file, and what they now assert, ending "The
   wording above stands as a dated record; current disposition:
   docs/bugs/<successor record>.md."
+- Semantic re-inventory (every lens): after a unification/single-sourcing
+  fix, re-inventory by SEMANTICS — grep for the rule/value/behaviour itself
+  (other spellings, regexes, inline literals, sibling helpers), not only the
+  replaced spelling — and either migrate every remaining copy or list each
+  one with a reason in your notes, per issue.
 - Never edit anything under quality/. Never run git commands that change state
   (add, commit, restore, checkout, stash) — the orchestrator owns git and the
   store. Reading git history is fine. Sole exception: the shed revert below

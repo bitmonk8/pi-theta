@@ -18,6 +18,9 @@ let diff = bash({ command: "git diff | head -c 60000" })?
 
 import { FixReview } from "./quality.thetalib"
 
+// Semantic re-inventory check (step 2) — evidence: PTQ-1422, PTQ-1239, bugs
+// 0488 and 0383 (unification fixes whose spelling-only inventories left
+// sibling copies standing).
 let rv: FixReview = @`FIX REVIEW — judge the uncommitted working-tree changes against this cluster's issues.
 
 Issue files (the fixes' intent), one per line:
@@ -67,6 +70,13 @@ Judge, in order:
    witness whose citing record got no note is must_fix; the appended notes
    are required by the fixer's house rule, not collateral — a per-lens
    "nothing else touched" bar treats them as part of the fix.
+   Semantic re-inventory (unification/single-sourcing fixes, every lens):
+   grep for the unified rule/value/behaviour itself — other spellings,
+   regexes, inline literals, sibling helpers — not only the replaced
+   spelling. A remaining copy of the unified rule that the issue's ruling
+   does not deliberately keep is must_fix — the fix's single-source claim is
+   false while it stands; name each such copy (path and spelling) in
+   must_fix so the fixer migrates it or lists it with a reason.
    For issues whose lens: is D7 the bar is: the smell is gone AND the suite is
    not weakened — a replaced assertion observes something real, a deleted test
    verifiably verified nothing and nothing cites it, helper dedupe kept every
