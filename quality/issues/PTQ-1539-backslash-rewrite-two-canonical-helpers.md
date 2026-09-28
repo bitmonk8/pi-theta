@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1539
 title: The bug-0268 backslash-to-forward-slash spelling has two exported single-source homes — normalize-path.ts#normalizePath and diagnostic.ts#toPosixFileSpelling — each header claiming to be the shared implementation, plus two inline copies minted after both existed
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/normalize-path.ts:14-26
   - src/diagnostics/diagnostic.ts:52-65
@@ -111,3 +111,4 @@ Unproven hypothesis: `toPosixFileSpelling` is `normalizePath` under a diagnostic
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. I re-ran every stated search and each one reproduces: `replace(/\\/g, "/")` gives 3 hits (normalize-path.ts:25, callable-closure-path.ts:14, subagent-callable-hash.ts:70); `split("\\")` gives 1 (diagnostic.ts:64); toPosixFileSpelling gives 13 hits in 4 files; 8 files import normalize-path; the consumer and inline-site greps give 0. The only extra hit in the quality/ grep is this candidate itself. Both helper excerpts and headers match (normalize-path.ts:14-16/24-26, diagnostic.ts:53-65). The same `Diagnostic.file` goes through both helpers: discovery-source-enumerate.ts:288 mints it with normalizePath, then system-note-channel.ts:51 and diagnostic.ts:78/99 re-spell it with toPosixFileSpelling. The cost is real: 88821b0e (2026-09-16) added normalize-path.ts, and 0fb4497e (2026-09-21) later created callable-closure-path.ts with the rewrite written inline. The normalizePath header's claim that a fix reaches every call site does not hold for the render side or the two closure keys. clone-scan map lists no groups for normalize-path.ts, diagnostic.ts or callable-closure-path.ts, so this is not D4. All sites are live (resolveCallableClosurePath is called at production-composition.ts:4691/4730). Not a duplicate: quality/issues is empty; PTQ-0342/1116/1127/1291/1427 (all resolved) cover other copies; and PTQ-1291 explicitly left callable-closure-path.ts and subagent-callable-hash.ts outside its shard (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: one canonical backslash-to-forward-slash helper — src/normalize-path.ts normalizePath is the survivor (8 importing files vs 3). In src/diagnostics/diagnostic.ts, toPosixFileSpelling keeps its name, its export, and its bug-0268 doc, but its body delegates to normalizePath (import from ../normalize-path; diagnostic.ts already imports ../code-point-order, so the directory edge exists) — its three importer files (hot-reload.ts, system-note-channel.ts, runtime-panics.ts) and all in-file uses stay untouched. Replace the two inline rewrites with normalizePath calls via an import: the cacheKey line at src/extension/callable-closure-path.ts:14 and the sortKey line at src/runtime/subagent-callable-hash.ts:70 (both directories already import ../normalize-path elsewhere; keep both sites' existing comments). Behaviour identical everywhere: both helper bodies are total backslash-to-slash rewrites and byte-equivalent on every input. Fix the sole-ownership claims in both headers: normalize-path.ts names toPosixFileSpelling as the diagnostics-facing delegating alias (making its reaches-every-call-site promise true), and the toPosixFileSpelling doc says it delegates to the shared normalizePath while keeping the bug-0268 rationale. No test changes.

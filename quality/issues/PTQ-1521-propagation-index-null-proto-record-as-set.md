@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1521
 title: structural-checks' PropagationIndex hand-rolls a string set as a null-prototype Record<string, true> read through Object.hasOwn, guarding a prototype-key hazard that its code-composed keys cannot reach
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/structural-checks.ts:149-188
   - src/parser/structural-checks.ts:98
@@ -125,3 +125,4 @@ verdict: questionable — accounting verified; the simpler shape is a design dec
 verdict: questionable — accounting verified; the simpler shape is a design decision for a human ruling: the null-prototype `Record<string, true>` built at structural-checks.ts:169-176 and read only through `Object.hasOwn` (:185-187) reproduces. It is built once (:328) and read through `propagatedToQuery` at :243/:269/:448. Keys come from `propagationKey` over the closed `let|fn-return|fn-param` union (query-schema-resolve.ts:88-91) and always contain `@`, so the prototype-key premise in the doc comment does not hold. `Set` add/has covers every cited need, including a `ReadonlySet` view like `typeNames` (:86), and the same function uses `Set<string>` for `fnNames`/`typeNames`. A grep across src/extensions/tools/tests finds no other reader. quality/exemptions.json has no row for structural-checks, and no duplicate filing exists. (triage: claude-opus-5-5)
 verdict: questionable — accounting verified; the simpler shape is a design decision for a human ruling: the null-prototype `Record<string, true>` at structural-checks.ts:155/169-176 is built once (:328) and read only by `Object.hasOwn` in `propagatedToQuery` (:185-187), which is called from :243, :269 and :448. Every key comes from `propagationKey` over the closed `let|fn-return|fn-param` union (query-schema-resolve.ts:88-91) and contains `@`, so no Object.prototype name can match one. `Set` add/has, with a `ReadonlySet` view like `typeNames` (:86), covers every cited need, and the same function uses `Set<string>` for `fnNames`/`typeNames` (:296/:317). My own grep across src/extensions/tools/tests found no other reader, only theta-document.ts:327/341 passing the raw array and a comment in the b0274 test. quality/exemptions.json has no structural-checks row, no spec clause names the representation, and no duplicate is filed (PTQ-1232 and PTQ-1263 are different claims). (triage: claude-opus-5-5)
 verdict: questionable — accounting verified; the simpler shape is a design decision for a human ruling: I re-read the code. `PropagationIndex` is a null-prototype `Record<string, true>` (structural-checks.ts:155, :169-176). It is built once at :328, `Object.hasOwn` in `propagatedToQuery` (:185-187) is its only reader, and that function is called at :243, :269 and :448. Every key comes from `propagationKey` over the closed `let|fn-return|fn-param` union (query-schema-resolve.ts:88-91) and always contains `@`, so no `Object.prototype` name can match one. `Set` add/has covers every need the filing lists, including a `ReadonlySet` view like `typeNames` (:86), and the same function already builds `Set<string>` at :296/:317. A grep across src/, extensions/, tools/ and tests/ finds no other reader. quality/exemptions.json has no structural-checks row. PTQ-0006 (unread report fields), PTQ-1232 and PTQ-1263 are different claims. (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: PropagationIndex becomes ReadonlySet<string> built with new Set(propagations.map((p) => propagationKey(p.capture))), read with .has; drop the null-prototype rationale comment

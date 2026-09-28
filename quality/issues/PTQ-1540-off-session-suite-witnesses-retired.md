@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1540
 title: Fix records 0007, 0010, 0012 and 0014 name off-session witnesses (tests/off-session-two-phase.test.ts, tests/off-session-transport-classification.test.ts, blankHelperQuerySchema) that 89faa7c5 deleted, and none of the four records carries a discharge note
 lens: D10
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - docs/bugs/0007-off-session-error-stop-swallowed-as-ok-empty.md:62-66
   - docs/bugs/0010-typed-forced-respond-user-visible-no-toolchoice.md:124-131
@@ -112,3 +112,80 @@ Add a discharge note to each record (0007, 0010, 0012, 0014) naming `89faa7c5` /
 ## Triage
 verdict: questionable — decay verified: all five claim excerpts reproduce (0007:62-66, 0010:124-131/155-160, 0012:85-97, 0014:102-107); 89faa7c5 deleted tests/off-session-two-phase.test.ts and off-session-transport-classification.test.ts (git log --diff-filter=D; message lists both as RETIRED); blankHelperQuerySchema / OffSessionQueryModel / offSessionComplete have 0 hits in src/extensions/tools/tests (only a stale src/runtime/query-tool-loop.ts:411 comment mentions (p1)/(l-off)); none of the four records has a discharge note or 89faa7c5 mention; the live halves (blankQuerySchema :298, (p2) describe :1398) resolve. The seam was removed, so no equivalent exists for the off-session witnesses; rewording the records is a human's call (triage: claude-opus-5-5)
 verdict: questionable — decay re-verified: all five claim excerpts reproduce; 89faa7c5 deleted both suites (message: "RETIRED: off-session-two-phase, …"); blankHelperQuerySchema/OffSessionQueryModel/offSessionComplete have 0 hits in src/extensions/tools/tests, and the (p1)/(l-off) tags survive only in stale comments (src/runtime/query-tool-loop.ts:411); none of 0007/0010/0012/0014 has a discharge note or cites 89faa7c5; blankQuerySchema (:298) and (p2) (:1398) resolve. The filing misses that typed-two-phase-live.test.ts:1460-1479 re-hosts some cells from the retired transport-classification suite, but only the bug-0182 respond-seat cells W2/W4/W6/W7, and its comment says the untyped free-phase seat 0007 pinned "no longer exists". So the equivalent is at best partial and ambiguous, and changing the records' wording is a human's call (triage: claude-opus-5-5)
+verdict: confirmed — D10 RULED REWORD (decayed-pointer): apply EXACTLY the following text replacements in the cited records, nothing else — each OLD block is the byte-exact current text, each NEW block the byte-exact replacement (OLD is kept in full; only the witness-removed clause is inserted). Deleting commit for every witness below: 89faa7c5 (rfc 0012 step 7: `subagent fn` bodies run in a spawned child of the calling theta (§10, D3/D4)). Scope guard: docs/bugs/0028 shares this deletion sha but is outside this issue's locations — leave it untouched (the next D10 wave picks it up).
+
+[1] docs/bugs/0007-off-session-error-stop-swallowed-as-ok-empty.md:63-66
+OLD:
+<<<
+`tests/off-session-transport-classification.test.ts` (eight classification
+cells plus two green controls over a mocked `@earendil-works/pi-ai/compat`
+`complete()`).
+>>>
+NEW:
+<<<
+`tests/off-session-transport-classification.test.ts` (eight classification
+cells plus two green controls over a mocked `@earendil-works/pi-ai/compat`
+`complete()`) — witness removed by 89faa7c5 (rfc 0012 step 7: `subagent fn` bodies run in a spawned child of the calling theta (§10, D3/D4)); no current witness — unverified since 89faa7c5.
+>>>
+
+[2] docs/bugs/0010-typed-forced-respond-user-visible-no-toolchoice.md:125
+OLD:
+<<<
+`tests/off-session-two-phase.test.ts`, `tests/typed-repair-two-phase.test.ts`,
+>>>
+NEW:
+<<<
+`tests/off-session-two-phase.test.ts` (witness removed by 89faa7c5 (rfc 0012 step 7: `subagent fn` bodies run in a spawned child of the calling theta (§10, D3/D4)); no current witness — unverified since 89faa7c5), `tests/typed-repair-two-phase.test.ts`,
+>>>
+
+[3] docs/bugs/0010-typed-forced-respond-user-visible-no-toolchoice.md:130
+OLD:
+<<<
+`tests/off-session-transport-classification.test.ts`, and
+>>>
+NEW:
+<<<
+`tests/off-session-transport-classification.test.ts` (witness removed by 89faa7c5 (rfc 0012 step 7: `subagent fn` bodies run in a spawned child of the calling theta (§10, D3/D4)); the behaviour is now covered by tests/typed-two-phase-live.test.ts describe "bug 0182 (respond seat) — the forced respond dispatch classifies through the CAPTURED status, not a fabricated 200" — the retired suite's re-hosted respond-seat cells W2/W4/W6/W7), and
+>>>
+
+[4] docs/bugs/0010-typed-forced-respond-user-visible-no-toolchoice.md:158-159
+OLD:
+<<<
+  `tests/typed-two-phase-live.test.ts` and
+  `tests/off-session-two-phase.test.ts`; WHY comments sit at the two
+>>>
+NEW:
+<<<
+  `tests/typed-two-phase-live.test.ts` and
+  `tests/off-session-two-phase.test.ts` — witness removed by 89faa7c5 (rfc 0012 step 7: `subagent fn` bodies run in a spawned child of the calling theta (§10, D3/D4)); no current witness — unverified since 89faa7c5; WHY comments sit at the two
+>>>
+
+[5] docs/bugs/0012-untyped-off-session-mid-abort-transport-not-cancelled.md:87
+OLD:
+<<<
+- `tests/off-session-two-phase.test.ts` **(p1)** — the (d12) mirror over the
+>>>
+NEW:
+<<<
+- `tests/off-session-two-phase.test.ts` **(p1)** — witness removed by 89faa7c5 (rfc 0012 step 7: `subagent fn` bodies run in a spawned child of the calling theta (§10, D3/D4)); no current witness — unverified since 89faa7c5 — the (d12) mirror over the
+>>>
+
+[6] docs/bugs/0012-untyped-off-session-mid-abort-transport-not-cancelled.md:94
+OLD:
+<<<
+- `tests/off-session-two-phase.test.ts` **(l-off)** — the untyped (l)
+>>>
+NEW:
+<<<
+- `tests/off-session-two-phase.test.ts` **(l-off)** — witness removed by 89faa7c5 (rfc 0012 step 7: `subagent fn` bodies run in a spawned child of the calling theta (§10, D3/D4)); no current witness — unverified since 89faa7c5 — the untyped (l)
+>>>
+
+[7] docs/bugs/0014-empty-typed-query-annotation-silent-unvalidated-bind.md:105
+OLD:
+<<<
+(`blankQuerySchema` / `blankHelperQuerySchema` blank a clean `@<string>`
+>>>
+NEW:
+<<<
+(`blankQuerySchema` / `blankHelperQuerySchema` (the latter: witness removed by 89faa7c5 (rfc 0012 step 7: `subagent fn` bodies run in a spawned child of the calling theta (§10, D3/D4)); no current witness — unverified since 89faa7c5) blank a clean `@<string>`
+>>>

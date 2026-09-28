@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1538
 title: Diagnostic path ordering is decided by two comparators — assembleDiagnostics uses the shared compareCodePoint while discovery-collision-resolve.ts hand-rolls UTF-16 code-unit `<` at three sites under a "byte-wise" label — and the PTQ-1219 migration reached only the first
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/diagnostics/diagnostic.ts:128-141
   - src/discovery/discovery-collision-resolve.ts:47
@@ -116,3 +116,4 @@ Unproven hypothesis: the three inline comparators are `compareCodePoint` applica
 
 ## Triage
 verdict: questionable — accounting verified: all three stated searches reproduce exactly (compareCodePoint 7 hits, 3 consumers, none in src/discovery; `.sort(` in src/discovery 4 hits at :47/:231/:235/:278; localeCompare 0), as do the collisionPathOrder grep (6 files) and assembleDiagnostics callers (theta-document.ts:297, par-for-executor.ts:358). Every excerpt matches at its cited lines. clone-scan map lists no groups for discovery-collision-resolve.ts or diagnostic.ts. 4c45683e touched only diagnostic.ts, and the PTQ-1219 triage quote is verbatim. DISC-3 does say "case-sensitive byte comparison". The divergence reproduces: `<` puts 😀 before ～, while a UTF-8 Buffer.compare returns -1 (～ first). So the "byte-wise"/"byte-first" comments misdescribe the code and the cost is concrete, not symmetry-only. However, unifying would change behaviour for surrogate-range paths against a spec clause, so the result is partly bug-shaped. Whether to unify onto compareCodePoint is a design decision for a human ruling (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: unify onto compareCodePoint from src/code-point-order.ts — code-point order equals UTF-8 byte order, which is the ordering DISC-3 pins ("case-sensitive byte comparison", discovery-sources.md:76) and bug 0459 restates ("byte-wise"). In src/discovery/discovery-collision-resolve.ts import compareCodePoint and replace all three inline UTF-16 code-unit comparators: (1) the resolveCaseCollisions sort at :47 becomes compareCodePoint(a.path, b.path); (2) the collisionPathOrder tail (:190-201) becomes compareCodePoint(na, nb), the PRIORITY leading key unchanged; (3) the Pi-owned sibling-tail sort at :233-235 becomes compareCodePoint(a, b). Correct the "byte-first" (:33-34) and "byte-wise" (:190-201) doc comments to say code-point order (equal to UTF-8 byte order), and update the src/code-point-order.ts header consumer inventory (it already undercounts: it says two call sites, three exist, and this module becomes the fourth). Stated behaviour change, intended and spec-conforming: path pairs straddling the surrogate range now order by true byte order (U+FF5E sorts before U+1F600 where code-unit order reversed them); nothing changes for BMP-only paths below the surrogate range. Extend tests/b0459-cross-format-collision-message-form.test.ts (or, where the case-collision seam is only reachable there, the DISC-3 coverage in tests/discovery-walk.test.ts) with one surrogate-pair path case pinning that order. No other changes.

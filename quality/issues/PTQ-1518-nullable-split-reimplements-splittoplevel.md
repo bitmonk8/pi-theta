@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1518
 title: typeSourceIsNullable hand-rolls a nesting-blind `split("|")` while the already-imported type-text-split module's splitTopLevel provides the top-level union-arm split
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/frontmatter-params.ts:51-57
   - src/parser/frontmatter-params.ts:15
@@ -71,3 +71,4 @@ verdict: questionable — accounting verified: I re-checked the excerpts and the
 verdict: questionable — accounting verified: I re-read every excerpt. frontmatter-params.ts:52-57 does a plain `split("|")`, :15 imports `skipQuotedRegion` from ./type-text-split, and :232 stores `nullable` on every BypassParamsField. type-text-split.ts:426-434 has `splitTopLevel` over `splitTopLevelSegments`, whose typed opener stack and quote tracking (:359-414) cover both cited needs, angle nesting and quoted literals. The only src reader of `.nullable` is binder-envelope.ts:211, inside the `type === "string"` guard. The two tests that assert it (params-brace-union-rhs-lowering:1333 and params-inline-object-lowering:676) use null-free inputs and pass under either split. The host has no exemptions.json row. The only filing that names it is the D9 PTQ-1146 inventory, so this is not a duplicate. Spec binder-bypass-and-envelope.md:13 asks for top-level nullability, so no behaviour is dropped. Fixer caveat: inline-object `params:` values need `"angle-and-brace"` nesting. The simpler shape is a design decision for a human ruling (triage: claude-opus-5-5)
 verdict: questionable — accounting verified: frontmatter-params.ts:52-57 does a naive `split("|")`, :15 already imports from ./type-text-split, and :232 stores the flag on every BypassParamsField. type-text-split.ts:426-434 `splitTopLevel` sits on `splitTopLevelSegments` (:359-414), whose typed opener stack and quote tracking cover both cited needs (nested `<…>` arms and quoted literals). The only reader of `.nullable` in src/extensions/tools/tests is binder-envelope.ts:211, behind the `type === "string"` guard, and the two tests that assert it use null-free inputs. The host has no exemptions.json row and no issue files it, so it is not a duplicate. The top-level semantics match spec §binder-bypass, so no behaviour is dropped. Fixer caveat: inline-object values need `"angle-and-brace"` nesting. The simpler shape is a design decision for a human ruling (triage: claude-opus-5-5)
 verdict: questionable — accounting verified: I re-read the code. frontmatter-params.ts:52-57 does a plain `split("|")`, :15 already imports `skipQuotedRegion` from ./type-text-split, and :232 stores `nullable` on every BypassParamsField. type-text-split.ts:426-434 `splitTopLevel` covers both cited needs (angle nesting and quoted literals). The only src reader of `.nullable` is binder-envelope.ts:211, behind the `type === "string"` guard, and the two tests that assert it (params-brace-union-rhs-lowering:1333, params-inline-object-lowering:676) expect false on null-free inputs. The host has no quality/exemptions.json row. The only other filing that names the function is resolved PTQ-1146, a D9 inventory, so this is not a duplicate. The spec asks for top-level nullability, so no behaviour is dropped. Fixer caveat: use `"angle-and-brace"` nesting for inline-object values. The simpler shape is a design decision for a human ruling (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: replace the naive split('|') with splitTopLevel(typeSource, '|') from ./type-text-split, trim arms, some === 'null'; make the doc comment true

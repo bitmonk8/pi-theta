@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1530
 title: params-lowering.ts (1219 LOC) bundles the type-expression lowering recursion with two pure raw-text scanners whose siblings-in-kind live in type-text-split.ts and the inline-object hoist/slug-dedup facility
 lens: D9
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/params-lowering.ts:1-1219
 sites: 1
@@ -60,3 +60,4 @@ verdict: questionable — accounting verified on a fresh re-run: size-scan map g
 verdict: questionable — accounting verified again: size-scan map reports 1219 LOC in the justify band (FILE_BANDS justify=1000) and all 21 declaration rows at the cited ranges. Excerpts match at :25-33, :614-618, :658-661, :719-721, :769 and :927-931. classifyGenericArgumentSegments and findCutBracketGroupText scan plain strings and never read LowerCtx, and hoistInlineObjectType takes lowerFieldType as a callback, so there are at least 3 real concerns. No keep-whole reason was overlooked: no params-lowering key in quality/exemptions.json, about 8% data/type code, hand-written, and git log shows only split commit bf57e617 with no revert. Not a duplicate: no quality/issues d9_host names this file. The seam cut needs a human ruling (triage: claude-opus-5-5)
 verdict: questionable — accounting verified: size-scan map re-run gives 1219 LOC, justify band (FILE_BANDS justify=1000), and all 21 declaration rows at the cited ranges. Excerpts match at :25-33, :614-618, :658-661, :719-721 and :927-931; the skipQuotedRegion call is at :766 (cited as :769, small drift). classifyGenericArgumentSegments and findCutBracketGroupText scan plain strings and never read LowerCtx, and hoistInlineObjectType takes lowerFieldType as a callback, so at least 3 real concerns hold. Rows 1 and 5 are weaker: the tables belong to the recursion, and lowerLiteralSublanguage is called from row 2 at :537/:574. No overlooked keep-whole reason: no params-lowering key in exemptions.json, about 8% data/type code, hand-written, and git log shows only split commit bf57e617 with no revert. Not a duplicate: resolved PTQ-1149/1165/1176/1259 have d9_host src/parser/params.ts. The seam cut needs a human ruling (triage: claude-opus-5-5)
 verdict: questionable — accounting verified on a fresh re-run: size-scan map gives 1219 LOC, justify band (FILE_BANDS justify=1000), and all 21 declaration rows at the cited ranges. Excerpts match at :25-33, :614-618, :658-661, :719-721 and :927-931, and the skipQuotedRegion call sits at :766 (cited as :769, small drift). Lines 578-800 never mention ctx, so the scanners are pure string scans, and hoistInlineObjectType takes lowerFieldType as a callback. That gives at least 3 real concerns; rows 1 and 5 lean on the recursion. No overlooked keep-whole reason: no params-lowering key in exemptions.json, about 8% data/type code, hand-written, and git log shows only split commit bf57e617 with no revert. Not a duplicate: no quality/issues file names this host. The seam cut needs a human ruling (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: Seam A - move ClassifiedArgumentSegment + classifyGenericArgumentSegments + findCutBracketGroupText -> src/parser/type-text-split.ts where their siblings-in-kind live; pushCutBracketGroupAsLastResort stays; core-remains

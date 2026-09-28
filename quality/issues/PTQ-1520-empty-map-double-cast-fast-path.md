@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1520
 title: buildRuntimeToolSuccessTypes carries an empty-map fast path whose only effect is one avoided Map allocation, purchased with an `as unknown as` double cast that mislabels a RuntimeToolName map as a CompatType map
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/lexical-call-sites.ts:195-214
   - src/parser/theta-document.ts:388-390
@@ -55,3 +55,4 @@ verdict: questionable — accounting verified: lexical-call-sites.ts:195-214 mat
 verdict: questionable — accounting verified: lexical-call-sites.ts:195-214 matches the excerpt, with one uncommented `size === 0` early return and `as unknown as` cast at :199-201; grep of src/ extensions/ tools/ tests/ finds one live caller (theta-document.ts:390, imported at :110) and one comment mention (annotation-compat.ts:114); runtimeToolPresentedNames (runtime-tools.ts:91-108) allocates a fresh Map on each call, so the branch only saves one empty-Map allocation and the general loop returns an equivalent empty map; quality/exemptions.json has no D8 row for this host and no spec clause pins the behaviour; the harm is a latent type-mislabel hazard rather than a live defect, so the simpler shape is a design decision for a human ruling (triage: claude-opus-5-5)
 verdict: questionable — accounting verified: lexical-call-sites.ts:195-214 matches the excerpt, with one uncommented `size === 0` early return and `as unknown as` cast at :199-201; grep of src/ extensions/ tools/ tests/ finds one live caller (theta-document.ts:390, imported at :110) and one comment mention (annotation-compat.ts:114); runtimeToolPresentedNames (runtime-tools.ts:91-108) allocates a fresh Map on each call; downstream code (static-type-inference.ts:133/390/426/755) reads the map only through `.get` and `.size`, so the general loop's empty `out` behaves the same and the branch saves only one allocation; no D8 exemption row and no spec clause pins this; the harm is a latent type-mislabel hazard rather than a live defect, so the simpler shape is a design decision for a human ruling (triage: claude-opus-5-5)
 verdict: questionable — accounting verified: lexical-call-sites.ts:195-214 matches the excerpt, with one uncommented `size === 0` early return and one `as unknown as` cast at :199-201; grep of src/ extensions/ tools/ tests/ finds one live caller (theta-document.ts:390, imported at :110) and one comment mention (annotation-compat.ts:114); runtimeToolPresentedNames (runtime-tools.ts:91-108) returns a fresh Map on each call, so the branch only saves one empty-Map allocation, and the general loop returns an equivalent empty map; quality/exemptions.json has D8 rows only for other hosts and no spec clause pins this; the harm is a latent type-mislabel hazard rather than a live defect, so the simpler shape is a design decision for a human ruling (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: delete the empty-map early return and its as-unknown-as double cast; the general path returns the empty out map

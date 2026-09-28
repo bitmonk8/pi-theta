@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1524
 title: production-composition.ts is 5157 LOC (strong band) and PTQ-0322's pre-announced Seams A+C and B' never landed
 lens: D9
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/production-composition.ts:1-5157
 sites: 1
@@ -101,3 +101,4 @@ verdict: questionable — accounting verified; target shape needs a human ruling
 verdict: questionable — accounting verified; target shape needs a human ruling: I re-ran size-scan and the file is now 5168 LOC, band strong (strong ≥ 2000). That is 11 lines of drift since filing (commits 35704ffd/1dd79e5e); the anchors shifted but the inventory still holds (tools family 2894-4782, buildSystemNoteDeps 4791, probe/peer 4836-5008, bootstrap sink 5022-5127, productionSchemaSlugOf 5139-5168, importer counts 1/2, 1/3, 0/3). The PTQ-0322 PRE-ANNOUNCED A+C / B' quote is verbatim, and neither theta-callee-tools-verification.ts nor production-bootstrap.ts exists. The file has no module-level let/var. grep finds 0 @generated/DO NOT EDIT hits. None of exemptions.json's four keys covers this host. No other issue or intake file has this file-level d9_host. I found no overlooked concrete or strong reason (triage: claude-opus-5-5)
 verdict: questionable — accounting verified; target shape needs a human ruling: re-ran size-scan and got 5168 LOC, band strong (strong ≥ 2000), 11 lines of drift since filing. The inventory anchors still hold at the shifted lines: makeLoadEmit 325, runComposePass 683, composeOneTheta 1769, refuseDivergedChildCallables 2315, composeExtensionInstance 2439, tools family 2894-4782, buildSystemNoteDeps 4791, createProductionProbeHost 4836, createBootstrapDiagnosticSink 5037, productionSchemaSlugOf 5139. The PTQ-0322 PRE-ANNOUNCED A+C / B' quote is verbatim, and of the three modules only production-discovered-theta.ts exists; theta-callee-tools-verification.ts and production-bootstrap.ts do not. The file has no module-level let/var. grep finds 0 @generated/DO NOT EDIT hits. None of exemptions.json's four keys covers this host. No other issue or intake file has this file-level d9_host. No applicable concrete or strong reason was overlooked (triage: claude-opus-5-5)
 verdict: questionable — accounting verified; target shape needs a human ruling: I re-ran size-scan and got 5168 LOC, band strong (strong ≥ 2000), 11 lines of drift since filing. The inventory anchors still hold at the shifted lines (makeLoadEmit 325, runComposePass 683, composeOneTheta 1769, refuseDivergedChildCallables 2315, composeExtensionInstance 2439, tools family 2894-4723+, buildSystemNoteDeps 4791, createProductionProbeHost 4836, createBootstrapDiagnosticSink 5037, productionSchemaSlugOf 5139). The PTQ-0322 PRE-ANNOUNCED A+C / B' quote is verbatim. Of the three modules, only production-discovered-theta.ts exists. The file has no module-level let/var, and grep finds 0 @generated/DO NOT EDIT hits. None of the four exemptions.json keys covers this host, and no other issue or intake file has this file-level d9_host. I found no overlooked concrete or strong reason (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: Seam A (PTQ-0322 pre-announced A+C) - move the callee tools: verification family (~1383 LOC) -> src/extension/theta-callee-tools-verification.ts; cross-refs back limited to parseViaPassCache/PassClosureDeps types; core-remains

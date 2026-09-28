@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1531
 title: statement-executor.ts is 1030 LOC (justify band) after the PTQ-1154/PTQ-1433/PTQ-1457 moves and still holds six declaration clusters, including a user-fn call boundary whose subagent sibling already lives in subagent-fn-call.ts and a loop driver
 lens: D9
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/statement-executor.ts:1-1030
 sites: 1
@@ -91,3 +91,4 @@ verdict: questionable — accounting verified; target shape needs a human ruling
 verdict: questionable — accounting verified; target shape needs a human ruling. Re-ran size-scan map: 1030 LOC, justify band (FILE_BANDS justify 1000), 18 declarations whose sums reproduce the six rows (14/65/111/266/185/85, 304 residual). Call counts reproduce: evalUserFnCall evalExpr×1/executeBlock×1/panicSiteFile×2/ThetaFnArityError×1; loop range evalExpr×2/executeBlock×2/requireBoolean×1/traceEffectDispatch×2, called only from 771/773. There is no module-level let/var/const and no exemptions.json key. The excerpts at 1-5, 455-466, subagent-fn-call.ts:1/:9 and par-for-executor.ts:12 match. PTQ-1154/PTQ-1433 are in quality/resolved/ and d9-07 was rejected only for stale 1129-LOC accounting. No overlooked concrete or strong reason (triage: claude-opus-5-5)
 verdict: questionable — accounting verified; target shape needs a human ruling. I re-ran size-scan map: 1030 LOC, justify band (FILE_BANDS justify 1000), 18 declarations. Their LOC sums reproduce all six rows (14/65/111/266/185/85). The call counts reproduce: evalUserFnCall has evalExpr×1, executeBlock×1, panicSiteFile×2, ThetaFnArityError×1; the loop range has evalExpr×2, executeBlock×2, requireBoolean×1, traceEffectDispatch×2, and its only callers are 771/773. There are 0 top-level let/var/const and 0 exemptions.json hits. The excerpts at 1-5, 455-466, subagent-fn-call.ts:1/:9 and par-for-executor.ts:12 match. PTQ-1154 and PTQ-1433 are status fixed in quality/resolved/ and no open issue tracks this residual. No applicable concrete or strong reason was overlooked (triage: claude-opus-5-5)
 verdict: questionable — accounting verified; target shape needs a human ruling. I re-ran size-scan map: 1030 LOC (wc -l agrees), justify band (FILE_BANDS justify 1000), 18 declarations. Their LOC reproduces the six rows (3+11 / 65 / 5+15+91 / 6+173+39+48 / 100+36+17+32 / 3+8+29+45 = 14/65/111/266/185/85, residual 304). Call counts reproduce: in 285-375, evalExpr×1, executeBlock×1, panicSiteFile×2, new ThetaFnArityError×1; in 864-984, evalExpr×2, executeBlock×2, requireBoolean×1, traceEffectDispatch×2, and the only callers are 771/773. There are 0 top-level let/var/const and 0 exemptions.json hits. The excerpts at 1-5, 455-466, subagent-fn-call.ts:1/:9 and par-for-executor.ts:12 match. PTQ-1154 and PTQ-1433 are in quality/resolved/ (fixed). The sibling d9-02 is a single-class placement filing, not the same root cause. No overlooked concrete or strong reason (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: Seam A - move the user-fn call boundary (resolveUserFn + evalUserFnCall, ~106 LOC) -> src/runtime/user-fn-call.ts, the in-process sibling of subagent-fn-call.ts; host imports both back for the call arm; ThetaFnArityError excluded (moves via its own ruling); core-remains

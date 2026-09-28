@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1541
 title: The live-e2e verification claims in fix records 0011, 0012, 0013 and 0014 name tests/hardening/ suites (session-binder, session-cancellation, discovery-cli, session-prompt-transport) that a6a5953e deleted without successors
 lens: D10
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - docs/bugs/0011-binder-complete-no-forced-tool-free-text-envelope.md:124-137
   - docs/bugs/0012-untyped-off-session-mid-abort-transport-not-cancelled.md:108-115
@@ -129,3 +129,52 @@ Annotate each live-e2e sentence with the `a6a5953e` deletion, naming a current t
 ## Triage
 verdict: questionable — decay verified, but no single equivalent exists to re-point to. All four claim excerpts reproduce at 0011:124-137, 0012:108-115, 0013:113-128 and 0014:111-117. `find tests -name` returns 0 for all six basenames and 1 for probe-harness.ts (tests/live/hardening/). `git show --stat -M a6a5953e` shows each suite as a pure deletion, with only probe-harness.ts renamed `{ => live}`. The commit message names no per-probe successor. The stated searches reproduce (sev=High 0, DISC-1 0, token=PONG 0, session-cancellation 0, bug-0013 → probe-harness.ts only). My own searches over tests/live found only loosely related binder and discovery-cli-* live cells, none carrying these probes' observables. No existing PTQ tracks this. With no unambiguous equivalent, changing the records' wording is a human's call (triage: claude-opus-5-5)
 verdict: questionable — decay independently re-verified, but no unambiguous equivalent exists. All four claim excerpts reproduce at 0011:124-137, 0012:108-115, 0013:113-128 and 0014:111-117. `find tests -name` returns 0 for all six basenames and resolves only probe-harness.ts, at tests/live/hardening/. `git show --stat -M a6a5953e` shows the six as pure deletions, with only probe-harness renamed `{ => live}`. The commit body gives only a blanket "pinned by the default suite … or H8a/H9a live suites" and names no per-probe successor. The stated rg counts reproduce (sev=High, DISC-1, token=PONG, session-cancellation, bug 0011/0012 all 0; bug 0013 → probe-harness.ts only). My tests/live listing shows only loosely related cells (typed-query-wire-shapes, b0417 binder toolchoice, discovery-cli-override-*), none of which carries these observables. Not tracked: no PTQ or intake file cites a6a5953e against these records. Re-wording the records is a human's call (triage: claude-opus-5-5)
+verdict: confirmed — D10 RULED REWORD (decayed-pointer): apply EXACTLY the following text replacements in the cited records, nothing else — each OLD block is the byte-exact current text, each NEW block the byte-exact replacement (OLD is kept in full; only the witness-removed clause is inserted). Deleting commit for every witness below: a6a5953e (test: restructure suites into two groups — default (offline) and live). Each named successor cell was verified present at HEAD.
+
+[1] docs/bugs/0011-binder-complete-no-forced-tool-free-text-envelope.md:126-127
+OLD:
+<<<
+`tests/hardening/session-binder.test.ts` (real pi binary, binder model
+`anthropic/claude-haiku-4-5`): the first falsified the intermediate
+>>>
+NEW:
+<<<
+`tests/hardening/session-binder.test.ts` (real pi binary, binder model
+`anthropic/claude-haiku-4-5` — witness removed by a6a5953e (test: restructure suites into two groups — default (offline) and live); the behaviour is now covered by tests/live/typed-query-wire-shapes.test.ts describes "bug 0028 (live) — a declared `enum` at the annotation root is conveyable and the drive terminates" and "bug 0028 (live) — a nested named-schema `$ref` is conveyable and the drive terminates", enum and $ref-carrying schema binding through the live forced respond call): the first falsified the intermediate
+>>>
+
+[2] docs/bugs/0012-untyped-off-session-mid-abort-transport-not-cancelled.md:108-109
+OLD:
+<<<
+CLEAN). Live e2e: `tests/hardening/session-cancellation.test.ts` (real pi
+binary, real provider) green — its single cell drives a real untyped
+>>>
+NEW:
+<<<
+CLEAN). Live e2e: `tests/hardening/session-cancellation.test.ts` (real pi
+binary, real provider — witness removed by a6a5953e (test: restructure suites into two groups — default (offline) and live); the behaviour is now covered by tests/live/hardening/session-convdrive.test.ts describe "multi-turn conversation drive / final value / model-reply-as-value", clean live untyped @-query drives across the same text-arm guard) green — its single cell drives a real untyped
+>>>
+
+[3] docs/bugs/0013-load-warnings-dropped-by-both-production-sinks.md:125-126
+OLD:
+<<<
+none blocking → CLEAN). Live e2e: `tests/hardening/discovery-cli.test.ts`
+(real `pi` binary, real extension discovery over planted workspaces) — the
+>>>
+NEW:
+<<<
+none blocking → CLEAN). Live e2e: `tests/hardening/discovery-cli.test.ts`
+(real `pi` binary, real extension discovery over planted workspaces — witness removed by a6a5953e (test: restructure suites into two groups — default (offline) and live); the behaviour is now covered by tests/live/discovery-entry-lstat-failure-live-cell.test.ts describe "H8a-T (bug 0075) — a settings thetaPaths glob universe entry whose lstat rejects warns on the theta-system-note channel (bug 0113 residual 1 / bug 0075 §Affected listTree site)", a warning-severity unreadable-source diagnostic arriving as a theta-system-note through the real discovery path) — the
+>>>
+
+[4] docs/bugs/0014-empty-typed-query-annotation-silent-unvalidated-bind.md:113-114
+OLD:
+<<<
+(`tests/hardening/session-prompt-transport.test.ts`, real extension
+discovery → live `AgentSession` → typed two-phase forced respond with AJV)
+>>>
+NEW:
+<<<
+(`tests/hardening/session-prompt-transport.test.ts`, real extension
+discovery → live `AgentSession` → typed two-phase forced respond with AJV — witness removed by a6a5953e (test: restructure suites into two groups — default (offline) and live); the behaviour is now covered by tests/live/live-production-acceptance.test.ts describe "H8a-T — typed-query lowering, bounded (Convention: live-host acceptance)" it "resolves one schema-typed @-query through the live binder and validates the reply against its declared schema")
+>>>

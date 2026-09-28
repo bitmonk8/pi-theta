@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1536
 title: The binder seed-field mapping is held in two tables — the runtime reads the un-exported 4-row `BINDER_SEED_FIELD_BY_API` while the step-6 Api-coverage gate asserts over the 12-row `PROVIDER_SEED_FIELD_TABLE` shadow — unlike the sibling temperature and forced-tool tables, which the same gate reads directly
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/binder/binder-inference.ts:62-76
   - src/binder/binder-inference.ts:482-487
@@ -243,3 +243,4 @@ and the runtime's lookup are the same object.
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. Every stated search reproduced verbatim: BINDER_SEED_FIELD_BY_API 3 hits, PROVIDER_SEED_FIELD_TABLE 9, BINDER_TEMPERATURE_TABLE 3, FORCED_TOOL_CHOICE_API_KEYS 3, seed-field in binder-temperature.ts 3. Both ways match their excerpts: binder-inference.ts:70-76 is private, 4 rows, uses undefined, and is read at :484; version-bump-gates.ts:81-100 is exported, 12 rows, uses "omitted", and is read only by the tests. The gate reads the runtime constants for the temperature and forced-tool tables (test :195, :223). The clone-scan map lists no groups. The cost is real: 33bf327e (bug 0417) widened the shadow table and did not touch binder-inference.ts. The misread is concrete: binder-temperature.ts:3 and :48 credit "omitted" rows to binder-inference.ts's table, which has none. No existing PTQ or intake file covers this (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: one gate-audited seed-field table that the runtime reads. Re-home the 12-row PROVIDER_SEED_FIELD_TABLE (rows and "omitted" no-seed encoding unchanged, doc comment moved with it) from src/extension/version-bump-gates.ts into src/binder/binder-inference.ts as the exported constant, matching the sibling-table shape (BINDER_TEMPERATURE_TABLE and FORCED_TOOL_CHOICE_API_KEYS live beside their runtime readers); delete the private 4-row BINDER_SEED_FIELD_BY_API. The runtime read at binder-inference.ts:482-487 becomes: look up PROVIDER_SEED_FIELD_TABLE[input.model.api] and place the seed only when the row exists and is not the literal "omitted" — runtime behaviour identical (only openai-completions -> seed and mistral -> random_seed place a seed; every other or unknown api places none). version-bump-gates.ts keeps its gate functions (apiCoverageFailures and seedFieldFixtureFailures take the table or its keys as arguments) and loses the constant; update the PROVIDER_SEED_FIELD_TABLE import in tests/version-bump-gates.test.ts to ../src/binder/binder-inference (its 8 test references are the only consumers; no other test edits). Make the binder-inference.ts "one source of truth" doc comment true for the merged table, and correct the three seed-field comment references in binder-temperature.ts (:3, :48, :78) so they truthfully name PROVIDER_SEED_FIELD_TABLE in binder-inference.ts, its "omitted" rows, and its gate coverage. No other behaviour change; provider-error-mapping.md is untouched (the spec requires a singular gate-audited seed-field table constant, which this restores).
