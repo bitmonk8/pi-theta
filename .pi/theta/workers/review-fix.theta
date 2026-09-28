@@ -107,7 +107,11 @@ Judge, in order:
    For issues whose lens: is D10 the bar is: for a decayed-pointer, the
    re-pointed citation resolves (open the target; the symbol/test exists
    and asserts the claimed observable) and the claim's wording is
-   byte-identical; for a confirmed unwitnessed-claim, the diff ADDS a
+   byte-identical; for a confirmed flipped-pin coordination note, the diff
+   APPENDS exactly the note text the ## Triage ruling quotes, at the very
+   end of the cited record — byte-identical to the quote, nothing else —
+   and every pre-existing record line is byte-identical; for a confirmed
+   unwitnessed-claim, the diff ADDS a
    witness section/line naming exactly the witnesses the ## Triage ruling
    verified — no more, no fewer (open each: the file exists and carries
    the named describe/test title) — while every pre-existing record line

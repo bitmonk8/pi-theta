@@ -185,7 +185,20 @@ Method — run every step:
    whether the named equivalent exists — unambiguous
    equivalent named and verified → confirmed (the fix is a mechanical
    re-point, wording untouched); no equivalent or ambiguous → questionable —
-   decay verified; the record's wording is a human's to change. The house
+   decay verified; the record's wording is a human's to change. Flipped pin
+   (the cited cell/test still exists but a later fix re-pinned or flipped
+   what it asserts): when the flipping fix's own record or the flipped
+   cell's comment confirms the flip AND the cited record carries no
+   coordination note for it → confirmed — your verdict note MUST quote the
+   exact note text the fixer appends verbatim (the same way ruled rewords
+   work): "### Coordination note — <date>, bug <NNNN> (<version>)" then one
+   short paragraph naming the flipping commit/fix and version, the
+   re-pinned cells + test file, and what they now assert, ending "The
+   wording above stands as a dated record; current disposition:
+   docs/bugs/<successor record>.md.". It stays questionable when (a) the
+   successor record documents a deliberate no-note choice, (b) the cited
+   claim quotes shipped wording (0325-shaped), or (c) any wording change
+   beyond appending the templated note is needed. The house
    shape clusters decayed pointers BY DELETING COMMIT: verify the named sha
    actually deleted the cited witness(es) (git log --diff-filter=D -- <path>)
    and verify EACH listed record's pin separately; a listed record that does
