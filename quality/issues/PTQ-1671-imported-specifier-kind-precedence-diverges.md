@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1671
 title: materializeSymbol resolves an imported specifier's declaration by source-order first match while recordImportedSpecifierFacts resolves it per kind with a fields-bearing-schema-wins precedence, so a legal dual-kind lib is admitted statically as one kind and materialised at runtime as another
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/import-resolution-kit.ts:191-236
   - src/extension/import-specifier-facts.ts:357-376
@@ -204,3 +204,4 @@ Unproven hypothesis: one shared "source name → declaration" resolution over a 
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. Both ways are at their cited lines: materializeSymbol (import-resolution-kit.ts:191-236) returns on the first source-order match, while recordImportedSpecifierFacts (import-specifier-facts.ts:357-421) runs per-kind finds under the hasCtorSchema precedence and calls materializeChain at :470. All four stated searches reproduce verbatim (2/2/7/4 hits). clone-scan shows no groups for either file. My own scratch run of checkThetaImports reproduces the cost: schema-first gives diags [] and materialises "schema X", enum-first gives diags [] and materialises "enum X". K8 (tests/b0448:132, :491-496) and the 0448 F1 round (bug doc :264-266) exist. No duplicate among the intake files, open PTQs or resolved PTQs: PTQ-0365 kept both control flows under "Identical behaviour" and does not cover precedence (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: one name→declaration precedence for imported specifiers — the bug-0448 fields-bearing-schema-wins rule. In src/extension/import-resolution-kit.ts materializeSymbol (:191-236): before the source-order walk, look for a `schema` statement named `source` with `fields !== undefined`; when present, return the schema materialisation regardless of declaration order (mirroring recordImportedSpecifierFacts' hasCtorSchema precedence, import-specifier-facts.ts:357-421); otherwise the existing first-match walk is unchanged. Update both files' `satisfies Record<ThetaLibDeclarationStmt["kind"], true>` ledger comments to name the shared precedence. Stated behaviour change, intended: a `.thetalib` declaring enum/fn X BEFORE a same-name fields-bearing `schema X` now materialises `schema X` (previously enum/fn), matching what the static tables already admit — the K8 dual-kind property becomes order-independent. Extend tests/b0448-imported-non-object-ctor.test.ts with the enum-first order asserting diags [] + materialised "schema X".

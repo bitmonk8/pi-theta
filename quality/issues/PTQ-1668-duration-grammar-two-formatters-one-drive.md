@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1668
 title: The same drive's elapsed time is rendered by two different duration grammars — render/format.ts formatDuration on the live card and entry-channel.ts formatDurationMs on the summary row
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/execution-status/render/format.ts:40-58
   - src/extension/execution-status/entry-channel.ts:240-252
@@ -154,3 +154,4 @@ Unproven hypothesis: `formatDuration` in `render/format.ts` is already the decla
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. Both ways match at format.ts:40-58 and entry-channel.ts:240-252; the consumers at card-lines.ts:245/:297/:441 and entry-channel.ts:302/:330 match. The census grep reproduces all 11 lines, the 4m32s grep reproduces its 3 hits, and the git history (97bbcdb5, footer-sink.ts:63, bde73af5) reproduces. clone-scan map on format.ts reports no clone groups, so this is not D4's. A node re-run of both bodies gives 35s/36s, 4m5s/4m05s, 4m/4m00s, 1h02m/62m00s and 1h30m/90m00s, and they agree only at 272000 (4m32s), which is the value both tests pin. The cost is concrete: one drive's elapsed time is spelled two ways, and the header's anti-drift intent (format.ts:7-11) is contradicted. No PTQ tracks this. Same-wave sibling intake qw20260928124659-d1-01-summary-entry-duration-grammar-diverges-from-card.md has the same root cause, and this file sorts first, so it is the survivor (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: one elapsed/age duration grammar — render/format.ts formatDuration (EXST-8) is the survivor. In src/extension/execution-status/entry-channel.ts delete module-private formatDurationMs (:240-252) and render both reads through formatDuration imported from ./render/format: the summary elapsed at :302 (keep the existing typeof-number guard with its "?" fallback) and the heat dwell line at :330. Stated behaviour change, intended: off the agreement set the summary/dwell spelling moves to the shared grammar — floored seconds, zero-seconds token omitted, unpadded seconds, hours arm above 60m (62m00s → 1h02m), sub-second dwell renders 0s (the ms arm retires; no test pins 842ms/36s/4m05s — verified 0 hits). The pinned 4m32s fixtures (272000 ms) sit on the agreement set and stay green. Note the summary/dwell consumers in format.ts's header so the shared-grammar claim stays true.

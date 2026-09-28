@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1675
 title: The stdlib member allow-list is derived from the signature table in stdlib-string.ts but hand-written beside it in stdlib-array.ts and stdlib-object.ts, whose comments still cite the string module's retired hand-pairing as the shared discipline
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/stdlib-string.ts:29-58
   - src/runtime/stdlib-array.ts:33-68
@@ -131,3 +131,4 @@ Unproven hypothesis: the unification is the one PTQ-1239 already applied to stri
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling: every stated search reproduces verbatim (member-set grep 14 hits with the pasted lines, "is paired with" 2, "derived from" 2, git log -S → d41231e7 only, 1 file changed); STRING_MEMBERS = new Set(STRING_MEMBER_SIGNATURES.keys()) at stdlib-string.ts:58 vs hand-written literals at stdlib-array.ts:39-46 and stdlib-object.ts:95, one selector builtinMembers (type-layer-checks.ts:217-226); the cost is concrete — d41231e7's diff deleted the string comment "the same discipline the sibling ARRAY_MEMBERS / OBJECT_MEMBERS pairs below apply" while stdlib-array.ts:57-58 and stdlib-object.ts:105-107 still cite a string hand-pairing that no longer exists; clone-scan map on stdlib-string.ts lists only G002/G003/G010/G060 over the signature-map rows (array:61-65 × string:44-48), none covering the *_MEMBERS sets, so not D4's; PTQ-1239 (resolved) noted but did not file the array/object pairs, no intake/issue names stdlib-array/stdlib-object, no exemptions row (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: derive, STRING-style. In src/runtime/stdlib-array.ts and stdlib-object.ts declare each *_MEMBER_SIGNATURES map first, then `export const ARRAY_MEMBERS: ReadonlySet<string> = new Set(ARRAY_MEMBER_SIGNATURES.keys());` and `export const OBJECT_MEMBERS: ReadonlySet<string> = new Set(OBJECT_MEMBER_SIGNATURES.keys());`, deleting the two hand-written literals and replacing the stale "kept paired … the same way STRING_MEMBER_SIGNATURES is paired with STRING_MEMBERS" sentences (stdlib-array.ts:57-58, stdlib-object.ts:105-107) with the string module's derived-so-they-can-never-drift wording (:52-58). Behaviour identical: at HEAD both sets equal their tables' key sets exactly (length/join/includes/indexOf/slice/concat; keys/values/has — re-verified). No consumer changes (builtinMembers, type-layer-checks.ts:217-226, reads the same exports).

@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1688
 title: The five-row theta-system-note details matrix is realised two ways — the event and recovery rows through runtime-event-channel.ts's row builders, the diagnostics-batch, panic, and structural rows as inline object literals at eight production sites while their builders have no production caller
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/runtime-event-channel.ts:1-6
   - src/runtime/runtime-event-channel.ts:248-283
@@ -203,3 +203,4 @@ Unproven hypothesis: the unification is the one bug 0383 applied to the event ro
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. All five stated searches reproduce line for line: 5 builder/emitter hits (the tool-call-off-surface.ts:415 hit is an interface member), 9 `details: { diagnostics` hits, 2 `details: { structural` hits, 0 production callers of buildPanicNote/buildDiagnosticsBatchNote/buildStructuralNote/emitPanic, and only tests/runtime-event-channel.test.ts as a test caller. The git -S histories match (buildRuntimeEventNote 5 commits including 094f1dc2 bug-0383; the other three only 66feddf6/86d7bfbf). All eight inline literals are at the cited lines and are conformant today (display: true, correct key). They go out through three sinks (sendSystemNote, deliverOperatorNotePreferringEntry, raw pi.sendMessage at production-composition.ts:5077), but the builders only construct the object, so they would still apply. clone-scan map on runtime-event-channel.ts shows no clone groups. The cost is real: bug 0383 records the conformant builder being bypassed and the literal drifting (:13-15, :108, and constraint 2 at :153-155), and emitPanic's comment "Exactly one theta-system-note per top-level panic" (:328) describes a path production never runs, since emitPanicNote at production-theta-producer.ts:455-460 hand-builds the literal. There is no duplicate: PTQ-1121, PTQ-1443 and PTQ-1272 are resolved with other scopes, PTQ-1608 is D9 placement only, and no intake sibling covers the builder bypass (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: matrix rows construct through their runtime-event-channel.ts builders, 0383-style; the builders are the survivors. Replace the eight inline literals with builder calls, keeping each site's existing sink/routing: diagnostics-batch/panic rows via buildDiagnosticsBatchNote/buildPanicNote at system-note-channel.ts:436-442, watcher-recovery.ts:160-167, binder-run.ts:803-810, production-composition.ts (~:2852 and ~:5220 at HEAD), subagent-spawn-regime.ts:645-651, and production-theta-producer.ts emitPanicNote :455-460 (use buildPanicNote; keep its own sendSystemNote routing); the structural row via buildStructuralNote at reload-wiring.ts:489-493. Byte-identical notes (all eight literals are conformant today — verified). Correct emitPanic's "Exactly one theta-system-note per top-level panic" comment (runtime-event-channel.ts:328) to name production's emitPanicNote path, or retire emitPanic if the producer adopts it directly — fixer's mechanical call. Lane note: production-composition.ts and production-theta-producer.ts are PTQ-1524/PTQ-1608 D9 lanes — serialize behind them and re-locate the two composition sites if Seam A moved them.

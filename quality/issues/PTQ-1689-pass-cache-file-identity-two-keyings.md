@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1689
 title: One compose pass decides "same file" two ways — realpath-canonical (`canonicalizePath`: INV-1 containment, `buildInvokeGraph`, the `.thetalib` resolver, `tools:` matching) and separator-normalised `path.resolve` output (`PassParseCache`, `PassVerdictMemo`, the closure caches) — and the one pass parse cache receives both keyings for one file while its sibling's header calls it "the realpath-keyed parse cache"
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/pass-parse-cache.ts:48-56
   - src/extension/pass-parse-cache.ts:103-108
@@ -238,3 +238,4 @@ Unproven hypothesis: the pass-scoped cache family (`PassParseCache`, `PassVerdic
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify the pass-scoped cache identity (and to what) is a design decision for a human ruling. Form is OK and reported_by matches the pinned identity. I re-ran all five stated searches verbatim and every one reproduces its pasted lines and counts: 3 / 8 / 12 / 3 / 1, plus bug 0362:133 → 1. Every excerpt matches at its cited lines: pass-parse-cache.ts:14-17/:48/:104, pass-verdict-memo.ts:202/:210, invoke-static-checks.ts:304-310/:331-356, callee-load-parse.ts:15-22, import-resolution-kit.ts:90-94/:417, thetalib-resolver.ts:113-119, production-composition.ts:4736-4759/:873/:1893-1894, invocation.ts:121-135 and callable-closure-path.ts:14. The pass cache really is fed by both a realpath spelling (the import walk) and path.resolve spellings (six producers). clone-scan map on pass-parse-cache.ts shows no clone groups, so this is not D4's. The cost is concrete: invoke-static-checks.ts:336 and the bug 0362 record :133 both reason from a "realpath-keyed parse cache" that does not exist, and bugs 0361, 0467 and 0264 exist as cited. It is not a duplicate: PTQ-1539 covers the separator-helper split and PTQ-0167 (resolved) only narrowed a doc sentence; no open or intake filing states this root cause (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: narrow the two false "realpath-keyed" claims to the real key (the PTQ-0167 shape); no keying change now. (1) src/extension/invoke-static-checks.ts buildInvokeGraph header (:263 at HEAD): the pass parse cache is keyed by the separator-normalised path.resolve spelling (normaliseCacheKey), NOT realpath — the graph's canonicalizePath identity is stronger than the cache's, and a case-variant or symlinked spelling can parse the same file twice per pass (bounded cost: a duplicate parse, not a wrong verdict). (2) src/runtime/invocation.ts canonicalizePath contract (:121-130): drop "the static-resolution per-pass parse cache key" from the identities it mints (containment + .thetalib import-edge-graph identity remain). (3) src/extension/pass-parse-cache.ts header: note the dual feed — the import walk supplies realpath spellings, the six other producers path.resolve spellings — so "route 1 fires once" holds per spelling class. Comment-only; behaviour identical. The substantive unification (async canonical keys for PassParseCache/PassVerdictMemo/closure caches) is deliberately NOT ratified here — refile it if wanted as its own design change.

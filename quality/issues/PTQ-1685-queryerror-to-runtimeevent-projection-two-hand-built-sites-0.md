@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1685
 title: The `QueryError` → `RuntimeEvent` field projection (kind/message plus the guarded `attempts`/`tokens_used` carry-over) is hand-built independently in `buildDiscardEvent` (query-discard.ts) and in `emitTopLevelErrNote`'s boundary arm (production-theta-producer.ts), and bug 0399 already records the two drifting apart before the fix re-synced them by copy
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/query-discard.ts:81-108
   - src/extension/production-theta-producer.ts:399-428
@@ -193,3 +193,4 @@ quality/tmp/qw20260923145222/D9/shard-08.notes.txt
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. Both ways match at the cited lines: buildDiscardEvent is at query-discard.ts:81-108, and the emitTopLevelErrNote absent-event arm is at production-theta-producer.ts:399-428, walking to the leaf before the same two guarded carry-overs, with the "reuse the shared note builder" comment at :394-397. The stated searches reproduce line for line: `"attempts" in` gives 2 hits, `invocation_id:` gives 8, the src/extensions/tools discard grep gives 5, and the tests grep gives 12 with the same first 10. The quality/ grep gives 15 hits, not 14; the extra one is quality/tmp/qw20260928124659/D1/shard-18.notes.txt, this wave's own notes, written at 15:57, after the candidate at 15:52, so it is not a fabrication. clone-scan map on query-discard.ts shows no clone groups, so this is not D4's. The cost is real: docs/bugs/0399 Affected (:36-44) records the boundary arm missing attempts/tokens_used while buildDiscardEvent had them, and its Fix (0.393.0, :211-216) re-synced the rule by copying it "EXACTLY buildDiscardEvent-shaped". Not a duplicate: PTQ-1608 is a D9 size breakdown, PTQ-0164 and PTQ-1443 cover other mechanisms, and the sibling D1 intake is about invoke_callee hop recording (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: one QueryError→RuntimeEvent field-projection rule. Export a helper from src/runtime/query-discard.ts (e.g. `projectQueryErrorFields(error)` → `{ kind, message, attempts?, tokens_used? }`, carrying attempts/tokens_used under the existing `"<f>" in error && typeof … === "number"` guards). buildDiscardEvent (:81-108) consumes it plus its own stamps (theta/invocation_id/discard_site/query_site/occurred_at); emitTopLevelErrNote's absent-event arm (production-theta-producer.ts:399-428 at triage, guards now :420+) consumes it AFTER its invoke_callee leaf walk, keeping its fresh id/clock stamps, and the "exactly buildDiscardEvent-shaped" comment becomes the import. Behaviour identical — the b0399 witness and tests/query-discard.test.ts stay green. Lane note: production-theta-producer.ts is PTQ-1608's D9 lane; this serializes behind it.

@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1686
 title: The "am I inside @`…` template prose" question is answered by three differently-shaped trackers — a char-level state machine in lexer.ts#scanTokens, a bare backtick toggle in contextual-checks.ts#contextualDiagnostics, and a span-building interpolation-depth walk in doc-comment-recovery.ts#templateProseLineSpans — and the toggle shape has already produced one bug (0411→0420) whose residual names the remaining copy
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/lexer/lexer.ts:220-224
   - src/lexer/lexer.ts:510-560
@@ -178,3 +178,4 @@ Unproven hypothesis: the two token-stream consumers (Ways 2 and 3) could be fed 
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. All three ways match at their cited lines: TemplateState at lexer.ts:220-224, the depth-0 backtick/interp arms at :776-791 and scanTemplateProse at :510-560; the bare `inTemplateBody = !inTemplateBody` toggle with no depth at contextual-checks.ts:249-259; the depth-gated span walk at doc-comment-recovery.ts:155-183, with its header at :124-131. Every stated search reproduces verbatim: 3 files; 3 backtick hits including body-parser.ts:2327; git -S gives eed3cf39/679870ca/4d435eae; 2 docs/bugs hits. clone-scan map for lexer.ts lists only G033 (continuation.ts:15-27 vs lexer.ts:156-169), so no clone group covers this. The cost is real: 0411 §Fix option 1 (:165-168) prescribes the backtick-toggle shape, 0411:36 cites the inTemplateBody toggle, 0420 was filed against the overreach, and 0420:242-246's residual names inTemplateBody under the stale path src/lexer/lexer.ts (it lives only in contextual-checks.ts). All three are live: theta-document.ts:107/:227 call the doc-comment walk. No duplicate in intake or issues; the qry17 D1 intake explicitly calls itself a different root cause. reported_by matches (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: one token-level template-prose region classifier — the depth-aware walk. Extract templateProseLineSpans' backtick/interpolation walk (src/parser/doc-comment-recovery.ts:155-183) into a shared token-region helper (prose spans + interpolation sub-spans; the backtick toggle fires only at interpDepth 0), consumed by (a) the doc-comment scan (behaviour unchanged) and (b) contextualDiagnostics (src/lexer/contextual-checks.ts:245-270), which drops its bare `inTemplateBody = !inTemplateBody` toggle and suppresses prose spans AND interpolation interiors — the current suppression posture preserved. scanTokens' char-level TemplateState stays (it decides what becomes a token). Stated behaviour change, intended and pathological-input-only: a backtick token lexed inside `${…}` no longer flips suppression for the rest of the file (the 0420-shape residual named at docs/bugs/0420 §Residuals-1, under its stale lexer.ts pointer). Correct doc-comment-recovery.ts:124-131's "the same toggle" description of the other two trackers. Behaviour identical for every well-formed document.

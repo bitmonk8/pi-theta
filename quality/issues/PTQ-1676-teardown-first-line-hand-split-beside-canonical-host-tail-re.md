@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1676
 title: renderSubagentDisposeFailureMessage cuts the registry `<teardown error first line>` tail with a hand `split("\n", 1)` while its sibling envelope-failure builders route the same class of host-derived tail through renderHostDerivedTail, and refuseParams' spec-named `<detail>` tail is cut by neither
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/subagent-isolation.ts:61-66
   - src/runtime/subagent-isolation.ts:257-264
@@ -166,3 +166,4 @@ Unproven hypothesis: the family's registry tails could all pass through the one 
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. All seven excerpts match at the cited lines: subagent-isolation.ts:61-66 uses a hand `raw.split("\n", 1)[0]` (no CR normalisation, no `<no message>` arm, and `instanceof Error` coercion instead of §6's coerceUnderlyingString); envelope-failures.ts:56/:97 use renderHostDerivedTail; subagent-params.ts:305-307 interpolates `detail` raw (it comes from ajv `errors[0].message`, subagent-spawn-regime.ts:812-820/1328-1332). placeholder-rendering-b.md:25 lists `<teardown error first line>` under §6 and :95 lists `<detail>` under the first-line rule; registry row :26 matches. The renderer grep reproduces 14/14 lines; 4cb23c4f stat, both -S log hits and the quality/docs/bugs grep reproduce. The `split("\n"` grep gives 0 hits as a regex under GNU grep 3.0, but with -F it returns exactly the 3 pasted lines, so it's a shell-escaping difference, not fabrication, and it counts no sites. clone-scan map on subagent-isolation.ts: (no clone groups). The cost is real: bug 0258 (fixed 0.242.0) records this same sibling drift in the family. No open bug or PTQ tracks the dispose or params tail (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: the subagent family's registry tails all render through the category-6 rule. (1) src/runtime/subagent-isolation.ts renderSubagentDisposeFailureMessage (:61-66): replace the hand `raw.split("\n", 1)[0] ?? ""` (and the instanceof-Error coercion) with `renderUnderlyingError(disposeError)` from src/diagnostics/placeholder.ts — it coerces unknown and applies firstLineTruncate — keeping the `subagent teardown failed: ` template and the :263 hint untouched. (2) src/runtime/subagent-params.ts refuseParams (:305-307): wrap the interpolated detail in `renderHostDerivedTail(detail)`. Stated behaviour change, spec-mandated (placeholder-rendering-b.md:25 and :95 pin `<teardown error first line>` and `<detail>` to category 6's first-line truncation): CRLF teardown errors lose the trailing CR, an empty teardown message renders `<no message>`, and a multi-line ajv detail is cut at its first line. Existing pinned tests (plain single-line messages) stay green; add one CRLF vector per site.

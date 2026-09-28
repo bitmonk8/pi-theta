@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1682
 title: The SLSH-1 no-params overflow gate is implemented twice — slash-dispatch.ts's dispatchNoParamsTheta gates on an explicit SlashCallerKind discriminant that no production site produces, while binder-run.ts's #emitNoParamsOverflowNote re-implements the trim-then-emit rule with no caller guard and is the only path production runs
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/slash-dispatch.ts:11-16
   - src/runtime/slash-dispatch.ts:39-56
@@ -140,3 +140,4 @@ Unproven hypothesis: pick one gate — either thread the real dispatch through `
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. All stated searches reproduce verbatim (13/3/0/1/0 hits; -S log → 2bc69157 only). dispatchNoParamsTheta (slash-dispatch.ts:72-88) is called only from tests/slash-dispatch.test.ts (:73/:94/:109/:113 produce all three caller arms). Production runs #emitNoParamsOverflowNote (binder-run.ts:886-896, called at :189 and :263) with no caller guard, relying on the "runBinder is slash-only" comment at :877-879. clone-scan lists no group for slash-dispatch.ts, there are no exemptions, and no D2/D4/D8/D9 filing or PTQ covers this (PTQ-0071 only rewrote the header prose). The cost is concrete: the :11-14 header names the unused seam as the behaviour supplier, and the invoke/tool exclusion test exercises only the unused discriminant (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: binder-run's #emitNoParamsOverflowNote is the single SLSH-1 gate; retire the never-wired seam. In src/runtime/slash-dispatch.ts delete dispatchNoParamsTheta, SlashCallerKind, NoParamsDispatchInput and NoParamsDispatchDeps (production has produced no caller-kind value since birth — 0 `caller:` producers in src/, git -S shows only the rename commit); keep renderNoParamsOverflowNote, PromptTurnKind/rendersTranscriptCard, driveSlashPromptTurn and every other live export untouched. Rewrite the module header (:11-16) to name binder-run.ts #emitNoParamsOverflowNote (:886-896, called at :189/:263) as the SLSH-1 implementation, slash-only by runBinder's reachability (binder-run.ts:877-880 states it). Re-aim tests/slash-dispatch.test.ts: keep the trim/emit/template cells against renderNoParamsOverflowNote + trimSlashArgumentWhitespace; drop the caller-discriminant cells. Behaviour identical.

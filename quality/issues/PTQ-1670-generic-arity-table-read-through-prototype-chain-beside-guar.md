@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1670
 title: GENERIC_ARITY is a plain frozen object read by `[]` / `in` on an author-written generic head, while every other author-keyed lookup in the same type-layer files is null-prototype, `Object.hasOwn`, `Set` or `Map.get`
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/type-walk.ts:73-76
   - src/parser/type-walk.ts:288-296
@@ -213,3 +213,4 @@ Unproven hypothesis: the closed generic set could be held in whichever guarded s
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. Both stated searches reproduce exactly (7 GENERIC_ARITY hits; 19 guarded-mechanism hits, same lines). GENERIC_ARITY is still a plain Object.freeze record read by `[node.ctor]` at type-walk.ts:288 and by `ctor in` at params-lowering.ts:360/374/402. Every Way-B excerpt matches at its cited line (type-layer-checks.ts:508/746, type-layer-walk.ts:1133/1204, type-walk.ts:440-441, with-clause-static-checks.ts:287, type-layer-provable.ts:297). clone-scan finds no groups for type-walk.ts. The commits 3cadc1ff and b34aaa52 and the bug-0038 closure quote all check out. I re-ran the probe in a $TEMP scratch vitest: `toString<integer>` in the let, params and schema positions and `constructor<integer, string>` draw generic-arity-mismatch with a function's source in the `<n>` slot, while `Zzz<integer>` draws unresolved-named-type. The same search for witnesses finds none (0 hits), and no PTQ or intake filing covers this. (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: give GENERIC_ARITY the guarded shape its sibling tables use — null-prototype: in src/parser/type-walk.ts:73-76, `export const GENERIC_ARITY: Readonly<Record<string, number>> = Object.freeze(Object.assign(Object.create(null) as Record<string, number>, { array: 1, Result: 2 }));` with the doc comment gaining the prototype-hazard sentence (the 0031/0038/0071 rule: a generic head is author-written text that may spell an Object.prototype member). Both readers keep their exact expressions — type-walk.ts:288 `GENERIC_ARITY[node.ctor]` and params-lowering.ts:369/:383/:411 `ctor in GENERIC_ARITY` become own-key-only automatically (no prototype chain). Stated behaviour change, intended: `toString<integer>` / `constructor<T,U>` / `hasOwnProperty<T>` heads stop drawing generic-arity-mismatch with a JS function's source in the `<n>` slot and take the same arms as any unknown head (unresolved-named-type / the reserved-head ladder), matching the `Zzz<integer>` control; no test or bug record pins the old output (verified 0 hits). Add one regression case pinning `toString<integer>` → unresolved-named-type.

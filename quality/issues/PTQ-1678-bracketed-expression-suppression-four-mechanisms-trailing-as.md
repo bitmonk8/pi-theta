@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1678
 title: BodyParser parses a sub-expression inside a bracketed group through four brace-suppression mechanisms, and only one carries the trailing-assignment check its doc comment claims for all of them
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/body-parser.ts:2222-2238
   - src/parser/body-parser.ts:1215
@@ -235,3 +235,4 @@ Unproven hypothesis: the four suppression-clearing paths could share one primiti
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. The 27-hit grep reproduces line for line. All four ways check out at their lines: parseBracketedExpression at :2228 (try/finally + consumeTrailingAssignment, callers :1215/:2179/:2315 only), parseDelimitedExprs at expr-list.ts:24-44 via :3040/:3045, and the manual save/restore at :2353-2388 and :2408-2461. consumeTrailingAssignment is called only at :800 and :2233. Both doc comments (:2223-2224, :1199) claim a reach the call graph contradicts. Clone-scan on body-parser.ts gives G001/G008/G034/G036/G044/G051, none covering these paths. The git -S logs reproduce (702a1f2e/9f75b253; 702a1f2e/04dbb013), and 19516518 does remove saveArgs/saveArr. My own $TEMP probe through codesOf reproduces all five output lines verbatim. Two corrections for the human: the quoted V20d text is from that commit's CHANGELOG diff, not its commit message; and V20d's notes.md (since deleted) did state the entry points were chosen as "parseBracketedExpression (parens / index)" and header, so the narrow reach was once a written decision, though the in-code docs contradict it. No duplicate found in quality/issues or intake (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: truth the two doc comments; the four suppression mechanisms and the trailing-assignment reach stay as decided (V20d's notes chose the entry points "parseBracketedExpression (parens / index)" + header — a written decision the in-code docs contradict). In src/parser/body-parser.ts: (1) parseBracketedExpression's doc (:2222-2227) lists its REAL three call sites — parenthesised group (:2315), index operand (:2179), call-site `with` value (:1215) — and states that call args / array elements (parseDelimitedExprs), object-field values (parseObjectLiteral) and match-arm bodies (parseMatch) clear suppression with their own save/restore and deliberately do NOT run consumeTrailingAssignment (assignment-as-expression is drawn at header/paren/index positions only). (2) parseCallWithClause's doc (:1199) replaces "as a call argument is" with "as a parenthesised group is". No code changes; behaviour identical.

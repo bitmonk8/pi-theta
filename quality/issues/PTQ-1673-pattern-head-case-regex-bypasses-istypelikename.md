@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1673
 title: match-pattern head first-letter case is tested by an inline `/^[A-Z]/` regex while the other six enforcement positions call the shared `isTypeLikeName` guard
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/body-parser.ts:2722-2731
   - src/parser/body-parser.ts:1066-1074
@@ -119,3 +119,4 @@ Unproven hypothesis: the pattern-head test at body-parser.ts:2724 is the same pr
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling: body-parser.ts:2724 `/^[A-Z]/.test(t.text)` and :1073 `isTypeLikeName(pTok.text)` reproduce verbatim, as does name-case.ts's "ONE copy … every enforcement position" header, which leaves out parsePattern. Every stated search reproduces: isTypeLikeName( gives 7 hits (6 callers plus the declaration), `^[A-Z]` gives 2, `first >= "A"` gives 1, git -S gives 2afc312e and 702a1f2e, `git show 19516518` | grep `[A-Z]` gives exit 1, and the capitalised-pattern-head grep over tests gives 12 files. The quality/ grep matches its stated 4 hits once this file, its wave notes and the later REVIEW_LOG row are excluded. clone-scan map on body-parser.ts lists G001/G008/G034/G036/G044/G051, and none of them covers :2724 or :1073. The cost is real: PTQ-1422 inventoried sites by grepping for the `first >= "A" && first <= "Z"` spelling, so its fix 19516518 never touched the regex site even though the header claims every position. lexical.md quote drift (at :18, not :16) is tolerated. No D2/D4/D8/D9 candidate or PTQ states this root cause (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: the bare match-pattern head asks the shared guard. In src/parser/body-parser.ts:2724 replace `/^[A-Z]/.test(t.text)` with `isTypeLikeName(t.text)` (module already imports it — :1073), keeping the surrounding bug-0141 comment and noting the predicate is the shared lexical.md first-letter guard. Add the parsePattern bare-head position to src/lexer/name-case.ts's header inventory (:3-19) so its "the ONE copy of the guard every enforcement position asks" claim becomes true (PTQ-1422's unification missed this spelling because its inventory grepped for the two-comparison form). Behaviour identical — both predicates are the same ASCII A–Z first-character test on every input.

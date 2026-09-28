@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1684
 title: The invoke-style boundary mints an `invoke_callee` wrapper two ways — `wrapInvokeCalleeFailure` (both `InvokeCallSite` arms) wraps then records the SLSH-5 hop through `recordInvokeHop`, while `subagentCalleeError` (both `subagent fn` regimes) wraps and records nothing — and the ledger's own header, rewritten by the bug 0349 fix, already misread the second way as a hop producer
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/invoke-provenance-ledger.ts:24-32
   - src/runtime/invoke-provenance-ledger.ts:125-136
@@ -218,3 +218,4 @@ Unification hypothesis (unproven): one wrap-and-record step for every `invoke_ca
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. All five searches S1–S5 re-run verbatim and match line for line (3/8/4/4/3 hits). Way A is real: wrapInvokeCalleeFailure at effectful-statement-host.ts:620-627 builds the wrapper and then calls deps.recordInvokeHop at :626, and it is reached from :481 (theta_callable_bare) and :564 (literal_invoke). Way B is real: subagentCalleeError at subagent-fn-call.ts:19-26 is called from :220 and :289, and neither records a hop. InvokeCallSite (invoke-provenance.ts:38-60) has only those two arms, and chainFor (ledger :125-136) skips wrappers the ledger has no entry for. The cost is concrete: `git show 2c1217c4` rewrote the ledger header (:24-32) to name subagentCalleeError as a site and to say every hop of the three shapes contributes to the SLSH-5 chain, and bug 0349:321-327 calls it hop-producing, but that function has never recorded a hop. The producer doc (:372-380) lists the no-entry cases and leaves this one out. clone-scan on the ledger shows no clone groups, and none of the effectful-statement-host groups involve subagent-fn-call, so this is not D4's. No duplicate: PTQ-1122, PTQ-1424 and PTQ-0940 are about other root causes, and PTQ-0197 is about a different count in the same header. SLSH-5 says 'for each invoke_callee hop' but only defines call-site tokens for the two .theta surfaces, so whether a subagent fn should get a hop or be excluded is unsettled in the spec (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: narrow the ledger's claim to reality — no SLSH-5 hop for `subagent fn` (the spec defines call-site tokens only for the two .theta surfaces). Rewrite the "WHICH WRAPPERS CARRY A HOP" header (src/runtime/invoke-provenance-ledger.ts:24-32): TWO hop-recording sites (literal_invoke and theta_callable_bare, both via wrapInvokeCalleeFailure → recordInvokeHop), plus subagentCalleeError in src/runtime/subagent-fn-call.ts (fix the stale statement-executor.ts pointer) which mints the same wrapper WITHOUT recording, so chainFor renders no `from … invoked at …` row for a subagent-fn hop BY DESIGN. Add the subagent-fn wrapper to emitTopLevelErrNote's no-entry enumeration (production-theta-producer.ts:372-380 at triage; ~:387+ at HEAD). Comment-only; behaviour identical. If hops for `subagent fn` are wanted instead, that needs an InvokeCallSite arm plus a spec extension — a bug/spec record, not this fix.

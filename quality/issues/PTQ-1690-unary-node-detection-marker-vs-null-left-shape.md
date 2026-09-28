@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1690
 title: `BinaryExpr.unary` (theta-ast.ts) is documented as the one way consumers recognise `parseUnary`'s minted node, but four consumers — including `StaticTypeInferencePass.#typeBinary` — still recognise it by the `left.kind === "null"` shape, the predicate bug 0367 recorded as the defect mechanism
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/theta-ast.ts:65-72
   - src/parser/static-type-inference.ts:783-797
@@ -177,3 +177,4 @@ Unproven hypothesis: the two in-scope-adjacent static sites (`#typeBinary`, `pro
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. Both greps re-ran verbatim and match the pasted lines (8 marker hits: 5 reads, 1 producer, 2 comments; 6 shape hits: 4 reads, 2 comments). The theta-ast.ts:65-72 contract, the body-parser.ts:2094 producer, static-type-inference.ts:789, type-layer-provable.ts:205/229 and type-layer-interpolation.ts:236 all match. clone-scan reports no groups for theta-ast.ts or static-type-inference.ts. The cost is real: bug 0367 records the shape predicate as its defect mechanism, and 0367:171-185 deliberately left the interpolation carve-out and the static detector on the shape. `git log -S` shows the contract comment arrived in edf0c2b2. Against that, #typeBinary's comment (:783-788) gives a stated 'moot at this layer' rationale for staying wide, so the choice is a human's. Not a duplicate of PTQ-1554, which is a missing unary gate on the interpolation path and explicitly excludes the null-left guard (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: truth the AST contract; the predicates stay. Rewrite theta-ast.ts:65-72's BinaryExpr.unary doc: the marker is the discriminator for consumers that must EXCLUDE an authored null-left pairing — the operand-check gate (type-layer-operand-checks.ts:58/:71) and both runtime hosts (statement-executor.ts:650, pure-expression-evaluator.ts:252/:483) — while four sites deliberately key on `left.kind === "null"`: static-type-inference #typeBinary (:789, stated wider-is-moot rationale at :783-788), type-layer-provable :205/:229 (anchored to #typeBinary's dispatch order), and the interpolation carve-out (type-layer-interpolation.ts:236, bug 0367 §Fix's one-parse-site scope / pinned runtime-refusal disposition). Replace the false "the consumers … key on this marker, not on left.kind === \"null\"" sentence with that two-recogniser inventory. Comment-only; behaviour identical. If re-keying the two static sites onto the marker is wanted instead, note it touches PTQ-1605's static-type-inference lane — refile separately.

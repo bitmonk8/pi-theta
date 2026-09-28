@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1679
 title: a fn launch entry crosses a non-pipe placement by two mechanisms in one launch file — projected as the PI_THETA_SUBAGENT_ENTRY control-plane key AND as the structured entry field — while the launcher header, the launch-file header, the spec row and both test fixtures model a single carriage per placement
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/subagent-launcher.ts:118-127
   - src/runtime/subagent-launcher.ts:270-282
@@ -224,3 +224,4 @@ Unproven hypothesis: the entry could travel by exactly one mechanism per placeme
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. Every excerpt matches at its cited lines. Both stated searches reproduce line for line (10 hits; 4 hits outside launch-file.ts). clone-scan on subagent-launcher.ts → (no clone groups). The production chain is real: subagent-place.ts:90/106 passes prepareSubagentLaunch's env, which carries the fn entry key (:472), to openWire, and projectLaunchFileControlPlane then copies SUBAGENT_LAUNCH_ENTRY_ENV (it is in SUBAGENT_CONTROL_PLANE_ENV_KEYS :281) next to `entry` (production-result-channel.ts:193,196). The cost is concrete, not symmetry: both fixtures (production-result-channel.test.ts:206-247, subagent-launch-file.test.ts:92-107/269) build a fn-entry document with no entry key in controlPlane, a shape production never writes. The docstring at launcher.ts:124-125 says "instead" while the comment at :469-470 says "additionally". Not a duplicate: PTQ-1612 covers the malformed-entry posture, not the double carriage (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: one carriage per placement, as subagent.md's entry row states. In src/runtime/subagent-launch-file.ts projectLaunchFileControlPlane (:98-107): skip SUBAGENT_LAUNCH_ENTRY_ENV when projecting, with a comment: under a launch file the entry travels ONLY as the document's structured `entry` field; under pipe the env key is the carrier. Align the launcher in-body comment (subagent-launcher.ts ~:496-500 at HEAD, "additionally carries") to the instead-of-env wording its own docstring (:119-128) and the spec row use. Behaviour identical: the projected copy is read by nothing (readChildControlPlane scrubs the key and takes document.entry; readLaunchEntryFromEnv runs only on the no-launch-file branch), and both existing fixtures (tests/production-result-channel.test.ts:206-247, tests/subagent-launch-file.test.ts:258-271) already model exactly this shape — the child-side `view.env[SUBAGENT_LAUNCH_ENTRY_ENV]` is-undefined assertion becomes true of production documents. Add one production-wire assertion that a fn-entry document's controlPlane omits the key.

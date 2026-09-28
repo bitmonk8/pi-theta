@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1672
 title: NestedShapeEmission.code still names the retired session-shutdown-runtime-degraded code while the tripwire's session-swap-instance-survived diagnostic — the spec's second nested-shape code — is emitted through the flat emitTeardownDiagnostic path
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/teardown-emission.ts:19
   - src/extension/teardown-emission.ts:126-151
@@ -179,3 +179,4 @@ Unification hypothesis (unproven): the nested-shape contract's code set is the s
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. Every stated search reproduces verbatim: RUNTIME_DEGRADED_CODE has 2 src hits (the :19 declaration and the :181 union arm) and appears in 9+2 test files; emitNestedShapeDiagnostic has 1 production caller (:293, always CANCELLED); emitTeardownDiagnostic has 7 callers, including session-swap-tripwire.ts:139; the registry row count is 0; the spec grep and both git logs match. Every excerpt matches at the cited lines, and clone-scan reports no clone groups for teardown-emission.ts. The cost is real and spec-anchored, not symmetry-only: PIC-25/26 in diagnostic-emission-isolation.md name session-swap-instance-survived as a nested-shape code that MUST use the two-token `${code} ${detailsEventReason}` serialiser-throw fallback and a construction-site wrap, but the tripwire's flat path emits the bare code and has no wrap. That is a spec non-conformance a human may prefer to track as a docs/bugs record. Bug 0073 explicitly left this row out of scope, and no open or intake D2/D4/D8/D9 filing or PTQ states this root cause (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: the nested-shape emission contract carries the spec's pair. In src/extension/teardown-emission.ts: NestedShapeEmission.code becomes `typeof SESSION_SWAP_INSTANCE_SURVIVED_CODE | typeof CANCELLED_BY_SESSION_SHUTDOWN_CODE`; delete RUNTIME_DEGRADED_CODE (:19) and its union arm (:181) — hoist/relocate the survived-code constant if a session-swap-tripwire.ts ↔ teardown-emission.ts import cycle threatens. In src/extension/session-swap-tripwire.ts guardSessionSwapTripwire (:135-145): emit via emitNestedShapeDiagnostic({ code: SESSION_SWAP_INSTANCE_SURVIVED_CODE, diagnostic, detailsEventReason: state.reason!, no entry }) before terminate(), replacing the flat emitTeardownDiagnostic call. Stated behaviour change, spec-mandated (diagnostic-emission-isolation.md PIC-25/26: the two-token fallback applies to BOTH nested-shape codes): the tripwire's serialiser-throw fallback becomes `<code> <reason>` (was bare code) and its payload construction gains the construction-site wrap — the entry-absent `<code> <unreadable>` branch gains its first production reader. Migrate tests/session-shutdown.test.ts's nine RUNTIME_DEGRADED_CODE constructions to the survived code; extend tests/session-swap-tripwire.test.ts to pin the nested routing.

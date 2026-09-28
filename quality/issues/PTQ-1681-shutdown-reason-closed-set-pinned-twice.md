@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1681
 title: The SessionShutdownEvent.reason closed set is pinned by two production mechanisms — the SDK_SURFACE_INVENTORY type-union-snapshot row the runtime reads, and version-bump-gates.ts#SESSION_SHUTDOWN_REASON_SNAPSHOT whose header says the runtime reads it — and the step-2(a) consistency gate plus every session-shutdown test harness is aimed at the copy no production code reads
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/version-bump-gates.ts:55-70
   - src/extension/sdk-inventory.ts:216-226
@@ -189,3 +189,4 @@ Unproven hypothesis: version-bump-gates.ts's constant could be derived from (or 
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. Every excerpt reproduces (version-bump-gates.ts:55-70, sdk-inventory.ts:216-226, unknown-reason-rule.ts:174-186, extension-instance-shutdown.ts:194-197, version-bump-gates.test.ts:136-149, session-shutdown-harness.ts:97-104), and all seven stated searches reproduce line for line (1/5/1/11/7/10 hits). SESSION_SHUTDOWN_REASON_SNAPSHOT has no src/ consumer beyond its declaration, but its header says the runtime reads it, which has been false since d6228bb9 (the -S logs reproduce 6ae6d50c → d6228bb9, 19 minutes apart). The 0216-report.md:176-177 reclassification is real, and clone-scan on version-bump-gates.ts → (no clone groups), so this is not D4. One overstatement: tests/unknown-reason-rule.test.ts:167-176 does pin the inventory row's literals, against a test-local CLOSED_SET, so an edit to Way 1 is not wholly unexercised; only the step-2(a) gate and healthyInventory() are aimed at Way 2. Not a duplicate: PTQ-0134/0509/0699 cover row-count prose and harness duplication only (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: the SDK_SURFACE_INVENTORY row is the one pin; the gate constant derives from it. In src/extension/version-bump-gates.ts replace SESSION_SHUTDOWN_REASON_SNAPSHOT's literal array with a derivation from the inventory row: import SDK_SURFACE_INVENTORY from ./sdk-inventory (no cycle at HEAD), locate the row by the composite predicate `(kind === "type-union-snapshot" && path === "SessionShutdownEvent.reason")` — the same rule as unknown-reason-rule.ts:174-186 — and export the frozen `{ path, literals }` from it, throwing loudly at module init if the row is missing. Correct its header (:55-63): it is the step-2(a)/step-5(ii) gate's view of the runtime pin, DERIVED from the inventory row the runtime reads — not a second pin the runtime reads. Behaviour identical; the step-2(a) gate, tests/helpers/session-shutdown-harness.ts healthyInventory(), and all 11 test references now transitively consume the runtime row, so a snapshot-edit-only sweep on sdk-inventory.ts reaches every consumer and the gate cannot stay green against a stale copy.

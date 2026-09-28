@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1677
 title: The parser's Stmt/Expr walks guard their closed-union switches two ways — a never-typed exhaustiveness backstop in local-binders.ts (and theta-document.ts, type-layer-walk.ts) versus a silent prose default arm in lexical-call-sites.ts and par-for-body-checks.ts — and the silent form has already let two walks skip the par-for node (bugs 0224, 0240)
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/lexical-call-sites.ts:482-486
   - src/parser/lexical-call-sites.ts:590-594
@@ -239,3 +239,4 @@ qw20260922211400 structural-ident-ast-walkers human-keep-whole ruling).
 
 ## Triage
 verdict: questionable — accounting verified: reported_by matches the pinned identity. `grep -rn "_exhaustive: never" src/parser/*.ts` gives the same 7 lines as pasted. All 8 excerpts match at the cited lines. Case counts at HEAD: walkCallSiteStmt 11, walkCallSiteExpr 14, scanParForStmt 12, scanParForExpr 15, all ending in a silent prose `default`; local-binders has `never` backstops at :116/:202. clone-scan on lexical-call-sites.ts finds no groups, so this is not a D4 clone. The cost is real: bugs 0224 and 0240 exist, the pre-fix `default` arms from `git show 844d6533^` and `1bb58604^` reproduce exactly (:85-87 and :118-120), and the fixes add 2 and 1 `case "par-for"` lines. The intake `exhaustive` grep now returns 2 hits, but the extra one (d1-01-generic-arity, mtime 15:59) was written after this file (15:25), so the count was true when filed. Not a duplicate: PTQ-1605 prescribes `never` only for type-layer-walk/static-type-inference, and the human-keep-whole ruling on qw20260923145222-d4-01 declined a shared fold of these two walks, not a backstop. Whether to add the backstop is a design decision for a human ruling (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: the four silent prose defaults take the local-binders form. In src/parser/lexical-call-sites.ts (walkCallSiteStmt :482-486, walkCallSiteExpr :590-594) and src/parser/par-for-body-checks.ts (scanParForStmt :179-182, scanParForExpr :265-267): list each currently-defaulted kind as an explicit no-op fall-through case (the shape of local-binders.ts:102-110/:188-196, keeping the "carry no call sites / no restriction" prose beside the cases) and end each switch in `default: { const _exhaustive: never = <disc>; return void _exhaustive; }` with the standard backstop comment. Behaviour identical — both walks are complete at HEAD (11+7=18, 14+6=20, 12+6=18, 15+5=20). Same shape as PTQ-1605's ratified fix for type-layer-walk/static-type-inference; the out-of-scope silent defaults in ident-resolution/structural-checks/query-schema-resolve stay as they are.

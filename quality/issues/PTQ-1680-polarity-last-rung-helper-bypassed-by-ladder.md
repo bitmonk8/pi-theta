@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1680
 title: The polarity-constant "last rung" is selected two ways — polarity.ts exports defaultHeatEndpoints as the ladder's last rung while endpoint-ladder.ts re-selects the constants inline and never calls it
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/execution-status/render/polarity.ts:60-71
   - src/extension/execution-status/render/endpoint-ladder.ts:40-55
@@ -131,3 +131,4 @@ Unproven hypothesis: the ladder's two ternaries are `defaultHeatEndpoints(polari
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. Both selection ways match their excerpts (polarity.ts:66-71 defaultHeatEndpoints, docstring "the ladder's last rung"; endpoint-ladder.ts:50-53 inline ternaries, imports at :11-20 leave the helper out). Both stated greps reproduce line for line (4 hits for defaultHeatEndpoints, 0 of them production; 12 constant hits). git -S gives only 0ac5ec05, and e4c4f5d5's ladder already used the ternaries (:59/:61). The clone-scan map lists no clone groups for either file, so this is not D4's. resolveHeatEndpoints is live (heat-lut-cache.ts:39) and the helper has test callers, so this is not D2's. No other intake file or PTQ tracks it (PTQ-1241 covered only the unread return fields). It is not symmetry-only: the docstring's claim about the production path is false today. But the cost is prospective: no drift commit or bug record exists, and both encodings currently select the same constants (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: the ladder's last rung IS defaultHeatEndpoints. In src/extension/execution-status/render/endpoint-ladder.ts resolveHeatEndpoints (:40-55): `const defaults = defaultHeatEndpoints(polarity);` then `const base = inputs.terminalBg ?? defaults.base; const hot = inputs.themeAccentFg ?? defaults.hot;` — dropping the four direct polarity-constant imports the two inline ternaries used. Behaviour identical (same constants, same selection). The "polarity constants are internally consistent" test now witnesses the rung production actually runs, and the helper's "the ladder's last rung" docstring becomes true.

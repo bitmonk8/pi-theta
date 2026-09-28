@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1687
 title: The FRNT-1 defaults `max_rounds: 25` / `attempts: 3` are resolved by `resolveNonNegIntBlock` at the frontmatter producer and re-pinned as `?? 25` / `?? 3` nullish fallbacks at the runtime consumer, because `ParsedFrontmatter.toolLoop` / `respondRepair` are declared optional while documented and built as always present
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/frontmatter-contract.ts:136-148
   - src/parser/frontmatter.ts:635-652
@@ -183,3 +183,4 @@ Unproven hypothesis: the contract's type should say what its doc and producer al
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. All 6 excerpts match at the cited lines: contract-type :142/:148 is optional while its doc says "Populated on every registered theta"; frontmatter.ts:635-652 passes 25/3 as arguments; :1129-1146 sets both fields every time; producer :1025/:1434-1435 has `?? 25`/`?? 3`; theta-document :530-535 checks for undefined. I re-ran all 6 stated searches word for word: A 11 lines, B 11, C 1, D 2, E 26 (first 10 identical), F 0 in quality/ apart from this filing's own REVIEW_LOG/notes rows. clone-scan shows no clone groups for frontmatter-contract.ts or production-theta-producer.ts. Not a duplicate: resolved PTQ-0180 removed the producer's own internal `: 25`/`: 3` fallback, not these consumer copies. No open PTQ covers these fields. The claim is not symmetry-only: it is one spec constant (frontmatter-fields-a.md:47-48) with a second literal copy that production can never reach, plus a type that contradicts its own doc. But there is no drift commit or bug record, so the cost is still hypothetical. The b0479:86 example is overstated: section A is a subagent-launch spawn test, and it is not shown to reach :1025/:1434 (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: the type says what the producer builds — toolLoop and respondRepair become REQUIRED on ParsedFrontmatter (src/parser/frontmatter-contract.ts:142/:148; their docs already say "Populated on every registered theta" and the sole constructor in frontmatter.ts sets both unconditionally). Delete the consumer re-pins: production-theta-producer.ts:1040 and :1449-1450 (HEAD) read `.toolLoop.maxRounds` / `.respondRepair.attempts` directly — no `?? 25` / `?? 3` — so the FRNT-1 literals keep one code home (frontmatter.ts:165-182's resolveNonNegIntBlock arguments). theta-document.ts:530-535's guards stay (they guard frontmatter presence for SubagentSessionConfig, a different record; theta-ast.ts:529/:536 optionality unaffected). Update the partial `as unknown as ParsedFrontmatter` test fixtures that actually reach those reads (b0479 et al.) to carry `toolLoop: { maxRounds: 25 }, respondRepair: { attempts: 3 }`. Behaviour identical in production (the fallbacks were unreachable there).

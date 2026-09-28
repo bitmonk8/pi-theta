@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1674
 title: The synthesised respond-tool name `__theta_respond_<slug>` is minted by three mechanisms across four production sites — `respondToolName()` string concat, `contentAddressedName`'s template literal with counter, and two `?? "__theta_respond_" + slug` inline fallbacks — while the exporting module's own doc and the bug-0488 fix record count the mints as single-sourced across two
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/typed-query-validation.ts:383-399
   - src/runtime/typed-query-validation.ts:200-204
@@ -185,3 +185,4 @@ Unproven hypothesis: one recipe function that takes the slug and an optional col
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. All five stated searches reproduce line for line (7/3/3/4 hits). The four mints are real: typed-query-validation.ts:398 concat, tool-registration.ts:573 template+counter, and query-followup-render.ts:107/:168 `??` fallbacks. Both production render callers (production-theta-producer.ts:1271-1275, typed-query-validation.ts:245-251) pass toolName. clone-scan map shows no groups for typed-query-validation.ts or query-followup-render.ts. The cost is a concrete recorded misread: the respondToolName doc (:386-394) and the bug-0488 Fix record (:168-171) both claim two-site single-sourcing, but the query-followup-render pair (from 30492948, which predates d9b04b8c) was never routed through it. No D2/D4/D8/D9 candidate or PTQ tracks this (shard-18 D1 routed it but did not file it). (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: one recipe for the `__theta_respond_` name. (1) src/runtime/tool-registration.ts contentAddressedName (:564-574): the respond arm delegates — `respondToolName(entry.slug) + counter` (import from ../runtime/typed-query-validation; the callee arm is untouched). (2) src/runtime/query-followup-render.ts: delete the two production-unfed fallback mints (:107, :168) — toolName becomes required on FollowUpTurnInput/InitialRespondTurnInput and the `?? "__theta_respond_" + input.slug` arms go; update the tests that omitted toolName to pass respondToolName(slug). (3) Truth respondToolName's doc (typed-query-validation.ts:383-396): it single-sources the prefix across ALL mints (registration via delegation, launch enumeration query-text-render.ts:167, the :203 validation fallback), with synthesised-names.ts:35's recogniser named as the one non-mint reader; drop the "minted separately … parity is TEST-enforced" paragraph (parity now holds by construction). Behaviour identical — byte-identical names on every path.

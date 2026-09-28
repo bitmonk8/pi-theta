@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1669
 title: The leading `---` frontmatter fence is recognised by two scanners with different edge semantics — `splitFrontmatter` on the only production path and `extractFrontmatterBlock` behind `parseFrontmatter`'s `string` arm, which only the test helper reaches
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/doc-comment-recovery.ts:22-64
   - src/parser/frontmatter-yaml.ts:25-42
@@ -167,3 +167,4 @@ Unproven hypothesis: one scanner owns fence recognition — either `parseFrontma
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. All 5 stated searches reproduce line for line (parseFrontmatter( → frontmatter.ts:987 + theta-document.ts:270; tests → e2e-s1.ts:76 only; extractFrontmatterBlock 8 hits; splitFrontmatter( 2 hits; the helper grep gives 9 files, but that count includes tests/helpers/e2e-s1.ts, so 8 test files use the string arm, not nine). Both scanners match the cited lines: doc-comment-recovery.ts:26-34 skips leading blank lines and :57-64 turns an unclosed fence into an empty block with lineOffset open+1; frontmatter-yaml.ts:31-42 requires the fence on line 0 and returns undefined when the fence is unclosed. The dispatch is at frontmatter.ts:994, and production reaches only the block arm. clone-scan map on doc-comment-recovery.ts shows no clone groups, so this does not belong to D4. The cost is real: PTQ-1231 (resolved D8) recorded the same divergence and its direction said the rules should have one owner, but its fix c4967576 touched only frontmatter.ts and theta-document.ts, so extractFrontmatterBlock is unchanged. The eight string-arm test files never run splitFrontmatter. However, no current test asserts a leading-blank-line or unclosed-fence verdict through the string arm (the misread is prospective). This is not a duplicate of PTQ-1231: that root cause (strip then re-wrap) is gone, and no intake or issue filing names these scanners. It is not D2 either, because callers that are only tests do not make code dead (triage: claude-opus-5-5)
 
+verdict: confirmed — RATIFIED: splitFrontmatter (src/parser/doc-comment-recovery.ts) is the ONE fence scanner. Narrow parseFrontmatter's signature to `source: FrontmatterBlock | undefined` — delete the string arm and the typeof dispatch (frontmatter.ts:517-524 at HEAD) — and delete extractFrontmatterBlock from src/parser/frontmatter-yaml.ts (:31-42 plus its :514 export and the frontmatter.ts:48 import). tests/helpers/e2e-s1.ts parseFrontmatterSource mirrors production exactly: `const split = splitFrontmatter(source);` then `parseFrontmatter(split.frontmatter ?? undefined, …)`. Production behaviour identical (the block arm was already the only production path, theta-document.ts:181/:263). Test-helper edge behaviour intentionally converges on production: a leading-blank-line fence now yields a block, an unclosed fence an empty block — triage verified no current test asserts either edge through the string arm, so the suite stays green. Re-point the two test-file comments citing extractFrontmatterBlock (tools-field-shape-refusal.test.ts:337, tools-field-zero-entry-scalar-refusal.test.ts:266) and the doc-comment-recovery.ts:56 cross-reference at splitFrontmatter.

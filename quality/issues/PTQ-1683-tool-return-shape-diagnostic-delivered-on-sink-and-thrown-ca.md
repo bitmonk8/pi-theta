@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1683
 title: The tool-return-shape internal-error diagnostic is delivered two ways from one seam — `runCodeSideToolCall` emits it on the `ToolLoweringSink` AND returns it on the `return-shape-defect` arm that `runToolCallEffect` rethrows as a `ToolReturnShapeDefectError` carrier — so production has to supply `noopSink()` to avoid a double note, and a commit that wired a real sink was reverted for exactly that
 lens: D1
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/tool-call-execute.ts:128-137
   - src/runtime/tool-call-execute.ts:529-533
@@ -146,3 +146,4 @@ Unproven hypothesis: if the carrier is the single surface (as `81e817c9`, `noopS
 
 ## Triage
 verdict: questionable — accounting verified; whether to unify (and to what) is a design decision for a human ruling. All excerpts match: tool-call-execute.ts:128-137, :529-533 (sink.diagnostic then the return-shape-defect arm), effectful-statement-host.ts:422-437 (rethrow as ToolReturnShapeDefectError), dispatch-defect-surface.ts:97-101, production-producer-deps.ts:492-505 (noopSink doc says a delivering sink "would double-deliver"), production-theta-producer.ts:710, one-note test :1-17. Every stated search reproduces with its pasted lines (noopSink 4, sink emitters 3, routeThetaCallableSetupThrow 1 = declaration only, runCodeSideToolCall 2, -S runtimeDefectSink 2 commits, 9 test files). clone-scan on tool-call-execute.ts shows no clone groups. Cost is real: 81e817c9 reverted the delivering sink after it caused a double note plus a spurious invoke note. One caveat: 5e17a746 landed while the carrier still escaped uncaught (its own message says so), so the double note came when the top-level catch was added, not only from misreading the sink comment. No overlapping D2/D4/D8/D9 filing or PTQ; PTQ-1556 (D6) is about the unguarded lowering reads, a different root cause (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: the thrown carrier is the single delivery channel for the return-shape defect; the sink emission retires. In src/runtime/tool-call-execute.ts delete `sink.diagnostic(shape.diagnostic);` (:532) so the return-shape-defect arm alone carries the diagnostic (the effectful-statement-host.ts:422-437 rethrow → dispatch-defect-surface.ts:97-101 framing is unchanged). Update the :529-531 comment (the arm, not the sink, is the channel — per the 81e817c9 revert and the one-note pin), noopSink's doc (production-producer-deps.ts:492-499 — the sink no longer receives the shape diagnostic at all, so the "would double-deliver" warning becomes "delivers nothing"), and ToolLoweringSink's doc (:128-137) toward the MUST-NOT-touch witness role it already describes. Re-aim any recording-sink test asserting sink.diagnostic on this path at the returned arm instead (across the 9 runCodeSideToolCall test files). Behaviour identical in production (the sink was noopSink); tests/tool-return-shape-one-note-production-wired.test.ts stays green, and the 5e17a746-shaped trap — wiring a delivering sink and double-noting — becomes unbuildable.
