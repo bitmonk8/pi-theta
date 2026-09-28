@@ -25,10 +25,10 @@ Personal, uncommitted thetas go directly in `.localpi/` (see its README); a
 
 Arguments (bound by an LLM binder, so free-form text works):
 `max_cycles` (default 3), `lenses` (comma-separated lens roster, default
-`"D2,D4,D7,D8,D9"` - every default-roster lens passed its supervised wave;
-D6, D10 and D1 are worker-backed but opt-in (`lenses=D6`, `lenses=D10`,
-`lenses=D1`) until each passes its supervised wave; start-up refuses an id
-lacking a surfaces.json entry or a worker),
+`"D1,D2,D4,D6,D7,D8,D9,D10"` - every default-roster lens passed its
+supervised wave (D1, D6 and D10 joined on 2026-09-28 after their supervised
+waves and cold passes); start-up refuses an id lacking a surfaces.json entry
+or a worker),
 `shard_loc` (target lines per review shard, default `"0"` = each lens's
 surfaces.json `shard_loc` - D1 6000 (capped at 5555 by its
 `context_tokens: 200000`), D2 6000, D4 6000, D6 6000, D7 3000, D8 12000,
@@ -550,14 +550,14 @@ predicate) + a triage step-4 scope block + a fix-brief rules block.
 
 | lens | reviews | model | fix contract |
 |---|---|---|---|
-| D1 | design consistency in `src/` (**opt-in** pending its supervised wave) | `anthropic/claude-fable-5-1` (`thinking: high`) | intake-ratified |
+| D1 | design consistency in `src/` | `anthropic/claude-fable-5-1` (`thinking: high`) | intake-ratified |
 | D2 | cruft in `src/` | `anthropic/claude-opus-5-5` (`thinking: high`) | autonomous |
 | D4 | duplication & drift in `src/` | `anthropic/claude-opus-5-5` (`thinking: xhigh`) | clone/drift autonomous; parallel intake-ratified |
-| D6 | error posture in `src/` (**opt-in** pending its supervised wave) | `anthropic/claude-opus-5-5` (`thinking: high`) | divergence-with-anchor autonomous; unanchored intake-ratified |
+| D6 | error posture in `src/` | `anthropic/claude-opus-5-5` (`thinking: high`) | divergence-with-anchor autonomous; unanchored intake-ratified |
 | D7 | test quality in `tests/` | `anthropic/claude-opus-5-5` (`thinking: high`) | autonomous |
 | D8 | simplification in `src/` | `anthropic/claude-opus-5-5` (`thinking: xhigh`) | intake-ratified |
 | D9 | placement & breakdown in `src/` | `anthropic/claude-opus-5-5` (`thinking: high`) | intake-ratified |
-| D10 | claim→evidence decay in `docs/bugs/` + coverage matrix (**opt-in** pending its supervised wave) | `anthropic/claude-opus-5-5` (`thinking: high`) | decayed-pointer autonomous; claim rewording intake-ratified |
+| D10 | claim→evidence decay in `docs/bugs/` + coverage matrix | `anthropic/claude-opus-5-5` (`thinking: high`) | decayed-pointer autonomous; claim rewording intake-ratified |
 
 
 Workers: triage, fixer and fix review all `anthropic/claude-opus-5-5` (the
