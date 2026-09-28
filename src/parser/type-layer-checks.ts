@@ -9,6 +9,8 @@
 // asks the `V20b` `StaticTypeInferencePass` for each relevant expression's
 // static type (threading a `let`-binding scope so identifier receivers /
 // operands resolve), and feeds the checkers, aggregating their diagnostics.
+// The generic AST child enumerators live in `./ast-children` and are
+// re-exported here.
 //
 // It closes no new spec REQ-ID: each diagnostic is an integration realisation of
 // a code-keyed area owned on its original leaf —
@@ -49,14 +51,12 @@ import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import { classifyNamedDecl } from "./named-type-classification";
 import { containsNamedType } from "./compat-type-traversal";
 import type {
-  Block,
   Expr,
   FnParam,
   SchemaFieldSource,
   ThetaBody,
   Stmt,
 } from "./theta-document";
-import { callWithClauseValues } from "./theta-document";
 import {
   checkCompatible,
   resolveNamedRef,
@@ -86,6 +86,7 @@ import { collectLocalBinderNames } from "./local-binders";
 export { collectLocalBinderNames } from "./local-binders";
 import { TypeLayerWalk } from "./type-layer-walk";
 export { TypeLayerWalk } from "./type-layer-walk";
+export { childExprs, stmtBlocks, stmtExprs } from "./ast-children";
 
 /** The primitive type names an annotation string can name directly. */
 const PRIMITIVE_NAMES: ReadonlySet<string> = new Set([
@@ -753,105 +754,15 @@ function collectSchemaFields(
   return out;
 }
 
-/**
- * The direct child expressions of an expression node — shared by the `?`
- * operand scan here and by theta-document.ts's interpolation-form scan and
- * call-site node walk.
- */
-function childExprs(e: Expr): readonly Expr[] {
-  switch (e.kind) {
-    case "binary":
-      return [e.left, e.right];
-    case "ternary":
-      return [e.condition, e.consequent, e.alternate];
-    case "try":
-      return [e.operand];
-    case "index":
-      return [e.target, e.index];
-    case "member":
-      return [e.target];
-    case "array":
-      return e.elements;
-    case "call":
-    case "invoke":
-      // RFC 0009: a `?` inside a call-site `with` clause value is scanned as one
-      // inside an argument is.
-      return [...e.args, ...callWithClauseValues(e)];
-    case "object":
-      return e.fields.map((f) => f.value);
-    case "match":
-      return [e.scrutinee, ...e.arms.map((arm) => arm.body)];
-    case "result-ctor":
-      return [e.arg];
-    case "method-call":
-      return [e.target, ...e.args];
-    default:
-      return [];
-  }
-}
-
-/** The direct expressions a statement exposes (for the `?` scan). */
-function stmtExprs(s: Stmt): readonly Expr[] {
-  switch (s.kind) {
-    case "let":
-      return s.init !== null ? [s.init] : [];
-    case "reassign":
-      return [s.value];
-    case "if":
-    case "while":
-      return [s.condition];
-    case "for":
-      return [s.iterand];
-    case "return":
-      return s.operand !== null ? [s.operand] : [];
-    case "query":
-      return [s.query];
-    case "tool-call":
-      return [s.call];
-    case "invoke":
-      return [s.invoke];
-    case "expr":
-      return [s.expr];
-    default:
-      return [];
-  }
-}
-
-/** The nested blocks a statement contains (for the `?` scan). */
-function stmtBlocks(s: Stmt): readonly Block[] {
-  switch (s.kind) {
-    case "if": {
-      const blocks: Block[] = [s.then];
-      if (s.otherwise !== null) {
-        if ("statements" in s.otherwise) {
-          blocks.push(s.otherwise);
-        } else {
-          blocks.push(...stmtBlocks(s.otherwise));
-        }
-      }
-      return blocks;
-    }
-    case "while":
-    case "for":
-      return [s.body];
-    default:
-      // A nested `fn` owns its own `?`-scope; do not descend into it here.
-      return [];
-  }
-}
-
 export {
   ARITHMETIC_OPS,
   NO_SUNK_ARRAYS,
   ORDERING_OPS,
   PRIMITIVE_NAMES,
   builtinMembers,
-  childExprs,
   classifyOperand,
   classifyReceiver,
   placeholderSiteRange,
   stdlibSignatureFor,
-  stmtBlocks,
-  stmtExprs,
   type WalkCtx,
 };
