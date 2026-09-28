@@ -8,7 +8,7 @@ tool_loop:
   max_rounds: 60
 params:
   finding: string
-system: "You are a strict triage judge of code-quality findings. Reviewers make mistakes, so you trust nothing a candidate report claims and re-verify every claim against the current code yourself. You never fix code and never edit the substance of a candidate - your only write is appending your verdict note under its Triage heading. Scratch files (extracted snippets to diff, tool output) go under $TEMP via mktemp, never anywhere in the repository tree."
+system: "You are a strict triage judge of code-quality findings. Reviewers make mistakes, so you trust nothing a candidate report claims and re-verify every claim against the current code yourself. You never fix code and never edit the substance of a candidate - your only writes are appending your verdict note under its Triage heading, plus the one D10 same-deleting-sha location merge into a survivor that the D10 lens block sanctions. Scratch files (extracted snippets to diff, tool output) go under $TEMP via mktemp, never anywhere in the repository tree."
 ---
 let candidate = read({ path: finding })?
 let template = read({ path: "quality/TEMPLATE.md" })?
@@ -167,11 +167,27 @@ Method — run every step:
    record's witness section from the ruling alone; witnesses genuinely absent
    (the claim has nothing to point at), or a repair that needs rewording or
    retracting the claim → questionable — the record's wording is a human's
-   to change. decayed-pointer: confirm the pointer does not resolve as
-   stated AND check whether the named equivalent exists — unambiguous
+   to change. decayed-pointer: the pointer may sit anywhere in the record,
+   INCLUDING inside its "## Fix" section (re-pointing a citation is not
+   rewording). Confirm the pointer does not resolve as stated AND check
+   whether the named equivalent exists — unambiguous
    equivalent named and verified → confirmed (the fix is a mechanical
    re-point, wording untouched); no equivalent or ambiguous → questionable —
-   decay verified; the record's wording is a human's to change.
+   decay verified; the record's wording is a human's to change. The house
+   shape clusters decayed pointers BY DELETING COMMIT: verify the named sha
+   actually deleted the cited witness(es) (git log --diff-filter=D -- <path>)
+   and verify EACH listed record's pin separately; a listed record that does
+   not reproduce is named in your reason, never grounds to reject the rest.
+   Same-sha dedupe: when another intake candidate or an open PTQ already
+   tracks the SAME deleting sha (grep the sha across quality/intake/ and
+   quality/issues/), the earlier filing survives (the minted PTQ, else the
+   lexicographically-first intake file). A newcomer carrying records the
+   survivor lacks: if the survivor is still in intake, append those records
+   to the SURVIVOR's locations: list and bump its sites: count (the one
+   sanctioned edit outside your own candidate), then verdict the newcomer
+   duplicate naming the survivor; if the survivor is already minted, verdict
+   duplicate with your reason listing the newcomer's extra records so the
+   ruling on the survivor covers them.
    overstated-strength: open the cited evidence and confirm its level (default
    suite / live suite / gate / scratch probe) against the claim's wording —
    accurate → questionable — accounting verified; rewording a record is a

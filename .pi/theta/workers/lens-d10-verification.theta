@@ -43,8 +43,13 @@ Four classes:
   as written), or a fixed-Status record naming no witness where the house
   format carries one.
 - decayed-pointer: the witness pointer no longer resolves AS STATED — test
-  renamed, merged, or moved; anchor gone; path moved. Name the equivalent
-  witness when you can find one (that makes the fix mechanical).
+  renamed, merged, or moved; anchor gone; path moved. Witness pins ANYWHERE
+  in a record are in scope, INCLUDING inside its "## Fix" section — a Fix
+  section citing a deleted test file is a decayed pointer like any other,
+  and re-pointing a citation is NOT rewording the claim, so a decayed
+  pointer with a verified equivalent witness is fileable (and confirmable)
+  even when the pin sits mid-sentence in prose. Name the equivalent witness
+  when you can find one (that makes the fix mechanical).
 - memory-evidence: "verified live" / "demoed" / "observed" with nothing
   citable — no witness row, no session/log path, no dated record. An honesty
   marker ("pending live verification", Status: open, wontfix) is the culture
@@ -55,6 +60,17 @@ Four classes:
   scratch probe where AGENTS.md pins a gate as the discharge
   (committed-fixture-parse-gate for "no shipped source moves"); a live-only
   witness presented as continuously verified.
+
+Decayed-pointer filings cluster BY THE DELETING COMMIT, not by record: when
+one commit deleted or moved the witness file(s) several records cite, file
+ONE finding for that sha listing EVERY affected record in your shard (find
+the commit with git log --diff-filter=D -- <path>; put the sha in the title
+and cite each record's decayed pin under Evidence) — one filing per record
+would burn one human ruling each on the same root cause. A same-sha
+candidate another shard already filed (visible among the pending candidates
+below) does not suppress yours: file YOUR shard's affected records — triage
+dedupes same-sha filings by merging the record lists into the survivor —
+but never re-list a record an existing filing already cites.
 
 Hard boundaries (a filing that crosses one is wrong even if mechanically
 true):

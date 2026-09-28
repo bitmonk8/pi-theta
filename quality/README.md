@@ -390,7 +390,12 @@ Status lines) — for claim→evidence chains, never code. Four classes:
   carries one.
 - **decayed-pointer** — the witness pointer no longer resolves AS STATED
   (test renamed/merged/moved, anchor gone, path moved) though an equivalent
-  may exist; the filing names the equivalent when it found one.
+  may exist; the filing names the equivalent when it found one. Witness pins
+  inside a record's `## Fix` section are in scope (re-pointing a citation is
+  not rewording). Filings cluster by the DELETING COMMIT: one filing per
+  deleting sha (`git log --diff-filter=D -- <path>`) listing every affected
+  record in the shard, so one ruling discharges the class; triage merges a
+  same-sha filing from another shard into the survivor's location list.
 - **memory-evidence** — "verified live"/"demoed"/"observed" with nothing
   citable. An honesty marker ("pending live verification", `Status: open`,
   `wontfix`) is the culture WORKING — never filed itself; the class targets
