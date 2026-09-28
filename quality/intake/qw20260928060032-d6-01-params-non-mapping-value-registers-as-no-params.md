@@ -16,7 +16,7 @@ d6_anchor: "docs/spec_topics/frontmatter/frontmatter-fields-a.md:48 (tool_loop r
 wave: qw20260928060032
 reported_by: lens-d6-errorposture (anthropic/claude-opus-5-5)
 date: 2026-09-28
-triaged_at: a251f7ea964be26c0d5a904fcf27fa00016b2aa0
+triaged_at: 07056fcfedba4de0dc49d47a992671fb4f5f1d78
 ---
 
 # A present non-mapping, non-null `params:` value (`params: [a, b]`, `params: 42`, `params: hello`) registers as a no-params theta with zero diagnostics, because extractParsedParams returns silently on `!isMap` while `params: null` and non-mapping `tool_loop:` / `respond_repair:` values are refused
