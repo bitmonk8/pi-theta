@@ -2,7 +2,7 @@
 id: PTQ-1611
 title: collectCallSites and CollectedCallSites live in extension/invoke-static-checks.ts while touching 6 parser/theta-document members and 0 of their host's, and parser/with-clause-static-checks.ts imports them back upward
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/invoke-static-checks.ts:163-179

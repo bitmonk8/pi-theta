@@ -2,7 +2,7 @@
 id: PTQ-1609
 title: type-layer-checks.ts post-split residual (857 LOC, zone) bundles five concern families, two consumed only by sibling modules
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-layer-checks.ts:1-857

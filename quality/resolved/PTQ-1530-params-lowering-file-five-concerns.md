@@ -2,7 +2,7 @@
 id: PTQ-1530
 title: params-lowering.ts (1219 LOC) bundles the type-expression lowering recursion with two pure raw-text scanners whose siblings-in-kind live in type-text-split.ts and the inline-object hoist/slug-dedup facility
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/params-lowering.ts:1-1219

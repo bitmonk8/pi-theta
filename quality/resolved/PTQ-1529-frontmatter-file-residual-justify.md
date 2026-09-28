@@ -2,7 +2,7 @@
 id: PTQ-1529
 title: frontmatter.ts remains at 1119 LOC after the PTQ-1146 split, still bundling field collection, the cross-field rule battery, system-template build, and pipeline assembly
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/frontmatter.ts:1-1119

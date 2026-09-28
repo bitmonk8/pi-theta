@@ -2,7 +2,7 @@
 id: PTQ-1607
 title: checkThetaImports remains a 239-LOC strong-band orchestrator after five ratified extractions
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/import-static-checks.ts:478-716

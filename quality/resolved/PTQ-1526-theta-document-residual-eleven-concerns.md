@@ -2,7 +2,7 @@
 id: PTQ-1526
 title: theta-document.ts remains 2045 LOC (strong band) after the PTQ-1264 splits, bundling eleven distinct concern families
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:1-2045
