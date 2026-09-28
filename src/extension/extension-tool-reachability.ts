@@ -58,7 +58,7 @@ import {
  * node is the code-side tool-call surface (`<name>(args)`), distinct from
  * `invoke` / `method-call` / `query`. Shares its traversal
  * (`walkCallSiteNodes`, `../parser/theta-document.ts`) with `collectCallSites`
- * (`invoke-static-checks.ts`), `collectCallCallees`
+ * (`../parser/call-site-collect.ts`), `collectCallCallees`
  * (`subagent-fn-static-checks.ts`) and `collectClauseBearingCalls` (the
  * traversal's own module) — one walker so the four checks cannot drift out of
  * sync as the `Stmt` / `Expr` node shapes evolve (bug 0071).

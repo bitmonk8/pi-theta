@@ -51,7 +51,7 @@ export function collectSubagentFns(body: ThetaBody): FnDecl[] {
  * `subagent fn`s for the self-reference / mutual-cycle graph. Shares its
  * traversal (`walkCallSiteNodes`, `../parser/theta-document.ts`) with
  * `collectCodeSideCallNames` (`extension-tool-reachability.ts`),
- * `collectCallSites` (`invoke-static-checks.ts`) and
+ * `collectCallSites` (`../parser/call-site-collect.ts`) and
  * `collectClauseBearingCalls` (the traversal's own module) — one walker so a
  * spawn routed through a block expression still creates a graph edge (the
  * FN-6 cycle would otherwise escape the load-time refusal), exactly as it

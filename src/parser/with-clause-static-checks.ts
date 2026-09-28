@@ -23,7 +23,7 @@ import type { CallExpr, CallWithClause, Stmt, ThetaBody } from "./theta-document
 import { checkCompatible, displayType, type CompatType, type TypeEnv } from "./type-compat";
 import type { MaterializedImport } from "../runtime/lexical-environment";
 import { checkToolCallArguments } from "../runtime/tool-call";
-import { collectCallSites } from "../extension/invoke-static-checks";
+import { collectCallSites } from "./call-site-collect";
 
 /**
  * INV-6 (invocation.md `#options-surface`) — judge a call-site `with` clause's
