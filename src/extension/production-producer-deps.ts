@@ -417,9 +417,10 @@ export interface ProductionProducerInput {
    * `cancelled` rendering) and `emitPanicNote` (both panic framings) call it
    * AFTER their `sendSystemNote`, so a print/json parent whose top-level drive
    * ends non-Ok before any assistant turn is distinguishable from success at
-   * the process boundary, where the host alone reports exit 0 and empty stdout
-   * (`pi -p`/`--mode json` print/exit-code ONLY from a trailing assistant
-   * message). Absent on every other mode and on a subagent child.
+   * the process boundary. The host alone exits 0 on both: text-mode `pi -p`
+   * prints and exit-codes only from a trailing assistant message, so stdout
+   * is empty; `--mode json` streams every session event (the note included)
+   * to stdout. Absent on every other mode and on a subagent child.
    */
   readonly printModeFailureSurface?: {
     /** The rendered note's own `content` string, plus a trailing newline, to stderr. */

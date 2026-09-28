@@ -145,7 +145,13 @@ Recorded at fix time as 0493 Residual 3; this bug is that residual filed.
    this fix amends its binder-exclusion sentence there. Correction to
    §Observed: a `--mode json` parent does not end with empty stdout —
    it streams every session event (the note included) to stdout and exits
-   `0`; empty stdout holds for text-mode `pi -p` only.
+   `0`; empty stdout holds for text-mode `pi -p` only. Correction to the
+   Sev/Diff estimate and §Observed: "no session file" holds for a new
+   session only. A run on a session that already has a file (`-c`,
+   `--session <existing file>`, `--session-id <existing id>`, `--fork`)
+   appends every entry to it, the note included — `SessionManager` holds
+   back writes only while the session is unflushed, and opening an
+   existing file marks it flushed.
 4. **Witnesses.** Extend `tests/print-mode-failure-surface.test.ts` (or a
    sibling) over the real `BinderRunner`: each of the seven endings ×
    `ctx.mode` ∈ {print, json} fires the surface exactly once with the

@@ -588,6 +588,28 @@ PIC-65 layer-2 watchdog implemented, `PI_SUBAGENT_CHILD` marker) and D2
     `PI_SUBAGENT_CHILD` reach is qualified in `subagent.md` (launch contract,
     layer 3; Residual 11); F4 the `SUBAGENT_PARENT_PID_ENV` and `ctx.shutdown`
     inventory comments corrected; R6, R10 fixed (Residuals 9, 6).
+  - Post-commit review round 2 (a26bf702): the print-mode paragraph in
+    `slash-invocation.md` states the host facts per mode (text `pi -p`:
+    empty stdout, exit `0`; `--mode json`: streams every session event, the
+    note included, exit `0`), mirrored in the `discovery-cli.md` bullet, and
+    rejoins the stderr-write MUST sentence split across two physical lines;
+    the SDK-embedder `"print"` default is stated as the
+    runner's default absent a `mode` binding (`host-interfaces-core.md`,
+    `capability-probe.md` PIC-73); the `sdk-inventory.ts` `ctx.mode` and
+    `subagent-launcher.ts` `PI_SUBAGENT_CHILD` comments qualified; the 0494
+    `--mode json` stdout correction recorded as a dated note.
+  - Post-commit review round 3 (this commit): F1 the "no session file" claim
+    in `slash-invocation.md` and `discovery-cli.md` scoped to a new session
+    (a run on an existing session file — `-c`, `--session <existing file>`,
+    `--session-id <existing id>`, `--fork` — appends every entry, the note
+    included); F2 the double stderr write on the fallback-chain arm made
+    conditional on `ctx.hasUI === false`, with the bound-UI outcome (toast,
+    one stderr line) stated at both sites; R1 the
+    `production-producer-deps.ts` and `production-theta-producer.ts`
+    comments state the host outcome per mode; R2 the same new-session
+    qualifier in the 0494 dated note and the
+    `tests/print-mode-failure-surface.test.ts` header; R3 the
+    `discovery-cli.md` bullet rewrapped.
 - Verification: SOLID. Witnesses red-before/green-after per element; full
   suite green; live witness green and red with D2 reverted; typecheck,
   lint, parse gate green; no leftover processes.

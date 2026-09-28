@@ -2,10 +2,11 @@
 // distinguishable from success at the process boundary.
 //
 // On the pinned pi host, `pi -p` prints and exit-codes ONLY from a trailing
-// assistant message, and flushes nothing to the session file until one exists.
-// A top-level theta drive that ends Err / cancelled / panic before any `@` turn
-// produces only a `theta-system-note` CUSTOM message — so on the host alone the
-// run exits 0 with empty stdout and leaves no evidence at all.
+// assistant message, and in a new session creates no session file until one
+// exists (a session that already has a file is appended to). A top-level theta
+// drive that ends Err / cancelled / panic before any `@` turn produces only a
+// `theta-system-note` CUSTOM message — so on the host alone a new-session run
+// exits 0 with empty stdout and leaves no evidence at all.
 //
 // The fix hands the producer a PRINT-MODE FAILURE SURFACE, defined iff
 // `ctx.mode` is `"print"` or `"json"` AND the process is not a subagent child

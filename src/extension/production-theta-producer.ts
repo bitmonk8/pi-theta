@@ -439,8 +439,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // failure surface is its PIC-59 envelope — the composition root defines
     // this seam iff neither applies) mirrors the SAME rendered content to
     // stderr and marks the process failed, so a top-level Err/cancelled ending
-    // before any assistant turn is observable at the process boundary instead
-    // of the pinned host's silent exit-0/empty-stdout shape. It fires on the
+    // before any assistant turn is observable at the process boundary: the
+    // pinned host alone exits 0 (text-mode `pi -p` with empty stdout,
+    // `--mode json` with the note among its streamed events). It fires on the
     // stamp-failure arm too: how the note was delivered does not change how
     // the drive ended.
     this.#input.printModeFailureSurface?.mirrorLine(content);
