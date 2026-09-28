@@ -4,6 +4,36 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.493.0]
+
+### Fixed
+- **Bug 0493 — subagent children are tethered to their parent.**
+  - A visible child that refuses to register its root theta now emits the
+    `{outcome: "err"}` child outcome event and requests `ctx.shutdown()`
+    (envelope → event → shutdown) instead of lingering silently in its pane.
+  - New PIC-65 layer-2 parent-liveness watchdog
+    (`src/runtime/subagent-parent-watchdog.ts`): every subagent child with a
+    valid parent-pid carriage polls `process.kill(pid, 0)` every 10 s and,
+    once the parent process is gone, prints one stderr line and exits 1 —
+    a lingering child (post-`Ok` or refused) no longer outlives its parent.
+  - The child launch env carries `PI_SUBAGENT_CHILD=1`, so pi-config's
+    pi-retry skips its stall re-kicks inside subagent children (reaches
+    `pipe` and `inheritsEnv: true` placements; an `inheritsEnv: false`
+    multiplexer child stays unmarked — subagent.md launch contract).
+- **Print/json-mode top-level drives surface non-`Ok` endings at the process
+  boundary.** A top-level drive that ends `Err` (including cancelled) or
+  panics before any assistant turn in `pi -p` / `--mode json` — outside the
+  subagent-root regime — now mirrors the note's rendered content to stderr
+  and sets `process.exitCode = 1` (assign-only; a larger code is kept).
+  Previously such a run exited `0` with empty stdout and no failure line.
+  Spec: `slash-invocation.md#slsh-3-print-mode-failure-surface`. Binder
+  short-circuit endings are excluded (bug 0494).
+
+Known follow-ups: bug 0494 (binder endings miss the surface), bug 0495
+(H9a acceptance area (f) is now red for the correct reason — its fixture's
+ENOENT `Err` was passing vacuously), bug 0496 (pi-theta-herdr drops the
+refusal outcome event, so no `FAILED` pane retitle).
+
 ## [0.492.0]
 
 ### Fixed

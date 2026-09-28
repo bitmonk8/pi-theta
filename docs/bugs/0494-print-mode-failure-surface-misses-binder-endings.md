@@ -151,7 +151,14 @@ Recorded at fix time as 0493 Residual 3; this bug is that residual filed.
    `--session <existing file>`, `--session-id <existing id>`, `--fork`)
    appends every entry to it, the note included — `SessionManager` holds
    back writes only while the session is unflushed, and opening an
-   existing file marks it flushed.
+   existing file marks it flushed. Correction to the title and §Observed
+   as fix expectations: the pre-fix state this fix removes is "no surface
+   line on stderr", not literally "empty stderr" — on the arm where a
+   binder note's own delivery falls to the fallback chain (unreachable
+   today), the chain's step-2 `theta/runtime/system-note-delivery-failed`
+   diagnostic is mirrored to a UI-less context's stderr as a
+   `theta:`-prefixed line, so the fix's claims and witnesses must assert
+   the absence of the surface's own line, not an empty stream.
 4. **Witnesses.** Extend `tests/print-mode-failure-surface.test.ts` (or a
    sibling) over the real `BinderRunner`: each of the seven endings ×
    `ctx.mode` ∈ {print, json} fires the surface exactly once with the

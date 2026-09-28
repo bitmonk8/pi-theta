@@ -566,7 +566,7 @@ PIC-65 layer-2 watchdog implemented, `PI_SUBAGENT_CHILD` marker) and D2
     Residual 1); `tests/live/live-production-acceptance.test.ts -t
     "subagent"` 9/9; `tests/live/b0271live-grandchild-callee-drop-depth-two-live-cell.test.ts`
     1/1.
-- Review: 2 rounds.
+- Review: 6 rounds (2 pre-commit, 4 post-commit).
   - Round 1 (deep): findings F1 shipped `composeInstance` did not forward
     the watchdog handle; F3 refusal emit lacked subscriber-throw
     containment; F4 false `/reload` reuse prose; F5 pid > 2³¹−1 armed and
@@ -594,11 +594,16 @@ PIC-65 layer-2 watchdog implemented, `PI_SUBAGENT_CHILD` marker) and D2
     note included, exit `0`), mirrored in the `discovery-cli.md` bullet, and
     rejoins the stderr-write MUST sentence split across two physical lines;
     the SDK-embedder `"print"` default is stated as the
-    runner's default absent a `mode` binding (`host-interfaces-core.md`,
-    `capability-probe.md` PIC-73); the `sdk-inventory.ts` `ctx.mode` and
+    runner's default absent a `mode` binding (the `host-interfaces-core.md`
+    `mode` row and the `slash-invocation.md` paragraph; the
+    `capability-probe.md` PIC-73 change in the same commit is to the
+    `ctx.shutdown` clause instead — the PIC-65 watchdog bounds both the
+    post-`Ok` and the refusal linger); the same commit added the
+    fallback-chain "stderr carries the content twice" sentence that round 3
+    then qualified; the `sdk-inventory.ts` `ctx.mode` and
     `subagent-launcher.ts` `PI_SUBAGENT_CHILD` comments qualified; the 0494
     `--mode json` stdout correction recorded as a dated note.
-  - Post-commit review round 3 (this commit): F1 the "no session file" claim
+  - Post-commit review round 3 (3ccbe221): F1 the "no session file" claim
     in `slash-invocation.md` and `discovery-cli.md` scoped to a new session
     (a run on an existing session file — `-c`, `--session <existing file>`,
     `--session-id <existing id>`, `--fork` — appends every entry, the note
@@ -610,6 +615,7 @@ PIC-65 layer-2 watchdog implemented, `PI_SUBAGENT_CHILD` marker) and D2
     qualifier in the 0494 dated note and the
     `tests/print-mode-failure-surface.test.ts` header; R3 the
     `discovery-cli.md` bullet rewrapped.
+  - Post-commit review round 4: clean.
 - Verification: SOLID. Witnesses red-before/green-after per element; full
   suite green; live witness green and red with D2 reverted; typecheck,
   lint, parse gate green; no leftover processes.
