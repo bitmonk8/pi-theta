@@ -1148,12 +1148,14 @@ const SEEDED_INVALID_DIR = "tests/fixtures/h7b-invalid/";
 /** Census pins — bump in the SAME commit that adds/removes a committed theta
  * source. Last re-measured at the D1-lens commit: 1 new `.pi/theta` worker
  * (lens-d1-design), 51 -> 52 theta files, 63 -> 64 templates,
- * 204 -> 214 interpolations. */
+ * 204 -> 214 interpolations. Re-measured at the already-resolved-lane commit
+ * (operator item 12): review-fix.theta's brief gains one interpolation
+ * (already_claimed), 214 -> 215; files and templates unchanged. */
 const EXPECTED_SHIPPED_THETA = 52;
 const EXPECTED_SHIPPED_THETALIB = 3;
 /** Measured at the D1-lens commit: the corpus's own count of `@`-templates and interpolations. */
 const EXPECTED_TEMPLATES = 64;
-const EXPECTED_INTERPOLATIONS = 214;
+const EXPECTED_INTERPOLATIONS = 215;
 
 /**
  * The token classes expressions.md:25–40 refuses, as raw substrings. A committed

@@ -99,12 +99,19 @@ fn conflicted_paths(cp: string): string {
 
 /// A cluster whose worktree went green: one commit to cherry-pick.
 /// `manifest_abs` is kept so a conflicted lane can be re-run in a fresh tree.
+/// `already`/`already_sha` carry the lane's reviewer-confirmed already-resolved
+/// issues (comma-joined basenames; "" = none) and their verified upstream
+/// resolving commit ("" = unknown) through to the resolve call. A lane with
+/// NO commit (sha "") and only already-resolved issues never enters the
+/// cherry-pick path; it is collected separately and resolved directly.
 schema Green {
   key: string,
   manifest_rel: string,
   manifest_abs: string,
   sha: string,
   fixed: string,
+  already: string,
+  already_sha: string,
   fixer_notes: string
 }
 
@@ -418,15 +425,23 @@ while cycle < max_cycles && !converged && !provider_halt {
     }
 
     let mut greens: array<Green> = []
+    let mut already_lanes: array<Green> = []
     let mut infra_aborts = 0
     let mut gi = 0
     while gi < work.length {
       let rep = match reports[gi] {
         Ok(r) => r,
-        Err(e) => TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "tree worker failed: " + e.kind + " - " + e.message, fixer_notes: "" },
+        Err(e) => TreeFixReport { ok: false, sha: "", fixed_confirmed: [], already_resolved_confirmed: [], already_resolved_sha: "", notes: "tree worker failed: " + e.kind + " - " + e.message, fixer_notes: "" },
       }
       if rep.ok && rep.fixed_confirmed.length > 0 {
-        greens = greens.concat([Green { key: work[gi].key, manifest_rel: work[gi].manifest_rel, manifest_abs: work[gi].manifest_abs, sha: rep.sha, fixed: rep.fixed_confirmed.join(","), fixer_notes: rep.fixer_notes }])
+        greens = greens.concat([Green { key: work[gi].key, manifest_rel: work[gi].manifest_rel, manifest_abs: work[gi].manifest_abs, sha: rep.sha, fixed: rep.fixed_confirmed.join(","), already: rep.already_resolved_confirmed.join(","), already_sha: rep.already_resolved_sha, fixer_notes: rep.fixer_notes }])
+      } else if rep.ok && rep.already_resolved_confirmed.length > 0 {
+        // ALREADY-RESOLVED lane: every reviewer-confirmed issue was fixed
+        // upstream before this wave, so there is no commit to cherry-pick
+        // (wave qw20260927174614's tests__p1 burned 6 fixer + 6 review
+        // passes on unapprovable empty diffs for exactly this). Green by
+        // verification alone; resolved in the store-writes step below.
+        already_lanes = already_lanes.concat([Green { key: work[gi].key, manifest_rel: work[gi].manifest_rel, manifest_abs: work[gi].manifest_abs, sha: "", fixed: "", already: rep.already_resolved_confirmed.join(","), already_sha: rep.already_resolved_sha, fixer_notes: rep.fixer_notes }])
       } else {
         total_clusters_reverted += 1
         report = report + "wave " + wave + ": cluster " + work[gi].key + " not fixed in its worktree - " + rep.notes + "\n"
@@ -500,16 +515,22 @@ ${residue}`?
         let seed = "RETRY after an integration conflict: this cluster's previous fix (commit " + r.sha + ", now discarded) conflicted with sibling lanes' already-integrated changes on: " + r.conflicts + ". This tree is at the integrated head, so those siblings' changes - including any new tests/helpers/* exports - are ALREADY present: reuse them, do not re-add them, and re-apply this cluster's fixes on top."
         let rep = match invoke<TreeFixReport>("./workers/fix-cluster-tree.theta", r.manifest_abs, r.key, wave, tree_gate_cmd, seed, lane_batch) with { cwd: tree } {
           Ok(x) => x,
-          Err(e) => TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "tree worker failed: " + e.kind + " - " + e.message, fixer_notes: "" },
+          Err(e) => TreeFixReport { ok: false, sha: "", fixed_confirmed: [], already_resolved_confirmed: [], already_resolved_sha: "", notes: "tree worker failed: " + e.kind + " - " + e.message, fixer_notes: "" },
         }
         if rep.ok && rep.fixed_confirmed.length > 0 {
           let cp2 = bash({ command: cherry_pick_cmd(rep.sha) })?
           if !cp2.includes("CP_FAIL") {
-            applied = applied.concat([Green { key: r.key, manifest_rel: r.manifest_rel, manifest_abs: r.manifest_abs, sha: rep.sha, fixed: rep.fixed_confirmed.join(","), fixer_notes: rep.fixer_notes }])
+            applied = applied.concat([Green { key: r.key, manifest_rel: r.manifest_rel, manifest_abs: r.manifest_abs, sha: rep.sha, fixed: rep.fixed_confirmed.join(","), already: rep.already_resolved_confirmed.join(","), already_sha: rep.already_resolved_sha, fixer_notes: rep.fixer_notes }])
           } else {
             total_clusters_reverted += 1
             report = report + "wave " + wave + ": cluster " + r.key + " conflicted again on retry (" + conflicted_paths(cp2) + ") - dropped, issues stay open\n"
           }
+        } else if rep.ok && rep.already_resolved_confirmed.length > 0 {
+          // The retry ran at the integrated head, where sibling lanes'
+          // changes may have fixed this cluster's issues already: a valid
+          // no-commit green, resolved with the other already-resolved lanes.
+          already_lanes = already_lanes.concat([Green { key: r.key, manifest_rel: r.manifest_rel, manifest_abs: r.manifest_abs, sha: "", fixed: "", already: rep.already_resolved_confirmed.join(","), already_sha: rep.already_resolved_sha, fixer_notes: rep.fixer_notes }])
+          report = report + "wave " + wave + ": cluster " + r.key + " retry found its issues already resolved on the integrated head - no commit needed\n"
         } else {
           total_clusters_reverted += 1
           report = report + "wave " + wave + ": cluster " + r.key + " retry not fixed in its worktree - " + rep.notes + "\n"
@@ -549,6 +570,10 @@ ${residue}`?
     }
 
     // ---- 8. store writes: orchestrator only, after integration ----
+    // The verified-at head for already-resolved notes: the reviewer verified
+    // the problems gone in a tree at (or behind) this integrated head, and
+    // the batch gate just proved it green.
+    let resolve_head = bash({ command: "git rev-parse HEAD" })?.trim()
     let mut si = 0
     while si < applied.length {
       if si < kept {
@@ -556,9 +581,12 @@ ${residue}`?
         // resolve records the skip (with the fixer's account) and parks the
         // issue for a human ruling at the second skip, so nothing is re-laned
         // wave after wave in silence. Its skipped/parked lines join the report.
+        // A mixed lane's already-resolved issues ride the same resolve call
+        // with a ## Resolution note instead of a skip.
         let fix_notes_path = applied[si].manifest_rel.replace(".txt", ".fixnotes.txt")
         let _ = write({ path: fix_notes_path, content: applied[si].fixer_notes })?
-        let resolved = bash({ command: "node tools/quality/store.mjs resolve --manifest " + applied[si].manifest_rel + " --fixed " + applied[si].fixed + " --wave " + wave + " --notes-file " + fix_notes_path })?
+        let ar_flags = applied[si].already == "" ? "" : " --already-resolved " + applied[si].already + " --resolution-note \"already resolved upstream (" + (applied[si].already_sha == "" ? "sha unknown" : applied[si].already_sha) + "), verified at " + resolve_head + "\""
+        let resolved = bash({ command: "node tools/quality/store.mjs resolve --manifest " + applied[si].manifest_rel + " --fixed " + applied[si].fixed + ar_flags + " --wave " + wave + " --notes-file " + fix_notes_path })?
         let mut out_lines: array<string> = []
         out_lines = lines(resolved)
         let mut skips: array<string> = []
@@ -574,6 +602,26 @@ ${residue}`?
         report = report + "wave " + wave + ": cluster " + applied[si].key + " dropped by the batch gate - issues stay open\n"
       }
       si += 1
+    }
+    // Already-resolved lanes: no commit, no cherry-pick - the reviewer
+    // verified each issue's problem gone at HEAD, so the lane is green by
+    // verification alone and its issues resolve with a ## Resolution note.
+    // Unconfirmed manifest siblings still take the skip/park path.
+    for al in already_lanes {
+      let al_notes_path = al.manifest_rel.replace(".txt", ".alreadynotes.txt")
+      let _ = write({ path: al_notes_path, content: al.fixer_notes })?
+      let al_note = "already resolved upstream (" + (al.already_sha == "" ? "sha unknown" : al.already_sha) + "), verified at " + resolve_head
+      let resolved_al = bash({ command: "node tools/quality/store.mjs resolve --manifest " + al.manifest_rel + " --already-resolved " + al.already + " --resolution-note \"" + al_note + "\" --wave " + wave + " --notes-file " + al_notes_path })?
+      let mut al_lines: array<string> = []
+      al_lines = lines(resolved_al)
+      let mut al_skips: array<string> = []
+      for l in al_lines {
+        if l.startsWith("skipped ") || l.startsWith("parked ") {
+          al_skips = al_skips.concat([l])
+        }
+      }
+      total_clusters_fixed += 1
+      report = report + "wave " + wave + ": cluster " + al.key + " green without a commit - issues already resolved upstream (" + al.already + ")" + (al_skips.length == 0 ? "" : " (" + al_skips.join("; ") + ")") + "\n"
     }
     let _ = bash({ command: "git add -A quality && (git diff --cached --quiet || git commit -m \"quality: " + wave + " fix batch\")" })?
 

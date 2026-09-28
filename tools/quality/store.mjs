@@ -117,9 +117,16 @@
 //   open-count
 //       Print the number of status: open issues in quality/issues/ — the
 //       quality loop's convergence signal (0 = backlog empty).
-//   resolve --manifest <cluster manifest> --fixed <basename,basename,...>
+//   resolve --manifest <cluster manifest> [--fixed <basename,basename,...>]
+//           [--already-resolved <basename,...>] [--resolution-note <text>]
 //           [--wave <id>] [--notes-file <path>]
 //       Mark the named issues status: fixed and move them to quality/resolved/.
+//       At least one of --fixed / --already-resolved is required.
+//       --already-resolved entries (issues an upstream commit fixed before
+//       the lane ran; the fix review verified each gone at HEAD) additionally
+//       get a "## Resolution" line "- <wave>: <resolution-note>" (note
+//       defaulting to "already resolved upstream (sha unknown)") — the
+//       loop's no-commit green outcome.
 //       Every other issue the manifest lists was handed to a fixer and came
 //       back unfixed: it gets fix_skips += 1 and a "## Fix attempts" line
 //       (wave + the fixer's notes from --notes-file). At the SECOND skip the
@@ -854,12 +861,15 @@ switch (cmd) {
   case "resolve": {
     const manifest = flags.manifest ?? die("--manifest required");
     const fixed = (flags.fixed ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-    if (fixed.length === 0) die("--fixed requires at least one issue basename");
+    const already = (flags["already-resolved"] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    if (fixed.length === 0 && already.length === 0) die("--fixed or --already-resolved requires at least one issue basename");
     const listed = fs.readFileSync(path.join(ROOT, manifest), "utf8")
       .split("\n").map((l) => l.trim()).filter(Boolean);
-    const isFixed = (entry) => fixed.some((name) => path.basename(entry) === name || path.basename(entry, ".md") === name);
-    for (const name of fixed) {
-      if (!listed.some((p) => path.basename(p) === name || path.basename(p, ".md") === name)) {
+    const matches = (entry, name) => path.basename(entry) === name || path.basename(entry, ".md") === name;
+    const isFixed = (entry) => fixed.some((name) => matches(entry, name));
+    const isAlready = (entry) => already.some((name) => matches(entry, name));
+    for (const name of [...fixed, ...already]) {
+      if (!listed.some((p) => matches(p, name))) {
         process.stderr.write(`store.mjs: '${name}' is not in ${manifest}; skipped\n`);
       }
     }
@@ -873,8 +883,15 @@ switch (cmd) {
         continue;
       }
       let text = fs.readFileSync(src, "utf8");
-      if (isFixed(entry)) {
+      if (isFixed(entry) || isAlready(entry)) {
         text = setFrontmatterField(text, "status", "fixed");
+        // An already-resolved issue is fixed WITHOUT a lane commit (an
+        // upstream commit beat the lane to it; the fix review verified the
+        // problem gone at HEAD), so the record carries a "## Resolution"
+        // line instead of tracing to a wave fix commit.
+        if (!isFixed(entry)) {
+          text = appendSectionLine(text, "## Resolution", `- ${flags.wave ?? "(wave unknown)"}: ${flags["resolution-note"] ?? "already resolved upstream (sha unknown)"}`);
+        }
         const dest = path.join(RESOLVED, path.basename(entry));
         fs.writeFileSync(dest, text);
         fs.unlinkSync(src);

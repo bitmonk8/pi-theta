@@ -128,6 +128,20 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
    skip the issue is **parked**: moved to `intake/` as `questionable` for a
    human ruling (`accept --note <direction>` keeps its PTQ id and resets the
    skip budget; `reject` retires it) instead of being re-laned every wave.
+   An issue whose problem is **already resolved upstream** (fixed by a later
+   commit after filing) is a distinct green outcome, not a skip: the fixer
+   reports it `already_resolved` with evidence (the resolving sha via
+   `git log -S`/`-G` when findable, current-code citations showing the
+   problem gone at HEAD), the reviewer confirms each claim against HEAD (not
+   the diff) - an EMPTY diff with at least one confirmed already-resolved
+   issue is a valid ok - and a lane with no commit is integrated without a
+   cherry-pick: `store.mjs resolve --already-resolved` moves the issues to
+   `resolved/` with a `## Resolution` line ("already resolved upstream
+   (<sha or 'sha unknown'>), verified at <head>"). A mixed lane (some fixed,
+   some already-resolved) cherry-picks its commit as usual and resolves both
+   sets in one call (wave qw20260927174614's tests__p1 burned six fixer and
+   six review passes on unapprovable empty diffs before this outcome
+   existed).
    Attempt 2 is a lane's last: the fixer **sheds** any issue whose must_fix it
    cannot satisfy (reverting that issue's edits completely and listing it as
    skipped) so the siblings still land; a lane never fails on one issue.

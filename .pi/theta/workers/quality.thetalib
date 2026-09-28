@@ -17,8 +17,13 @@ schema TriageVerdict {
 
 /// One cluster fix attempt's outcome (fixer final value). Entries are issue
 /// file basenames exactly as they appear in the cluster manifest.
+/// `already_resolved` names issues whose described problem was already gone
+/// at HEAD before the lane touched anything (fixed upstream since filing);
+/// the per-issue evidence (resolving sha or "sha unknown", current-code
+/// checks) goes in `notes`.
 schema FixReport {
   fixed: array<string>,
+  already_resolved: array<string>,
   skipped: array<string>,
   notes: string
 }
@@ -32,18 +37,33 @@ schema FixReport {
 /// carries the fixer's own per-issue account (and the review's must_fix when
 /// any) so the store can record WHY an issue the lane was handed came back
 /// unfixed; the orchestrator writes it to a notes file for `resolve`.
+/// `already_resolved_confirmed` carries the basenames the in-tree review
+/// verified as ALREADY RESOLVED upstream (problem gone at HEAD, no
+/// attributable diff): they need no commit and no cherry-pick, and a lane
+/// whose confirmations are all already-resolved returns ok with sha ""
+/// (nothing to integrate). `already_resolved_sha` is the verified upstream
+/// resolving commit when one explains them all, else "" (rendered as
+/// "sha unknown" in the store's ## Resolution note).
 schema TreeFixReport {
   ok: boolean,
   sha: string,
   fixed_confirmed: array<string>,
+  already_resolved_confirmed: array<string>,
+  already_resolved_sha: string,
   notes: string,
   fixer_notes: string
 }
 
 /// Post-fix correctness review (fix-review worker final value).
+/// `already_resolved_confirmed` lists the fixer-claimed issues the reviewer
+/// verified already resolved at HEAD (problem gone, no attributable diff);
+/// `already_resolved_sha` is the verified upstream resolving commit when one
+/// explains every confirmed entry, else "".
 schema FixReview {
   ok: boolean,
   fixed_confirmed: array<string>,
+  already_resolved_confirmed: array<string>,
+  already_resolved_sha: string,
   must_fix: string,
   unconfirmed: string
 }

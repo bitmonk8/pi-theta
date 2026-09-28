@@ -8,6 +8,7 @@ tool_loop:
   max_rounds: 80
 params:
   manifest: string
+  already_claimed: string = ""
 system: "You are a strict post-fix reviewer. You judge whether uncommitted changes actually resolve the quality issues they claim to resolve, and whether they damaged anything else. You verify against the current working tree with your own eyes, never against claims. You are read-only - no edits, no git write commands."
 ---
 let issue_files = read({ path: manifest })?
@@ -37,9 +38,22 @@ Judge, in order:
    tree that the described problem is gone — the cited code removed or corrected
    AND every reference to it cleaned up (grep for the deleted identifiers).
    Collect the issue basenames you verified resolved. An issue with no
-   working-tree change attributable to it was skipped or shed by the fixer —
+   working-tree change attributable to it was skipped, shed, or claimed
+   already resolved by the fixer —
    legitimate: omit it from fixed_confirmed; by itself it is never grounds
-   for ok: false.
+   for ok: false (step 1b judges already-resolved claims).
+1b. Already-resolved claims. The fixer claims these issues were already
+   resolved upstream before the lane ran (comma-separated basenames; empty =
+   none claimed):
+   ${already_claimed}
+   Verify each against HEAD, not the diff: re-run the issue's evidence hunt
+   yourself and confirm the described problem is GONE from the current tree,
+   AND that no working-tree change is attributable to that issue (a claim
+   covering the fixer's own edit is false; such an issue belongs in step 1).
+   When you can identify the upstream commit that resolved it (git log -S/-G,
+   git log on the cited files; read-only), verify it and report it in
+   already_resolved_sha. A claimed issue that still reproduces at HEAD goes
+   to unconfirmed with why.
 2. Collateral. Any change NOT required by an issue in this cluster? Any new
    cruft introduced? Any weakened or deleted test that guarded live behavior (a
    test deleted together with the cruft it exercised is fine when an issue's fix
@@ -101,13 +115,21 @@ Judge, in order:
    check directly.
 
 Reply with the requested schema:
-- ok: true ONLY if at least one issue is verifiably resolved AND there is no
-  collateral damage
-- fixed_confirmed: the issue file BASENAMES you verified resolved
+- ok: true ONLY if at least one issue is verifiably resolved by the
+  working-tree changes OR at least one claimed already-resolved issue is
+  confirmed against HEAD, AND there is no collateral damage. An EMPTY diff
+  with at least one confirmed already-resolved issue is a valid ok outcome.
+- fixed_confirmed: the issue file BASENAMES you verified resolved BY THE
+  WORKING-TREE CHANGES (never list an already-resolved issue here)
+- already_resolved_confirmed: the claimed basenames you verified already
+  resolved at HEAD (problem gone, no attributable diff); empty when none
+- already_resolved_sha: the upstream commit you verified resolved them, when
+  ONE sha explains every entry above; "" when none was identifiable or they
+  differ (the orchestrator renders "sha unknown")
 - must_fix: "" when ok; otherwise one concrete paragraph telling the fixer
   exactly what to correct.
 - unconfirmed: one clause per manifest issue you did NOT list in
-  fixed_confirmed — its basename and why it is not resolved (untouched; shed by
+  fixed_confirmed or already_resolved_confirmed — its basename and why it is not resolved (untouched; shed by
   the fixer; partial: what still remains). This is what a human reads on the
   issue when it comes back unfixed, so name the remaining copies / sites
   concretely. "" when every manifest issue is confirmed.`?

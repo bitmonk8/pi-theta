@@ -1100,6 +1100,54 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     expect(runStore(root, ["triage-due"]).stdout.trim()).toBe("quality/intake/PTQ-0140-parked.md");
   });
 
+  it("cell 33: resolve --already-resolved moves issues to resolved/ with a '## Resolution' line (no skip), mixes with --fixed, and works without --fixed", () => {
+    writeIssue(root, "PTQ-0151-gone.md", { location: "tests/a.test.ts:1-2", id: "PTQ-0151" });
+    writeIssue(root, "PTQ-0152-fixed.md", { location: "tests/b.test.ts:1-2", id: "PTQ-0152" });
+    writeIssue(root, "PTQ-0153-stuck.md", { location: "tests/c.test.ts:1-2", id: "PTQ-0153" });
+    const manifest = "quality/tmp/clusters/tests.txt";
+    writeFile(root, manifest, "quality/issues/PTQ-0151-gone.md\nquality/issues/PTQ-0152-fixed.md\nquality/issues/PTQ-0153-stuck.md\n");
+    writeFile(root, "quality/tmp/fix-notes.txt", "PTQ-0151: already resolved upstream by 4a4d6f61\n");
+
+    // Mixed lane: --fixed and --already-resolved together; the rest skips.
+    const r1 = runStore(root, [
+      "resolve", "--manifest", manifest,
+      "--fixed", "PTQ-0152-fixed.md",
+      "--already-resolved", "PTQ-0151-gone.md",
+      "--resolution-note", "already resolved upstream (4a4d6f61), verified at d5ae7f79",
+      "--wave", "w33", "--notes-file", "quality/tmp/fix-notes.txt",
+    ]);
+    expect(r1.status, r1.stderr).toBe(0);
+    expect(r1.stdout).toContain("quality/resolved/PTQ-0151-gone.md");
+    expect(r1.stdout).toContain("quality/resolved/PTQ-0152-fixed.md");
+    expect(r1.stdout).toContain("skipped PTQ-0153-stuck.md (fix_skips: 1)");
+    const gone = readFile(root, "quality/resolved/PTQ-0151-gone.md");
+    expect(gone).toMatch(/^status: fixed$/m);
+    expect(gone).toContain("## Resolution");
+    expect(gone).toContain("- w33: already resolved upstream (4a4d6f61), verified at d5ae7f79");
+    // The plain-fixed sibling gets no Resolution section, and no skip bullet.
+    const plain = readFile(root, "quality/resolved/PTQ-0152-fixed.md");
+    expect(plain).not.toContain("## Resolution");
+    expect(plain).not.toContain("## Fix attempts");
+
+    // A lane with NO commit: --already-resolved alone is a valid call, and
+    // the note defaults to "already resolved upstream (sha unknown)".
+    writeIssue(root, "PTQ-0154-gone2.md", { location: "tests/d.test.ts:1-2", id: "PTQ-0154" });
+    writeFile(root, manifest, "quality/issues/PTQ-0154-gone2.md\n");
+    const r2 = runStore(root, [
+      "resolve", "--manifest", manifest,
+      "--already-resolved", "PTQ-0154-gone2.md",
+      "--wave", "w34", "--notes-file", "quality/tmp/fix-notes.txt",
+    ]);
+    expect(r2.status, r2.stderr).toBe(0);
+    expect(r2.stdout.trim()).toBe("quality/resolved/PTQ-0154-gone2.md");
+    expect(readFile(root, "quality/resolved/PTQ-0154-gone2.md")).toContain("- w34: already resolved upstream (sha unknown)");
+
+    // Neither flag dies loud.
+    const r3 = runStore(root, ["resolve", "--manifest", manifest]);
+    expect(r3.status).toBe(1);
+    expect(r3.stderr).toContain("--fixed or --already-resolved");
+  });
+
   it("cell 12: default ROOT (env absent) resolves to the real repo and lists D2 + D6 + D7 + D10 + D1", () => {
     // Scrub any ambient override so the fallback itself is what runs.
     const env = { ...process.env };

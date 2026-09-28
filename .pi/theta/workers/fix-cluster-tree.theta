@@ -22,6 +22,15 @@ params:
 // which is why they need no change: their repo-relative paths and git commands
 // resolve against the tree. See docs/how-to/fan-out-into-git-worktrees.md.
 //
+// ALREADY-RESOLVED LANES (2026-09-28). An issue whose problem an upstream
+// commit already fixed needs no lane commit: the fixer reports it
+// already_resolved with evidence, the reviewer confirms it against HEAD, and
+// the lane collects it in already_resolved_confirmed. A lane whose
+// confirmations are ALL already-resolved returns ok with sha "" (nothing to
+// integrate); the orchestrator resolves the issues without a cherry-pick
+// (wave qw20260927174614's tests__p1 burned 6 fixer + 6 review passes on
+// unapprovable empty diffs before this outcome existed).
+//
 // BATCHED LANES (2026-09-18). A lane may own many issues (an oversized glued
 // component drains through one lane per wave), but gate/review rejection
 // probability grows with batch size and a rejection re-gates and re-reviews
@@ -55,7 +64,7 @@ let staged = match bash({ command: "mkdir -p quality/tmp && cp \"" + manifest_sr
   Err(_) => false,
 }
 if !staged {
-  return TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "could not stage the cluster manifest into the worktree: " + manifest_src, fixer_notes: "" }
+  return TreeFixReport { ok: false, sha: "", fixed_confirmed: [], already_resolved_confirmed: [], already_resolved_sha: "", notes: "could not stage the cluster manifest into the worktree: " + manifest_src, fixer_notes: "" }
 }
 
 // Bug 0474 belt. This wrapper runs INSIDE a subagent child, so its own process
@@ -78,6 +87,12 @@ let mut all_issues: array<string> = []
 all_issues = lines(bash({ command: "cat " + man })?)
 
 let mut confirmed: array<string> = []
+// Reviewer-confirmed already-resolved issues (problem gone at HEAD, no
+// attributable diff): lane-wide, they need no commit. already_sha keeps the
+// verified upstream resolving commit only while every batch names the same
+// one; "" renders as "sha unknown" in the orchestrator's resolve note.
+let mut already: array<string> = []
+let mut already_sha = ""
 let mut notes = ""
 let mut fixer_notes = ""
 let mut batches_committed = 0
@@ -131,7 +146,7 @@ while start < all_issues.length && lane_aborted == "" {
     } else {
       let fr = match fr_result {
         Ok(f) => f,
-        Err(e) => FixReport { fixed: [], skipped: [], notes: "unreachable: fixer_err aborted above" },
+        Err(e) => FixReport { fixed: [], already_resolved: [], skipped: [], notes: "unreachable: fixer_err aborted above" },
       }
       let _ = theta_progress({ message: "batch " + label + ": gating " + key, scope: key })?
       // The gate is bounded (the orchestrator passes a test-runner-width-capped
@@ -148,27 +163,48 @@ while start < all_issues.length && lane_aborted == "" {
       let gate_state = gate.includes("GATE_PASS") ? "green" : (gate.includes("gate-bash-error:") ? gate : "red")
       let _ = theta_progress({ message: "batch " + label + ": gate " + gate_state, scope: key })?
       trail = trail + "attempt " + att + ": gate " + gate_state + "; "
-      let rv = match review_fix(subman) {
+      let rv = match review_fix(subman, fr.already_resolved.join(",")) {
         Ok(r) => r,
-        Err(e) => FixReview { ok: false, fixed_confirmed: [], must_fix: "fix-review worker failed: " + e.kind + " - fixer notes were: " + fr.notes, unconfirmed: "" },
+        Err(e) => FixReview { ok: false, fixed_confirmed: [], already_resolved_confirmed: [], already_resolved_sha: "", must_fix: "fix-review worker failed: " + e.kind + " - fixer notes were: " + fr.notes, unconfirmed: "" },
       }
       let _ = theta_progress({ message: "batch " + label + ": review " + (rv.ok ? "confirmed" : "rejected"), scope: key })?
-      if gate.includes("GATE_PASS") && rv.ok && rv.fixed_confirmed.length > 0 {
-        // Single-writer rule: the tree commits code only. Any stray quality/
-        // edit is unstaged before the commit so the store stays the
-        // orchestrator's.
-        let committed = bash({ command: "git add -A && git restore --staged -- quality >/dev/null 2>&1; git commit -q -m \"quality: " + wave + " fix " + key + " batch " + label + "\" >/dev/null 2>&1 && git rev-parse HEAD || echo COMMIT_FAIL" })?
-        if committed.includes("COMMIT_FAIL") {
-          notes = notes + "[" + label + "] in-tree commit failed after a green gate and a confirming review. "
-          let _ = theta_progress({ message: "batch " + label + ": commit FAILED", scope: key })?
+      if gate.includes("GATE_PASS") && rv.ok && (rv.fixed_confirmed.length > 0 || rv.already_resolved_confirmed.length > 0) {
+        // Reviewer-confirmed already-resolved issues need no commit (problem
+        // gone at HEAD, no attributable diff): collect them lane-wide; the
+        // resolving sha survives only while every batch names the same one.
+        if rv.already_resolved_confirmed.length > 0 {
+          if already.length == 0 {
+            already_sha = rv.already_resolved_sha
+          } else if already_sha != rv.already_resolved_sha {
+            already_sha = ""
+          }
+          already = already.concat(rv.already_resolved_confirmed)
+        }
+        if rv.fixed_confirmed.length == 0 {
+          // Every confirmed issue in this batch was already resolved
+          // upstream: the empty diff IS the valid outcome here (a commit
+          // would fail on nothing staged), so the batch ends without one.
           done = true
+          fixer_notes = fixer_notes + "[" + label + "] " + fr.notes + (rv.unconfirmed == "" ? "" : " | review unconfirmed: " + rv.unconfirmed) + " || "
+          notes = notes + "[" + label + "] gate green, review confirmed already-resolved " + rv.already_resolved_confirmed.join(",") + " on attempt " + att + " - no commit needed. "
+          let _ = theta_progress({ message: "batch " + label + ": already resolved upstream - no commit", scope: key })?
         } else {
-          batches_committed += 1
-          confirmed = confirmed.concat(rv.fixed_confirmed)
-          done = true
-          fixer_notes = fixer_notes + "[" + label + "] " + fr.notes + (rv.must_fix == "" ? "" : " | review: " + rv.must_fix) + (rv.unconfirmed == "" ? "" : " | review unconfirmed: " + rv.unconfirmed) + " || "
-          notes = notes + "[" + label + "] gate green, review confirmed " + rv.fixed_confirmed.join(",") + " on attempt " + att + ". "
-          let _ = theta_progress({ message: "batch " + label + ": committed", scope: key })?
+          // Single-writer rule: the tree commits code only. Any stray quality/
+          // edit is unstaged before the commit so the store stays the
+          // orchestrator's.
+          let committed = bash({ command: "git add -A && git restore --staged -- quality >/dev/null 2>&1; git commit -q -m \"quality: " + wave + " fix " + key + " batch " + label + "\" >/dev/null 2>&1 && git rev-parse HEAD || echo COMMIT_FAIL" })?
+          if committed.includes("COMMIT_FAIL") {
+            notes = notes + "[" + label + "] in-tree commit failed after a green gate and a confirming review. "
+            let _ = theta_progress({ message: "batch " + label + ": commit FAILED", scope: key })?
+            done = true
+          } else {
+            batches_committed += 1
+            confirmed = confirmed.concat(rv.fixed_confirmed)
+            done = true
+            fixer_notes = fixer_notes + "[" + label + "] " + fr.notes + (rv.must_fix == "" ? "" : " | review: " + rv.must_fix) + (rv.unconfirmed == "" ? "" : " | review unconfirmed: " + rv.unconfirmed) + " || "
+            notes = notes + "[" + label + "] gate green, review confirmed " + rv.fixed_confirmed.join(",") + " on attempt " + att + ((rv.already_resolved_confirmed.length > 0) ? " (plus already-resolved " + rv.already_resolved_confirmed.join(",") + ")" : "") + ". "
+            let _ = theta_progress({ message: "batch " + label + ": committed", scope: key })?
+          }
         }
       } else {
         trail = trail + "review ok=" + (rv.ok ? "true" : "false") + ", confirmed " + (rv.fixed_confirmed.length == 0 ? "none" : rv.fixed_confirmed.join(",")) + (rv.must_fix == "" ? "" : ", must_fix: " + rv.must_fix) + "; fixer: " + fr.notes + " | "
@@ -205,13 +241,19 @@ while start < all_issues.length && lane_aborted == "" {
 // tree - stray post-batch working-tree writes (an orphaned fixer racing this
 // lane, bug 0484) cannot reach it. The orchestrator's contract (one sha,
 // cherry-picked) is unchanged.
-let mut out = TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: notes + lane_aborted, fixer_notes: fixer_notes }
+let mut out = TreeFixReport { ok: false, sha: "", fixed_confirmed: [], already_resolved_confirmed: already, already_resolved_sha: already_sha, notes: notes + lane_aborted, fixer_notes: fixer_notes }
 if batches_committed > 0 {
   let squashed = bash({ command: "git reset --soft " + base + " >/dev/null 2>&1 && git commit -q -m \"quality: " + wave + " fix " + key + "\" >/dev/null 2>&1 && git rev-parse HEAD || echo SQUASH_FAIL" })?
   if squashed.includes("SQUASH_FAIL") {
-    out = TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: notes + lane_aborted + " SQUASH FAILED at lane end - tree discarded, no integration.", fixer_notes: fixer_notes }
+    out = TreeFixReport { ok: false, sha: "", fixed_confirmed: [], already_resolved_confirmed: already, already_resolved_sha: already_sha, notes: notes + lane_aborted + " SQUASH FAILED at lane end - tree discarded, no integration.", fixer_notes: fixer_notes }
   } else {
-    out = TreeFixReport { ok: true, sha: squashed.trim(), fixed_confirmed: confirmed, notes: notes + (lane_aborted == "" ? "" : "LANE ABORTED after " + lane_aborted + " - committed batches up to the abort are included. "), fixer_notes: fixer_notes }
+    out = TreeFixReport { ok: true, sha: squashed.trim(), fixed_confirmed: confirmed, already_resolved_confirmed: already, already_resolved_sha: already_sha, notes: notes + (lane_aborted == "" ? "" : "LANE ABORTED after " + lane_aborted + " - committed batches up to the abort are included. "), fixer_notes: fixer_notes }
   }
+} else if already.length > 0 && lane_aborted == "" {
+  // No batch committed anything, but the review confirmed already-resolved
+  // issues against HEAD: the lane is green by verification alone - ok with
+  // an empty sha, nothing to cherry-pick (the orchestrator resolves these
+  // issues without an integration step).
+  out = TreeFixReport { ok: true, sha: "", fixed_confirmed: [], already_resolved_confirmed: already, already_resolved_sha: already_sha, notes: notes + "No in-tree commit: every confirmed issue was already resolved upstream. ", fixer_notes: fixer_notes }
 }
 out

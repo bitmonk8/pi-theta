@@ -26,7 +26,13 @@ ${issue_files}
 Rules:
 - Each issue's lens: frontmatter selects the per-lens rules below.
 - Re-verify each issue against the CURRENT code before touching anything (code
-  may have moved since filing). If it no longer reproduces, skip it and say why.
+  may have moved since filing). If the described problem is ALREADY GONE at
+  HEAD (fixed upstream since the issue was filed), touch nothing for it and
+  report it under already_resolved - not fixed, not skipped - with the
+  evidence in your notes for that issue: the upstream resolving commit when
+  you can find it (git log -S/-G over the cited identifiers, or git log on
+  the cited files), else "sha unknown", plus current-code citations showing
+  the problem is gone at HEAD.
 - A fix is the minimal change that removes the crufted code or vestige. Preserve
   behavior. No drive-by refactors, no unrelated edits, no formatting sweeps.
   Follow docs/STYLE.md where it applies.
@@ -181,6 +187,10 @@ RETRY seed after an integration conflict is attempt 1: fix normally.)
 When done, reply with the requested schema:
 - fixed: issue file BASENAMES (e.g. PTQ-0007-some-slug.md) fully fixed with the
   gate green
+- already_resolved: issue file basenames whose described problem was already
+  gone at HEAD before this lane touched anything (evidence per issue in notes)
 - skipped: issue file basenames not fixed
-- notes: one line per issue — what was done, or why it was skipped.`?
+- notes: one line per issue — what was done, why it was skipped, or the
+  already-resolved evidence (resolving sha or "sha unknown" plus what you
+  verified gone at HEAD).`?
 r
