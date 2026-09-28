@@ -22,7 +22,9 @@
 // own entry points (`checkInvokeStaticResolution`,
 // `checkThetaCallableCallSurface`) never call any of the four — this file's
 // sole caller is `checkThetaImports` (../extension/import-static-checks.ts),
-// which imports these five names from here instead. Reuses
+// which runs all four through `runImportedSymbolUsageChecks` (PTQ-1607
+// Seam A: the shared shadow-set / call-site derivation plus the four
+// pushes, moved here from that caller). Reuses
 // invoke-static-checks.ts's shared call-site walk result
 // (`CollectedCallSites`, bug 0071's one-walker lesson) and its
 // `collectProvableArgTypes` / `dedupeArgType` value-type machinery, imported
@@ -45,6 +47,7 @@ import { checkFnCallArity } from "../parser/invoke-diagnostics";
 import { StaticTypeInferencePass } from "../parser/static-type-inference";
 import {
   collectEnumNames,
+  collectLocalBinderNames,
   collectTypeEnv,
   fnParamNamesAreIdentifiers,
 } from "../parser/type-layer-checks";
@@ -52,10 +55,12 @@ import { fnCallJudgedArgSlots } from "../parser/annotation-compat";
 import { checkCompatible, type TypeEnv } from "../parser/type-compat";
 import { checkFnArgCompat } from "../parser/type-compat-sites";
 import {
+  collectCallSites,
   collectProvableArgTypes,
   dedupeArgType,
   type CollectedCallSites,
 } from "./invoke-static-checks";
+import type { ThetaCompositionInput } from "./theta-composition-producer";
 
 /**
  * One imported `.thetalib` callee `checkImportedFnCallArgs` may judge: the
@@ -533,4 +538,101 @@ export function checkImportedNonCtorTypeNames(
     });
   }
   return diagnostics;
+}
+
+/**
+ * PTQ-1607 Seam A: run the four imported-symbol-usage checks
+ * (`checkImportedFnCallArgs` / `checkImportedSchemaCtorFields` /
+ * `checkImportedEnumVariantAccess` / `checkImportedNonCtorTypeNames`) ONCE
+ * over the importing theta's own body, pushing their diagnostics onto
+ * `diagnostics` in that order, after deriving the shadow set and call-site
+ * walk all four share. Called by `checkThetaImports`
+ * (../extension/import-static-checks.ts) at the point it held this sequence
+ * inline, once `collectImportedSpecifierFacts` has returned the four fact
+ * maps; `importingFile` is that caller's (non-`undefined`) `input.sourcePath`.
+ */
+export function runImportedSymbolUsageChecks(
+  input: ThetaCompositionInput,
+  importingFile: string,
+  facts: {
+    readonly importedFns: ReadonlyMap<string, ImportedFnCallee>;
+    readonly importedSchemas: ReadonlyMap<string, readonly SchemaFieldSource[]>;
+    readonly importedEnums: ReadonlyMap<string, readonly string[]>;
+    readonly importedNonCtorNames: ReadonlySet<string>;
+  },
+  diagnostics: Diagnostic[],
+): void {
+  const { importedFns, importedSchemas, importedEnums, importedNonCtorNames } = facts;
+
+  // The params-field wire-name list the four imported-symbol-usage checks
+  // below share as their shadow set: `input.frontmatter?.params?.fields ?? []`
+  // mapped to `wireName` is the same NAME-KEYING ADJUDICATION
+  // `parseThetaDocument`'s `checkTypeLayer` call site uses
+  // (../parser/theta-document.ts) — the body-visible identifier a `params:`
+  // field binds, cited rather than re-derived. Computed once here so the four
+  // checks below cannot silently diverge on it.
+  const paramsFieldNames = (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName);
+
+  // PTQ-0319 / PTQ-0330: the shadow set and the call-site walk are each a
+  // whole-body traversal (`collectLocalBinderNames`,
+  // `../parser/type-layer-checks.ts`; `collectCallSites`,
+  // `./invoke-static-checks.ts`) that all four `checkImported*` routes below
+  // need identically — computed ONCE here, over the same `input.body` /
+  // `paramsFieldNames` every route would otherwise re-derive, and passed in
+  // rather than re-walked per route.
+  const shadowedNames = collectLocalBinderNames(input.body, paramsFieldNames);
+  const callSites = collectCallSites(input.body);
+
+  // Bug 0138 route 2: judge every imported-`fn` call site's argument COUNT and
+  // TYPE, ONCE over the importing theta's own body, now that the per-decl loop
+  // above holds the whole `importedFns` map.
+  diagnostics.push(
+    ...checkImportedFnCallArgs(
+      input.body,
+      importingFile,
+      shadowedNames,
+      callSites,
+      importedFns,
+    ),
+  );
+
+  // Bug 0429: judge every imported-`schema` constructor site's field set,
+  // ONCE over the importing theta's own body, now that the per-decl loop
+  // above holds the whole `importedSchemas` map — the same wiring shape as
+  // the `checkImportedFnCallArgs` push immediately above.
+  diagnostics.push(
+    ...checkImportedSchemaCtorFields(
+      importingFile,
+      shadowedNames,
+      callSites,
+      importedSchemas,
+    ),
+  );
+
+  // Bug 0430: judge every imported-`enum` variant-access site's variant name,
+  // ONCE over the importing theta's own body, now that the per-decl loop
+  // above holds the whole `importedEnums` map — the same wiring shape as the
+  // `checkImportedSchemaCtorFields` push immediately above.
+  diagnostics.push(
+    ...checkImportedEnumVariantAccess(
+      importingFile,
+      shadowedNames,
+      callSites,
+      importedEnums,
+    ),
+  );
+
+  // Bug 0448: judge every imported constructor site whose head resolves to a
+  // NON-brace-constructible declaration (an `enum`, a `fn`, or a fields-less
+  // `schema`), ONCE over the importing theta's own body, now that the
+  // per-decl loop above holds the whole `importedNonCtorNames` set — the same
+  // wiring shape as the two pushes immediately above.
+  diagnostics.push(
+    ...checkImportedNonCtorTypeNames(
+      importingFile,
+      shadowedNames,
+      callSites,
+      importedNonCtorNames,
+    ),
+  );
 }
