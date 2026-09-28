@@ -962,6 +962,25 @@ function unionMembers(
 }
 
 /**
+ * The flat set of static types whose UNION covers every value `expr` can
+ * evaluate to, or `undefined` when any value-contributing position is past the
+ * parser's static view. All type checks below reason over this SET rather than
+ * over `StaticTypeInferencePass`'s single reduced type — see the pass's own
+ * `collectProvableArgTypes` (../parser/static-type-inference.ts) for the full
+ * contract. The set is computed by the SAME `Expr` switch that assigns the
+ * reduced type (`#typeValue`), so a collected member can never render
+ * differently from the type the pass itself assigns; this free-function seam
+ * only keeps every call-surface consumer's existing import shape.
+ */
+export function collectProvableArgTypes(
+  expr: Expr,
+  env: TypeEnv,
+  pass: StaticTypeInferencePass,
+): CompatType[] | undefined {
+  return pass.collectProvableArgTypes(expr, env);
+}
+
+/**
  * Render a collected value-type set for the `<actual>` placeholder: each member
  * through `displayType`, deduplicated, joined with `" | "` — the top-level-union
  * spelling `subsetKinds` (../runtime/tool-call.ts) splits back into kinds and

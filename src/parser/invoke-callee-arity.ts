@@ -1,12 +1,11 @@
 // Compose-pass callee arity and argument-slot type model, including runtime-tool
 // success types and the Pi-tool input-schema subset.
 
-import { collectProvableArgTypes } from "../extension/invoke-expr-call-surface";
 import type { CallableSetSnapshot } from "./callable-set";
 import type { ThetaMode } from "./frontmatter";
 import type { InvokeArgSlot } from "./invoke-diagnostics";
 import { RUNTIME_TOOL_SIGNATURES, type RuntimeToolName } from "./runtime-tools";
-import type { StaticTypeInferencePass } from "./static-type-inference";
+import { collectProvableArgTypes, type StaticTypeInferencePass } from "./static-type-inference";
 import type { Expr } from "./theta-document";
 import { checkCompatible, displayType, type CompatType, type TypeEnv } from "./type-compat";
 import { annotationToCompatType, letAnnotationToCompatType } from "./type-layer-checks";

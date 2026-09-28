@@ -10,6 +10,7 @@ import {
   type InvokeArgSlot,
 } from "../parser/invoke-diagnostics";
 import {
+  collectProvableArgTypes,
   renderCollectedTypes,
   type StaticTypeInferencePass,
 } from "../parser/static-type-inference";
@@ -20,29 +21,11 @@ import { checkInvokePathAtLoad } from "../runtime/invocation";
 import type { FileSystem } from "../seams/file-system";
 import type { CalleeArity, CalleeArityField } from "./invoke-static-checks";
 
-/**
- * The flat set of static types whose UNION covers every value `expr` can
- * evaluate to, or `undefined` when any value-contributing position is past the
- * parser's static view. All type checks below reason over this SET rather than
- * over `StaticTypeInferencePass`'s single reduced type — see the pass's own
- * `collectProvableArgTypes` (../parser/static-type-inference.ts) for the full
- * contract. The set is computed by the SAME `Expr` switch that assigns the
- * reduced type (`#typeValue`), so a collected member can never render
- * differently from the type the pass itself assigns; this free-function seam
- * only keeps every call-surface consumer's existing import shape.
- */
-export function collectProvableArgTypes(
-  expr: Expr,
-  env: TypeEnv,
-  pass: StaticTypeInferencePass,
-): CompatType[] | undefined {
-  return pass.collectProvableArgTypes(expr, env);
-}
-
-// The `<actual>`-placeholder renderer for a collected value-type set lives
-// beside the collection itself (../parser/static-type-inference.ts); re-exported
-// so every call-surface consumer keeps its existing import shape.
-export { renderCollectedTypes } from "../parser/static-type-inference";
+// The provable value-type collection forward (`collectProvableArgTypes`) and
+// the `<actual>`-placeholder renderer for a collected value-type set live beside
+// the collection itself (../parser/static-type-inference.ts); re-exported so
+// every extension call-surface consumer keeps its existing import shape.
+export { collectProvableArgTypes, renderCollectedTypes } from "../parser/static-type-inference";
 
 /**
  * Check the first provable argument type mismatch for a `.theta` callable or
@@ -143,6 +126,54 @@ export function checkCallableArgumentTypes(input: {
 }
 
 /**
+ * The bug-0473 typed-return leg of `checkInvokeExprCallSurface`: judge a typed
+ * `invoke<Schema>` site's statically-resolved callee return type against
+ * `Schema` (`theta/parse/invoke-return-type-mismatch`). Returns the leg's
+ * diagnostics for the caller to append at the leg's position in its sequence.
+ */
+async function checkInvokeReturnTypeLeg(
+  invoke: InvokeExpr,
+  resolvedPath: string,
+  site: { readonly file: string; readonly range: SourceRange },
+  typeEnv: TypeEnv,
+  resolveCalleeReturnType: (calleeAbsolutePath: string) => Promise<CompatType | undefined>,
+): Promise<Diagnostic[]> {
+  const diagnostics: Diagnostic[] = [];
+  // invocation.md §"Typed return" (Empty-tail callee compatibility): a
+  // typed invoke<Schema> of a statically-resolvable literal-path callee
+  // whose inferred final value is incompatible with Schema is a parse
+  // error — the cross-file mirror of the in-file `subagent fn` return
+  // check (checkSubagentReturnAnnotation), reusing the SAME
+  // checkInvokeReturnType / theta/parse/invoke-return-type-mismatch
+  // (bug 0473). Independent of the arity/type block below: an arity or
+  // per-slot mismatch does not withhold a genuine return-type mismatch,
+  // and vice versa. Self-deferring: `resolveCalleeReturnType` answers
+  // `undefined` for an unreadable/unparseable callee, or a payload this
+  // layer cannot decide without callee-namespace resolution (named /
+  // withheld / no-common-type) — the runtime AJV net is the fallback
+  // exactly as it is for the in-file path's own unresolvable operands.
+  if (invoke.returnSchema !== null && invoke.returnSchemaAbsorbed !== true) {
+    const schema = annotationToCompatType(invoke.returnSchema);
+    if (schema !== undefined) {
+      const calleeReturn = await resolveCalleeReturnType(resolvedPath);
+      if (calleeReturn !== undefined) {
+        diagnostics.push(
+          ...checkInvokeReturnType({
+            callee: invoke.path,
+            calleeResolvable: true,
+            schema,
+            calleeReturn,
+            env: typeEnv,
+            site,
+          }),
+        );
+      }
+    }
+  }
+  return diagnostics;
+}
+
+/**
  * Check the `invoke(...)` expression surface: INV-1 containment, INV-8 clause
  * mode, INV-6 cwd type, then INV-3 arity and per-slot argument types, in order.
  * Host-owned helpers are threaded as dependencies to keep the surface module
@@ -232,37 +263,15 @@ export async function checkInvokeExprCallSurface(
       continue;
     }
 
-    // invocation.md §"Typed return" (Empty-tail callee compatibility): a
-    // typed invoke<Schema> of a statically-resolvable literal-path callee
-    // whose inferred final value is incompatible with Schema is a parse
-    // error — the cross-file mirror of the in-file `subagent fn` return
-    // check (checkSubagentReturnAnnotation), reusing the SAME
-    // checkInvokeReturnType / theta/parse/invoke-return-type-mismatch
-    // (bug 0473). Independent of the arity/type block below: an arity or
-    // per-slot mismatch does not withhold a genuine return-type mismatch,
-    // and vice versa. Self-deferring: `resolveCalleeReturnType` answers
-    // `undefined` for an unreadable/unparseable callee, or a payload this
-    // layer cannot decide without callee-namespace resolution (named /
-    // withheld / no-common-type) — the runtime AJV net is the fallback
-    // exactly as it is for the in-file path's own unresolvable operands.
-    if (invoke.returnSchema !== null && invoke.returnSchemaAbsorbed !== true) {
-      const schema = annotationToCompatType(invoke.returnSchema);
-      if (schema !== undefined) {
-        const calleeReturn = await deps.resolveCalleeReturnType(resolvedPath);
-        if (calleeReturn !== undefined) {
-          diagnostics.push(
-            ...checkInvokeReturnType({
-              callee: invoke.path,
-              calleeResolvable: true,
-              schema,
-              calleeReturn,
-              env: typeEnv,
-              site,
-            }),
-          );
-        }
-      }
-    }
+    diagnostics.push(
+      ...(await checkInvokeReturnTypeLeg(
+        invoke,
+        resolvedPath,
+        site,
+        typeEnv,
+        deps.resolveCalleeReturnType,
+      )),
+    );
 
     // INV-3 (invocation.md §Argument arity): arity is checked against the
     // statically-resolved callee's `params:` counts. The provided count

@@ -14,12 +14,15 @@ import {
   WITH_CLAUSE_PI_TOOL_CODE,
   WITH_CLAUSE_PI_TOOL_HINT,
 } from "./invoke-diagnostics";
-import type { StaticTypeInferencePass } from "./static-type-inference";
+import {
+  collectProvableArgTypes,
+  renderCollectedTypes,
+  type StaticTypeInferencePass,
+} from "./static-type-inference";
 import type { CallExpr, CallWithClause, Stmt, ThetaBody } from "./theta-document";
 import { checkCompatible, displayType, type CompatType, type TypeEnv } from "./type-compat";
 import type { MaterializedImport } from "../runtime/lexical-environment";
 import { checkToolCallArguments } from "../runtime/tool-call";
-import { collectProvableArgTypes, renderCollectedTypes } from "../extension/invoke-expr-call-surface";
 import { collectCallSites } from "../extension/invoke-static-checks";
 
 /**
