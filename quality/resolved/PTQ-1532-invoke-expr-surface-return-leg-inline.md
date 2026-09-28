@@ -2,7 +2,7 @@
 id: PTQ-1532
 title: checkInvokeExprCallSurface is a 209-LOC strong-band per-site loop that has absorbed the bug-0473 typed-return leg inline after the PTQ-0413 seam landed
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/invoke-expr-call-surface.ts:151-359

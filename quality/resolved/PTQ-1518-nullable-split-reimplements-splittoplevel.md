@@ -2,7 +2,7 @@
 id: PTQ-1518
 title: typeSourceIsNullable hand-rolls a nesting-blind `split("|")` while the already-imported type-text-split module's splitTopLevel provides the top-level union-arm split
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/frontmatter-params.ts:51-57

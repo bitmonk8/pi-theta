@@ -2,7 +2,7 @@
 id: PTQ-1534
 title: collectProvableArgTypes survives in extension/invoke-expr-call-surface.ts as a one-line forward to a parser method, and two of its three src importers are parser modules that import it upward
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/invoke-expr-call-surface.ts:34-40

@@ -2,7 +2,7 @@
 id: PTQ-1520
 title: buildRuntimeToolSuccessTypes carries an empty-map fast path whose only effect is one avoided Map allocation, purchased with an `as unknown as` double cast that mislabels a RuntimeToolName map as a CompatType map
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/lexical-call-sites.ts:195-214

@@ -2,7 +2,7 @@
 id: PTQ-1522
 title: binder-run.ts carries the whole extracted binder pipeline — six member clusters (bypass, model gate, dispatch assembly, budgeted call/classification, note emission, defaults merge/recovery) in one 1068-LOC file
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/binder-run.ts:1-1068

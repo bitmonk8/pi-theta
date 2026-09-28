@@ -2,7 +2,7 @@
 id: PTQ-1528
 title: invoke-machinery.ts bundles five member groups (entry resolvers, drive legs, boundary guards, binding/projection, typed-return validation) at 1005 LOC
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/invoke-machinery.ts:1-1005

@@ -2,7 +2,7 @@
 id: PTQ-1521
 title: structural-checks' PropagationIndex hand-rolls a string set as a null-prototype Record<string, true> read through Object.hasOwn, guarding a prototype-key hazard that its code-composed keys cannot reach
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/structural-checks.ts:149-188

@@ -2,7 +2,7 @@
 id: PTQ-1525
 title: scanStringLiteral is a 147-LOC justify-band function whose \u{...} unicode-escape sub-recogniser is a 57-LOC inline arm dominating an otherwise short escape table
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/lexer/lexer.ts:234-380
