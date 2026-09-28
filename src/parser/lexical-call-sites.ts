@@ -196,9 +196,6 @@ export function buildRuntimeToolSuccessTypes(
   tools: readonly string[] | undefined,
 ): ReadonlyMap<string, CompatType> {
   const presented = runtimeToolPresentedNames(tools);
-  if (presented.size === 0) {
-    return presented as unknown as ReadonlyMap<string, CompatType>;
-  }
   const out = new Map<string, CompatType>();
   for (const [name, canonical] of presented) {
     const sig = RUNTIME_TOOL_SIGNATURES.get(canonical);
