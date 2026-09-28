@@ -146,13 +146,8 @@ function rangeKey(range: SourceRange): string {
   return `${range.start.line}:${range.start.column}-${range.end.line}:${range.end.column}`;
 }
 
-/**
- * The propagating captures, keyed by capture identity. Null-prototyped: the key
- * is composed from a capture kind and a source range, and every read is
- * own-key-guarded (`propagatedToQuery`), so no `Object.prototype` name can
- * answer for a capture no propagation wrote.
- */
-type PropagationIndex = Readonly<Record<string, true>>;
+/** The propagating captures, keyed by capture identity (`propagationKey`). */
+type PropagationIndex = ReadonlySet<string>;
 
 /**
  * The index key for one capture. The capture's own declaration range is the
@@ -169,11 +164,7 @@ function propagationKey(capture: PropagationCapture): string {
 function indexQueryPropagations(
   propagations: readonly QueryPropagation[],
 ): PropagationIndex {
-  const index: Record<string, true> = Object.create(null) as Record<string, true>;
-  for (const propagation of propagations) {
-    index[propagationKey(propagation.capture)] = true;
-  }
-  return index;
+  return new Set(propagations.map((p) => propagationKey(p.capture)));
 }
 
 /**
@@ -184,7 +175,7 @@ function indexQueryPropagations(
  */
 function propagatedToQuery(refs: StructuralRefs, capture: PropagationCapture): boolean {
   const key = propagationKey(capture);
-  return Object.hasOwn(refs.queryPropagations, key);
+  return refs.queryPropagations.has(key);
 }
 
 /**
