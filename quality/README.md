@@ -94,7 +94,11 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
 5. **Triage** — every candidate independently re-verified
    (`anthropic/claude-opus-5-5` at `thinking: high`). `confirmed` → minted
    `PTQ-NNNN` in `issues/`; rejections → one `TRIAGE_LOG.md` row, file deleted;
-   `questionable` stays in `intake/` as the human queue.
+   `questionable` stays in `intake/` as the human queue, stamped
+   `triaged_at: <sha>` — the next wave re-triages it only when a path its
+   locations cite changed since the stamp (or it has no stamp yet);
+   `store.mjs triage-due` is the worklist, so new candidates and failed-triage
+   leftovers are always due.
 6. **Fix** — open issues clustered by fix surface (D2/D7/D4: the first two
    path segments of the first cited location, split file-disjoint over every
    cited path; D9/D8: the whole HOST FILE — one host, one lane per wave, D9

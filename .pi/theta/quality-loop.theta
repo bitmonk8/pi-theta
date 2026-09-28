@@ -302,11 +302,15 @@ while cycle < max_cycles && !converged && !provider_halt {
     batch_start = batch_end
   }
 
-  // ---- 4. triage every candidate in intake (leftovers included) ----
-  let cand_n = bash({ command: "ls -1 quality/intake/*.md 2>/dev/null | wc -l" })?.trim()
+  // ---- 4. triage every candidate DUE in intake (leftovers included) ----
+  // triage-due skips a questionable already judged at a sha since which no
+  // cited path changed (the stamp below): re-triaging the whole ~45-file
+  // questionable backlog every wave appended near-identical verdict lines at
+  // about $15/wave. New candidates and unstamped questionables are always due.
+  let cand_n = bash({ command: "node tools/quality/store.mjs triage-due | wc -l" })?.trim()
   if cand_n != "0" {
     let mut cands: array<string> = []
-    cands = lines(bash({ command: "ls -1 quality/intake/*.md 2>/dev/null | sort" })?)
+    cands = lines(bash({ command: "node tools/quality/store.mjs triage-due" })?)
     let verdicts = par for c in cands max parallel {
       triage_finding(c)?
     }
@@ -334,9 +338,11 @@ while cycle < max_cycles && !converged && !provider_halt {
           let _ = bash({ command: "node tools/quality/store.mjs accept --finding " + cands[j] })?
           total_confirmed += 1
         } else if v.verdict == "questionable" {
-          // Stays in intake/ as the owner queue; re-triaged next cycle. Never a
-          // convergence signal - a questionable is a human's call, not the
-          // loop's work item.
+          // Stays in intake/ as the owner queue. Never a convergence signal -
+          // a questionable is a human's call, not the loop's work item. The
+          // triaged_at stamp keeps it OUT of the next wave's triage until a
+          // cited path changes (store.mjs triage-due).
+          let _ = bash({ command: "node tools/quality/store.mjs stamp-triaged --finding " + cands[j] + " --sha " + review_sha })?
           total_questionable += 1
         } else {
           let _ = bash({ command: "node tools/quality/store.mjs reject --finding " + cands[j] + " --verdict " + v.verdict })?

@@ -1031,6 +1031,75 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     expect(lane).toEqual(["quality/issues/PTQ-0031-doc.md"]);
   });
 
+  it("cell 31: triage-due always lists pending candidates; a questionable is skipped once stamped (triaged_at) and unchanged, due again when a cited file changes", () => {
+    // Pending candidate (fresh filing or failed-triage leftover): always due.
+    writeIntake(root, "w31-d2-01-pending.md", { lens: "D2" });
+    // Questionable WITHOUT a stamp (pre-migration file): due once \u2014 the loop
+    // stamps it after this wave's verdict.
+    writeIntake(root, "w31-d7-01-nostamp.md", {
+      lens: "D7",
+      triageNote: "verdict: questionable \u2014 needs a human (triage: x)",
+    });
+    // Questionable WITH a stamp and no cited-file change since: skipped.
+    const stamped = writeIntake(root, "w31-d7-02-stamped.md", {
+      lens: "D7",
+      triageNote: "verdict: questionable \u2014 needs a human (triage: x)",
+    });
+    const head = git(root, "rev-parse", "HEAD").trim();
+    const rStamp = runStore(root, ["stamp-triaged", "--finding", stamped, "--sha", head]);
+    expect(rStamp.status, rStamp.stderr).toBe(0);
+    expect(rStamp.stdout).toBe(`stamped\t${stamped}\t${head.slice(0, 12)}\n`);
+    expect(readFile(root, stamped)).toMatch(new RegExp(`^triaged_at: ${head}$`, "m"));
+
+    const due1 = runStore(root, ["triage-due"]).stdout.trim().split("\n").filter(Boolean);
+    expect(due1).toEqual([
+      "quality/intake/w31-d2-01-pending.md",
+      "quality/intake/w31-d7-01-nostamp.md",
+    ]);
+
+    // The cited file (writeIntake cites src/big.ts) changes in a commit: the
+    // stamped questionable is due again.
+    writeFile(root, "src/big.ts", makeLines(10));
+    git(root, "add", "-A");
+    git(root, "commit", "-q", "-m", "create the cited file");
+    const due2 = runStore(root, ["triage-due"]).stdout.trim().split("\n").filter(Boolean);
+    expect(due2).toContain("quality/intake/w31-d7-02-stamped.md");
+
+    // Re-stamped at the new head: skipped again, and the stamp is replaced,
+    // not duplicated.
+    const head2 = git(root, "rev-parse", "HEAD").trim();
+    runStore(root, ["stamp-triaged", "--finding", stamped, "--sha", head2]);
+    const due3 = runStore(root, ["triage-due"]).stdout.trim().split("\n").filter(Boolean);
+    expect(due3).not.toContain("quality/intake/w31-d7-02-stamped.md");
+    expect(readFile(root, stamped).match(/^triaged_at:/gm)).toHaveLength(1);
+
+    // A missing finding dies loud.
+    expect(runStore(root, ["stamp-triaged", "--finding", "quality/intake/nope.md", "--sha", head2]).status).toBe(1);
+  });
+
+  it("cell 32: triage-due treats a parked issue's frontmatter questionable like a worker verdict (due unstamped, skipped stamped) and an unresolvable stamp sha as due", () => {
+    // A parked issue: the store's own park path writes frontmatter
+    // verdict: questionable (the worker's verdict lives only under ## Triage).
+    writeFile(
+      root,
+      "quality/intake/PTQ-0140-parked.md",
+      [
+        "---", "id: PTQ-0140", "title: parked", "lens: D7", "status: intake",
+        "verdict: questionable", "locations:", "  - tests/one.test.ts:1-2",
+        "fix_skips: 2", "---", "", "# parked", "", "## Triage",
+        "verdict: questionable \u2014 parked by the store (store)", "",
+      ].join("\n"),
+    );
+    const due1 = runStore(root, ["triage-due"]).stdout.trim().split("\n").filter(Boolean);
+    expect(due1).toEqual(["quality/intake/PTQ-0140-parked.md"]);
+    const head = git(root, "rev-parse", "HEAD").trim();
+    runStore(root, ["stamp-triaged", "--finding", "quality/intake/PTQ-0140-parked.md", "--sha", head]);
+    expect(runStore(root, ["triage-due"]).stdout.trim()).toBe("");
+    // An unknown/unreachable stamp sha (rewritten history) is judged again.
+    runStore(root, ["stamp-triaged", "--finding", "quality/intake/PTQ-0140-parked.md", "--sha", "0123456789abcdef0123456789abcdef01234567"]);
+    expect(runStore(root, ["triage-due"]).stdout.trim()).toBe("quality/intake/PTQ-0140-parked.md");
+  });
+
   it("cell 12: default ROOT (env absent) resolves to the real repo and lists D2 + D6 + D7 + D10 + D1", () => {
     // Scrub any ambient override so the fallback itself is what runs.
     const env = { ...process.env };

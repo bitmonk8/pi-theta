@@ -134,6 +134,19 @@
 //       that shard (KEEP-WHOLE dispositions for D9, routing notes for every
 //       lens) — the only place those notes persist; the orchestrator otherwise
 //       reads just the filed count.
+//   triage-due
+//       Print every intake candidate due for triage, one per line, sorted.
+//       A candidate whose latest verdict is not questionable (fresh filings,
+//       failed-triage leftovers) is always due; a questionable (frontmatter
+//       verdict — a parked issue — or the last "## Triage" verdict line) is
+//       due only when it carries no triaged_at stamp or a path its locations
+//       cite changed since that sha (re-triaging ~45 unchanged questionables
+//       every wave appended near-identical verdict lines at ~$15/wave).
+//   stamp-triaged --finding <intake .md> --sha <sha>
+//       Record (frontmatter triaged_at) the sha a questionable verdict was
+//       judged at, so triage-due skips the file until a cited path changes.
+//       Files predating the stamp carry none and are re-triaged once, which
+//       stamps them.
 //   note --finding <intake path> --text <one line>
 //       Append one line under the finding's "## Triage" heading (store-owned
 //       write; the single-writer rule). Not a ruling: frontmatter and status
@@ -917,6 +930,56 @@ switch (cmd) {
     if (!body.includes("## Triage")) die(`${finding} has no \"## Triage\" heading`);
     fs.appendFileSync(file, `${body.endsWith("\n") ? "" : "\n"}${text.trim()} (loop, ${today()})\n`);
     process.stdout.write(`noted\t${finding}\n`);
+    break;
+  }
+
+  case "triage-due": {
+    // The triage worklist. Anything not yet questionable is always due; a
+    // questionable is the HUMAN queue, so re-judging it only pays when the
+    // evidence can have moved: no triaged_at stamp (a pre-stamp file or a
+    // freshly parked issue — due once; the loop stamps it after the verdict),
+    // or a cited path changed since the stamped sha. Frontmatter verdict
+    // catches parked issues (the store's own park path writes it); the last
+    // "## Triage" line catches worker verdicts (the worker appends its
+    // verdict there and leaves frontmatter untouched).
+    if (!fs.existsSync(INTAKE)) break;
+    for (const name of fs.readdirSync(INTAKE).filter((n) => n.endsWith(".md")).sort()) {
+      const file = path.join(INTAKE, name);
+      const relPath = posix(path.join("quality", "intake", name));
+      const { fields, locations } = readFrontmatter(file);
+      const questionable =
+        fields.verdict === "questionable" || triageNote(file).startsWith("verdict: questionable");
+      if (!questionable) {
+        process.stdout.write(relPath + "\n");
+        continue;
+      }
+      const sha = fields.triaged_at;
+      if (!sha) {
+        process.stdout.write(relPath + "\n");
+        continue;
+      }
+      const cited = [...new Set(locations.map((l) => posix(l.split(":")[0])).filter(Boolean))];
+      let due = false;
+      if (cited.length > 0) {
+        try {
+          const changed = git(["diff", "--name-only", sha, "HEAD", "--", ...cited]);
+          due = changed.split("\n").some((l) => l.trim() !== "");
+        } catch {
+          due = true; // unknown/unreachable sha (rewritten history): judge again
+        }
+      }
+      if (due) process.stdout.write(relPath + "\n");
+    }
+    break;
+  }
+
+  case "stamp-triaged": {
+    const finding = flags.finding ?? die("--finding required");
+    const sha = flags.sha ?? die("--sha required");
+    const file = path.join(ROOT, finding);
+    if (!fs.existsSync(file)) die(`no such finding: ${finding}`);
+    fs.writeFileSync(file, setFrontmatterField(fs.readFileSync(file, "utf8"), "triaged_at", sha));
+    process.stdout.write(`stamped\t${finding}\t${sha.slice(0, 12)}\n`);
     break;
   }
 
