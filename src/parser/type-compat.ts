@@ -155,8 +155,8 @@ export type TypeEnv = Readonly<Record<string, NamedDecl>>;
  * `isTypeLikeName` guard (src/lexer/name-case.ts) — the same one the lexer's
  * type-position test (`contextualDiagnostics`, src/lexer/contextual-checks.ts)
  * and the other enforcement sites (`extractParsedParams`,
- * src/parser/frontmatter-params.ts; `parseFnParamList` and
- * `parseSchemaObjectBody`, src/parser/body-parser.ts; `walkType`,
+ * src/parser/frontmatter-params.ts; `parseFnParamList`, src/parser/body-parser.ts;
+ * `parseSchemaObjectBody`, src/parser/schema-body-parser.ts; `walkType`,
  * src/parser/type-walk.ts) ask.
  * The fence sits at this read seam, not the write seam (`collectTypeEnv`):
  * bug 0038's witness requires a `schema __proto__` declaration to land as

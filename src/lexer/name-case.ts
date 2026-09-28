@@ -6,7 +6,7 @@
  * type-like binding, PascalCase) from a value binding (lowercase-first or
  * `_`). This is the ONE copy of the guard every enforcement position asks —
  * `contextualDiagnostics` (./contextual-checks), the `fn` parameter and
- * schema-field checks (../parser/body-parser), the `params:` key check
+ * schema-field checks (../parser/body-parser, ../parser/schema-body-parser), the `params:` key check
  * (../parser/frontmatter-params), the inline object-type field check
  * (../parser/type-walk), and the `resolveNamed` read seam
  * (../parser/type-compat) — so the lexer, the parsers, and the compatibility
