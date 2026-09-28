@@ -108,7 +108,9 @@ else `--no-session` unless
 the backend declares `persistSession: true`. After an `Ok` envelope the child
 calls `ctx.shutdown()` and its pane closes; after an `Err` envelope it does
 not — the pane lingers with the live session so a human can read or continue
-it.
+it, while the launching parent process lives. Once the parent exits, the
+child exits within about 10 s (one parent-liveness poll). A child whose root
+theta was refused registration shuts down instead of lingering.
 
 ## The visible cap
 
@@ -158,6 +160,9 @@ session you can already see, in place of a re-streamed transcript. See
   `ctx.shutdown()` on `Ok`, linger on `Err`):
   `docs/spec_topics/pi-integration-contract/subagent.md`
   `#subagent-host-cli-dialect`.
+- `Err` linger bounded by the parent's lifetime, shutdown after a
+  registration refusal: `docs/spec_topics/pi-integration-contract/subagent.md`
+  `#subagent-visible-presentation`, `#subagent-orphan-prevention`.
 - Launch file (second control-plane carriage) and its authentication:
   `docs/spec_topics/pi-integration-contract/subagent.md`
   `#subagent-control-plane-authentication`.

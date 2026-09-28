@@ -300,3 +300,57 @@ describe("RFC-0012 §2 — the child control-plane view", () => {
     });
   });
 });
+
+// Bug 0493 D1 (c): `PI_SUBAGENT_CHILD=1` is a foreign advisory marker, not
+// control plane. It must reach a launch-file child through ordinary env
+// inheritance (the herdr backend forwards the composed env into the pane), so
+// the launch-file intake must neither scrub it with the stale control plane
+// nor carry it inside the file. Guards: these hold before and after the fix;
+// they fail only if the marker is ever folded into the control-plane key set.
+// Spec: docs/bugs/0493-visible-children-no-parent-tether-silent-print-parent.md
+// §Fix "D1 (c)".
+describe("bug 0493 D1 (c) — the re-kick opt-out marker is never treated as control plane", () => {
+  const RE_KICK_OPT_OUT_MARKER = "PI_SUBAGENT_CHILD";
+
+  it("projectLaunchFileControlPlane never lifts it into the launch file", () => {
+    const projected = projectLaunchFileControlPlane({
+      [RE_KICK_OPT_OUT_MARKER]: "1",
+      [SUBAGENT_ROOT_ENV_MARKER]: "worker",
+      [SUBAGENT_PARENT_PID_ENV]: "4242",
+    });
+    expect(projected[SUBAGENT_ROOT_ENV_MARKER]).toBe("worker");
+    expect(RE_KICK_OPT_OUT_MARKER in projected).toBe(false);
+  });
+
+  it("a valid launch file scrubs the env's control plane but leaves the marker inherited", () => {
+    const fs = fakeFs();
+    const path = writeLaunchFile(document(), fs);
+    const view = readChildControlPlane({
+      authenticatedEnv: {
+        PATH: "/usr/bin",
+        [RE_KICK_OPT_OUT_MARKER]: "1",
+        [SUBAGENT_ROOT_ENV_MARKER]: "stale-from-env",
+        [SUBAGENT_PARENT_PID_ENV]: "77",
+      },
+      launchFilePath: path,
+      launchFs: fs,
+    });
+    // Premise: the file's carriage replaced the env's control plane.
+    expect(view.env[SUBAGENT_ROOT_ENV_MARKER]).toBe("worker");
+    expect(view.env[RE_KICK_OPT_OUT_MARKER]).toBe("1");
+  });
+
+  it("a failing launch file drops the control plane but leaves the marker inherited", () => {
+    const view = readChildControlPlane({
+      authenticatedEnv: {
+        PATH: "/usr/bin",
+        [RE_KICK_OPT_OUT_MARKER]: "1",
+        [SUBAGENT_ROOT_ENV_MARKER]: "from-env",
+      },
+      launchFilePath: "/tmp/planted/launch.json",
+      launchFs: fakeFs(),
+    });
+    expect(view.env[SUBAGENT_ROOT_ENV_MARKER]).toBeUndefined();
+    expect(view.env[RE_KICK_OPT_OUT_MARKER]).toBe("1");
+  });
+});

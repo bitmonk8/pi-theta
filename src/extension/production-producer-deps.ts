@@ -409,6 +409,24 @@ export interface ProductionProducerInput {
     readonly ctx: SessionControlCtx;
     readonly piHandle: SessionControlPi;
   };
+  /**
+   * Bug 0493 D2: the print-mode failure surface — defined iff
+   * `ctx.mode === "print" || ctx.mode === "json"` AND the process is not a
+   * subagent child (a child's failure surface is its PIC-59 envelope, not a
+   * process exit code). `emitTopLevelErrNote` (SLSH-3 `Err` and the
+   * `cancelled` rendering) and `emitPanicNote` (both panic framings) call it
+   * AFTER their `sendSystemNote`, so a print/json parent whose top-level drive
+   * ends non-Ok before any assistant turn is distinguishable from success at
+   * the process boundary, where the host alone reports exit 0 and empty stdout
+   * (`pi -p`/`--mode json` print/exit-code ONLY from a trailing assistant
+   * message). Absent on every other mode and on a subagent child.
+   */
+  readonly printModeFailureSurface?: {
+    /** The rendered note's own `content` string, plus a trailing newline, to stderr. */
+    mirrorLine(text: string): void;
+    /** `process.exitCode = 1` — assign only, never lowering a larger code already set. */
+    markFailed(): void;
+  };
 }
 
 /**

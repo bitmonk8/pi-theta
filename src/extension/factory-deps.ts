@@ -16,6 +16,7 @@ import type {
   ExtensionInstanceWiring,
   PlacementRegistrationHandle,
 } from "./production-composition";
+import type { SubagentParentWatchdogHandle } from "../runtime/subagent-parent-watchdog";
 import type { FailFastTerminator } from "./session-swap-tripwire";
 
 /**
@@ -149,6 +150,13 @@ export interface ThetaExtensionDeps {
     // `ctx.ui.setWidget` factory-overload capture. The renderer half stays in
     // the factory (registered with the entry channel at factory time).
     runCardView?: Pick<RunCardController, "sink" | "attachTui">,
+    // Bug 0493 D1 (b): the LIVE armed parent-liveness watchdog handle from an
+    // earlier compose of this same extension instance (a repeat
+    // `session_start`; `session_shutdown` disposes it), so the
+    // pass reuses the ALREADY-ARMED handle instead of arming a second poll
+    // interval against the same parent pid — the `resultChannel` reuse
+    // pattern, mirrored.
+    parentWatchdog?: SubagentParentWatchdogHandle,
   ) => Promise<ExtensionInstanceWiring>;
 
   /**

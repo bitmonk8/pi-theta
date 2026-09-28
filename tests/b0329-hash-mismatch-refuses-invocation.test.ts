@@ -18,6 +18,7 @@ import {
 import { SUBAGENT_PARENT_PID_ENV } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 import { createEnvSandbox } from "./helpers/ambient-control-plane-scrub";
+import { inertWatchdogSeams } from "./helpers/inert-parent-watchdog";
 import { finishWorkspace, makeHost, type ComposeWorkspace } from "./helpers/compose-workspace-harness";
 import { filesystemIsCaseInsensitive } from "./helpers/case-insensitive-host-probe";
 
@@ -109,6 +110,7 @@ async function runCompose(cwd: string): Promise<ComposeOutcome> {
     host.pi,
     host.ctx,
     {
+      subagentParentWatchdogSeams: inertWatchdogSeams(),
       emitResultEnvelope: (line: string): void => {
         envelopes.push(line);
       },

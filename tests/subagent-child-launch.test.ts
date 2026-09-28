@@ -400,9 +400,9 @@ describe("RFC-0006 — child env", () => {
     // PIC-58: the root-regime marker carries the callee slug and subsumes the
     // retired boolean child marker (watcher suppression + no-recursion + regime).
     expect(env[SUBAGENT_ROOT_ENV_MARKER]).toBe("code-review");
-    // The parent PID rides its own carriage (the recorded-but-unimplemented
-    // PIC-65 orphan watchdog input) — NOT the
-    // depth counter.
+    // The parent PID rides its own carriage (the PIC-65 layer-2 parent-liveness
+    // watchdog input, bug 0493 D1 (b) — `armSubagentParentWatchdog` reads this
+    // exact key) — NOT the depth counter.
     expect(env[SUBAGENT_PARENT_PID_ENV]).toBe("12345");
     // INV-4: the per-chain invoke depth crosses on its OWN dedicated carriage,
     // distinct from the parent-PID carriage.

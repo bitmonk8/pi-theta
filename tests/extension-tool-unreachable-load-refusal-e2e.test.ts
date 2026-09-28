@@ -28,6 +28,7 @@
 
 import { makeIdleModelHost, noteLinesContaining } from "./helpers/compose-workspace-harness";
 import { fakeExecutableHost } from "./helpers/fake-json-child";
+import { inertWatchdogSeams } from "./helpers/inert-parent-watchdog";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -270,6 +271,7 @@ async function runLoad(
     const regimeActive = detectSubagentRootRegime(readParentEnv()).active;
     const wiring = await composeExtensionInstance(pi, ctx, {
       subagentExecutableHost: fakeExecutableHost(),
+      subagentParentWatchdogSeams: inertWatchdogSeams(),
     });
     return { registered: wiring.thetas.map((t) => t.slashName), noteContent, regimeActive };
   } finally {

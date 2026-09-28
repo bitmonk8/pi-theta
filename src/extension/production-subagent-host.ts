@@ -185,7 +185,7 @@ export function authenticateControlPlane(
   return authenticated;
 }
 
-/** The parent process id carried to the child (control-plane authentication key; also the reserved, unimplemented orphan-prevention watchdog input). */
+/** The parent process id carried to the child (control-plane authentication key; also the PIC-65 layer-2 parent-liveness watchdog input, bug 0493 D1 (b)). */
 export function readParentPid(): number {
   return process.pid;
 }

@@ -80,6 +80,17 @@ import {
 } from "../runtime/subagent-result-channel";
 import { createExecPlacementBackend } from "../runtime/subagent-exec-placement";
 import type { PlacementRegistry } from "../runtime/subagent-placement-registry";
+import { SUBAGENT_CHILD_OUTCOME_API_VERSION } from "../runtime/subagent-placement-registry";
+import {
+  emitSubagentChildOutcomeContained,
+  requestVisibleChildShutdown,
+} from "./subagent-spawn-regime";
+import {
+  armSubagentParentWatchdog,
+  createProductionParentWatchdogSeams,
+  type SubagentParentWatchdogHandle,
+  type SubagentParentWatchdogSeams,
+} from "../runtime/subagent-parent-watchdog";
 import {
   createPlacementPolicy,
   DEFAULT_SUBAGENT_PLACEMENT_MAX_VISIBLE,
@@ -118,6 +129,7 @@ import {
 } from "../runtime/invoke-depth-cycle";
 import {
   SUBAGENT_INVOKE_DEPTH_ENV,
+  SUBAGENT_PARENT_PID_ENV,
   type ExecutableHost,
 } from "../runtime/subagent-launcher";
 import type { ThetaFixture } from "./factory";
@@ -295,6 +307,29 @@ export interface ComposeSeamOverrides {
    * `pi.events`) ⇒ built-ins only, no diagnostic.
    */
   readonly subagentPlacementRegistration?: PlacementRegistrationHandle;
+  /**
+   * Bug 0493 D1 (b): test injection of the parent-liveness watchdog's process
+   * seams (own pid, liveness probe, interval scheduler, stderr writer,
+   * `endProcess`). Production reads `createProductionParentWatchdogSeams()`;
+   * a test injects a fake scheduler so arming is observable without a real
+   * poll interval or a real process.
+   */
+  readonly subagentParentWatchdogSeams?: SubagentParentWatchdogSeams;
+  /**
+   * Bug 0493 D1 (b): an ALREADY-ARMED watchdog handle — the factory's live
+   * handle on a repeat `session_start` compose of the same extension instance
+   * (a repeat pass reuses it rather than arming a second poll interval against
+   * the same parent pid), or a test fake standing in for that reuse. Absent ⇒
+   * armed here from `subagentControlPlane` when the regime is active and the
+   * carriage is valid.
+   */
+  readonly subagentParentWatchdog?: SubagentParentWatchdogHandle;
+  /**
+   * Bug 0493 D2: test injection of the print-mode failure surface's process
+   * seams. Production reads `process.stderr.write` / `process.exitCode`; a
+   * test injects a fake to observe both without touching the real process.
+   */
+  readonly printModeFailureProcess?: PrintModeFailureProcess;
 }
 
 /** RFC-0012 §5: what the factory hands each compose pass (see `ComposeSeamOverrides`). */
@@ -302,6 +337,30 @@ export interface PlacementRegistrationHandle {
   readonly registry: PlacementRegistry;
   /** Emit `pi-theta:subagent-placement:discover:v1` (at `session_start` and after each reload). */
   discover(): void;
+}
+
+/**
+ * Bug 0493 D2: the process seams the print-mode failure surface acts through.
+ * Production reads/writes the real `process.stderr` / `process.exitCode`; a
+ * test injects a fake to observe both without touching the real process.
+ */
+export interface PrintModeFailureProcess {
+  writeStderr(text: string): void;
+  readExitCode(): number | string | null | undefined;
+  writeExitCode(code: number): void;
+}
+
+/** Production `PrintModeFailureProcess`: `process.stderr.write` / `process.exitCode`. */
+function createProductionPrintModeFailureProcess(): PrintModeFailureProcess {
+  return {
+    writeStderr: (text: string): void => {
+      process.stderr.write(text);
+    },
+    readExitCode: (): number | string | null | undefined => process.exitCode,
+    writeExitCode: (code: number): void => {
+      process.exitCode = code;
+    },
+  };
 }
 
 /**
@@ -739,6 +798,9 @@ async function runComposePass(
   passResultChannel?: ResultChannelClient,
   // RFC-0012 §5: the registered-backend set (see `ComposeSeamOverrides`).
   passPlacementRegistration?: PlacementRegistrationHandle,
+  // Bug 0493 D2: the print-mode failure surface's process seams (see
+  // `ComposeSeamOverrides.printModeFailureProcess`).
+  passPrintModeFailureProcess?: PrintModeFailureProcess,
 ): Promise<ComposePassResult> {
   const fileSystem = root.fileSystem;
   const clock = root.clock;
@@ -1036,6 +1098,30 @@ async function runComposePass(
             statusBus.trace(invocationId, site, kind)
       : undefined;
 
+  // Bug 0493 D2: the print-mode failure surface — defined iff `ctx.mode` is
+  // `print`/`json` AND this process is not a subagent child (a child's own
+  // failure surface is its PIC-59 envelope). `mirrorLine` appends the newline
+  // the producer's own call does not (the producer passes the bare rendered
+  // `content` string); `markFailed` assigns `1` unless a larger code is
+  // already set.
+  const printModeFailureProcess =
+    passPrintModeFailureProcess ?? createProductionPrintModeFailureProcess();
+  const printModeFailureSurface =
+    (ctx.mode === "print" || ctx.mode === "json") && !subagentRootRegime.active
+      ? {
+          mirrorLine: (text: string): void => {
+            printModeFailureProcess.writeStderr(`${text}\n`);
+          },
+          markFailed: (): void => {
+            const current = printModeFailureProcess.readExitCode();
+            if (typeof current === "number" && current > 1) {
+              return;
+            }
+            printModeFailureProcess.writeExitCode(1);
+          },
+        }
+      : undefined;
+
   const producerDeps = buildProducerDeps({
     pi,
     ctx,
@@ -1062,6 +1148,7 @@ async function runComposePass(
     inProcessToolNames,
     fileSystem,
     activeRoots,
+    printModeFailureSurface,
   });
 
   // Parse pass: parse every discovered theta into its composition input; a drop
@@ -1203,13 +1290,29 @@ async function runComposePass(
   );
   const watchRoots = Array.from(new Set([...discoveryWatchRoots, ...outOfRootClosureDirs]));
   recordingComplete = true;
-  if (registrationRefusal !== undefined) {
+  if (registrationRefusal !== undefined && subagentRootRegime.active) {
     // The one PIC-59 envelope line this pass ever owes: the child fell
     // through to the host's ordinary prompt handling with no theta runtime
     // ever entered, so the load pass is the only remaining writer for it.
     // Bug 0347 §Fix: this refusal is a boundary MINT (the load pass itself
     // fabricates it; the marked root's own body never ran) — stamp "mint".
     emitResultEnvelope(serializeErrEnvelope(registrationRefusal, "mint"));
+    // Bug 0493 D1 (a): the refused theta never enters `driveSubagentRootRegime`
+    // (the event's other emitter), so this load-pass write follows the
+    // envelope → event → shutdown order RFC 0012 §7's Ok arm uses — a refused
+    // marked root is exactly the orphan shape (no live session worth a human
+    // reading), so it owes the outcome event (for a placement backend's outcome
+    // consumer to retitle the pane) and, under visible presentation, a shutdown
+    // request. The emit is contained exactly as the drive's is (a subscriber's
+    // throw must not skip the shutdown request); `subagentOutcomeEvents` absent
+    // (`pi.events` missing, PIC-73) ⇒ structural no-op. A `pipe` child requests
+    // no shutdown — its `-p` run self-ends.
+    emitSubagentChildOutcomeContained(subagentOutcomeEvents, {
+      apiVersion: SUBAGENT_CHILD_OUTCOME_API_VERSION,
+      outcome: "err",
+      slug: subagentRootRegime.slug,
+    });
+    requestVisibleChildShutdown(controlPlane.launch?.presentation, ctx);
   }
   return { thetas: survivors, activeRoots, watchRoots };
 }
@@ -1549,6 +1652,7 @@ function buildProducerDeps({
   inProcessToolNames,
   fileSystem,
   activeRoots,
+  printModeFailureSurface,
 }: {
   readonly pi: ExtensionAPI;
   readonly ctx: ExtensionContext;
@@ -1575,6 +1679,9 @@ function buildProducerDeps({
   readonly inProcessToolNames: ReadonlySet<string>;
   readonly fileSystem: FileSystem;
   readonly activeRoots: string[];
+  readonly printModeFailureSurface:
+    | { mirrorLine(text: string): void; markFailed(): void }
+    | undefined;
 }): ReturnType<typeof createProductionProducerDeps> {
   return createProductionProducerDeps({
     pi,
@@ -1651,6 +1758,10 @@ function buildProducerDeps({
     // envelope and the load pass's marked-root registration-refusal envelope
     // share one writer.
     emitResultEnvelope,
+    // Bug 0493 D2: the print-mode failure surface. Omitted (per
+    // exactOptionalPropertyTypes) outside print/json mode or inside a
+    // subagent child (its own failure surface is the PIC-59 envelope).
+    ...(printModeFailureSurface !== undefined ? { printModeFailureSurface } : {}),
     // RFC 0012 §7 (0.478.0): the child-outcome bus, emit-only. Omitted when
     // `pi.events` is absent (per exactOptionalPropertyTypes).
     ...(subagentOutcomeEvents !== undefined ? { subagentOutcomeEvents } : {}),
@@ -2410,6 +2521,15 @@ export interface ExtensionInstanceWiring {
    */
   readonly resultChannel?: ResultChannelClient;
   /**
+   * Bug 0493 D1 (b): THIS process's armed parent-liveness watchdog, when the
+   * subagent-root regime is active and the unified control-plane view carried
+   * a valid parent pid — exposed so the factory latches it, hands it back
+   * into a repeat compose (the SAME reuse pattern as `resultChannel`), and
+   * disposes it at `session_shutdown`. Absent when the regime is inactive (the
+   * parent / harness path) or the carriage did not arm.
+   */
+  readonly parentWatchdog?: SubagentParentWatchdogHandle;
+  /**
    * The live `Clock` seam the composition root built once and the step-5
    * watcher / 250 ms debounce measure against. Threaded so the factory's
    * `session_shutdown` teardown reads the SAME clock instance the watcher used
@@ -2539,6 +2659,21 @@ export async function composeExtensionInstance(
   // threaded one, else computed once here so a reload pass never re-reads.
   const instanceControlPlane =
     overrides?.subagentControlPlane ?? readProductionChildControlPlane();
+  // Bug 0493 D1 (b): arm the parent-liveness watchdog once per extension
+  // instance, and only inside the subagent-root regime (the parent / harness
+  // path never carries a child to tether). A repeat `session_start` compose
+  // reuses the ALREADY-ARMED handle the factory hands back
+  // (`overrides.subagentParentWatchdog`) rather than arming a second poll
+  // interval against the same parent pid — the `resultChannel` reuse pattern.
+  const watchdogRegime = detectSubagentRootRegime(instanceControlPlane.env);
+  const parentWatchdog: SubagentParentWatchdogHandle | undefined =
+    overrides?.subagentParentWatchdog ??
+    (watchdogRegime.active
+      ? armSubagentParentWatchdog(
+          instanceControlPlane.env[SUBAGENT_PARENT_PID_ENV],
+          overrides?.subagentParentWatchdogSeams ?? createProductionParentWatchdogSeams(),
+        )
+      : undefined);
   resultChannel = dialParentResultChannel(
     overrides,
     instanceControlPlane.launch,
@@ -2564,6 +2699,7 @@ export async function composeExtensionInstance(
     instanceControlPlane,
     resultChannel,
     overrides?.subagentPlacementRegistration,
+    overrides?.printModeFailureProcess,
   );
 
   // The watched set: `watchRoots` (the file-derived active-root union unioned
@@ -2604,6 +2740,7 @@ export async function composeExtensionInstance(
     clock: root.clock,
     statusBus,
     ...(resultChannel !== undefined ? { resultChannel } : {}),
+    ...(parentWatchdog !== undefined ? { parentWatchdog } : {}),
     installHotReload(reRegister): HotReloadHandle {
       return installHotReload({
         watcher: root.fileWatcher,
@@ -2641,6 +2778,7 @@ export async function composeExtensionInstance(
             instanceControlPlane,
             resultChannel,
             overrides?.subagentPlacementRegistration,
+            overrides?.printModeFailureProcess,
           );
           // Bug 0312: record this pass's watch set (its resolved `.thetalib`
           // closure dirs already unioned in by `runComposePass`), plus the two

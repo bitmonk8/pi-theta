@@ -1,7 +1,9 @@
 # Bug 0493 — a visible child's lifetime is tied to nothing once its envelope is delivered: Err/refusal children linger unbounded after the parent exits (one orphan re-kicked real model turns for ~50 minutes), and a `pi -p` parent whose drive ends non-Ok before any assistant turn exits 0 with empty stdout and no session file
 
-- **Status:** open — §Fix settled 2026-09-27 (operator-approved direction);
-  implementation pending.
+- **Status:** fixed (0.493.0) — all four §Fix elements landed (D1 (a)
+  refusal exit + outcome event, D1 (b) PIC-65 layer-2 parent-liveness
+  watchdog, D1 (c) `PI_SUBAGENT_CHILD=1`, D2 print-mode stderr + exit-code
+  surface) with the subagent.md amendments; record in `## Fix (0.493.0)`.
 - **Sev/Diff estimate:** D1: S2/D2 — three live interactive `pi` processes
   survived their parent by ~50 minutes each until killed by hand, one of
   them actively burning provider tokens the whole time (an unbounded
@@ -499,6 +501,163 @@ PIC-65 layer-2 watchdog implemented, `PI_SUBAGENT_CHILD` marker) and D2
   own records; neither is masked by this fix.
 - The one prompt-text model turn a refusal child may still run before its
   shutdown request lands (accepted residual, bounded — see (a)).
+
+## Fix (0.493.0)
+
+- What shipped:
+  - `src/extension/production-composition.ts` — D1 (a): after the refusal
+    envelope, the load pass emits `{apiVersion:1, outcome:"err", slug}` on
+    the child outcome channel and, under visible presentation, requests
+    `ctx.shutdown()` (envelope → event → shutdown). D1 (b): arms the
+    watchdog in `composeExtensionInstance` iff the subagent-root regime is
+    active, from `controlPlane.env[SUBAGENT_PARENT_PID_ENV]`; new overrides
+    `subagentParentWatchdogSeams` / `subagentParentWatchdog`, wiring field
+    `parentWatchdog`. D2: builds the `{mirrorLine, markFailed}` surface iff
+    `ctx.mode` ∈ {print, json} ∧ regime inactive (override
+    `printModeFailureProcess`; production `process.stderr` /
+    `process.exitCode`, assign-only, never lowers a larger code).
+  - `src/extension/subagent-spawn-regime.ts` — shared
+    `requestVisibleChildShutdown` (presentation gate + `typeof` probe) and
+    shared `emitSubagentChildOutcomeContained` (subscriber-throw
+    containment), both used by the drive and the refusal site.
+  - `src/runtime/subagent-parent-watchdog.ts` (new) — D1 (b): pure module
+    over injected seams; `SUBAGENT_PARENT_LIVENESS_POLL_MS = 10_000`;
+    arms for a digits-only pid in 1..2147483647 that is not the own pid;
+    `process.kill(pid, 0)` success/`EPERM` ⇒ alive, `ESRCH` ⇒ gone, any
+    other error propagates; single-fire stderr line
+    `pi-theta: subagent child exiting — parent process <pid> gone` then
+    `process.exit(1)`; unref'd interval.
+  - `src/extension/factory.ts`, `factory-deps.ts`,
+    `extension-instance-shutdown.ts` — the factory latches the armed handle,
+    hands it back into a repeat compose of the same instance (10th
+    `composeInstance` parameter, forwarded by the shipped default export),
+    and disposes it at every `session_shutdown`.
+  - `src/runtime/subagent-launcher.ts` — D1 (c): `buildSubagentChildEnv`
+    writes `PI_SUBAGENT_CHILD: "1"` last; not a
+    `SUBAGENT_CONTROL_PLANE_ENV_KEYS` member.
+  - `src/extension/production-theta-producer.ts`,
+    `production-producer-deps.ts` — D2: `emitTopLevelErrNote` (Err,
+    cancelled, including its stamp-failure fallback arm) and `emitPanicNote`
+    call `mirrorLine(<same content>)` then `markFailed()` after the note.
+  - `docs/spec_topics/pi-integration-contract/subagent.md` — the five
+    amendments (:43 advisory marker, :79 refusal event + shutdown, :109
+    linger bounded by parent lifetime, :264 layer 2 implemented, :265
+    residual exposure).
+  - `docs/how-to/place-subagents-in-a-multiplexer.md` — the Err-linger
+    paragraph states the parent-lifetime bound and the refusal shutdown
+    (self-authorized documentation scope, see Pinned dispositions).
+  - `src/extension/production-subagent-host.ts`,
+    `tests/subagent-child-launch.test.ts` — comment corrections only.
+- Gates:
+  - Witnesses: `tests/subagent-root-registration-refusal-envelope.test.ts`
+    13/13, `tests/subagent-parent-watchdog.test.ts` 28/28,
+    `tests/subagent-parent-watchdog-real-process.test.ts` 1/1,
+    `tests/subagent-parent-watchdog-composition.test.ts` 14/14,
+    `tests/subagent-child-env-scrub.test.ts` 13/13,
+    `tests/print-mode-failure-surface.test.ts` 25/25; each red with its
+    element reverted (verifier, hashes restored byte-exact).
+  - `npm test`: `Test Files 712 passed (712)`, `Tests 11969 passed
+    (11969)`.
+  - `npm run typecheck`: exit 0. `npm run lint`: exit 0.
+    `tests/committed-fixture-parse-gate.test.ts`: 58/58.
+  - Live: `tests/live/acceptance/b0493live-refused-subagent-callee-print-parent.test.ts`
+    2/2 green (red with D2 reverted: `exitCode 0`, `stderr ""`);
+    `tests/live/acceptance/**` 44/45 files, 57/58 tests (the one red is
+    Residual 1); `tests/live/live-production-acceptance.test.ts -t
+    "subagent"` 9/9; `tests/live/b0271live-grandchild-callee-drop-depth-two-live-cell.test.ts`
+    1/1.
+- Review: 2 rounds.
+  - Round 1 (deep): findings F1 shipped `composeInstance` did not forward
+    the watchdog handle; F3 refusal emit lacked subscriber-throw
+    containment; F4 false `/reload` reuse prose; F5 pid > 2³¹−1 armed and
+    crashed the child through a `TypeError`; stamp-failure arm skipped D2;
+    F8/F9/F10 prose and docblock placement; R1/R3–R6 test and house-rule
+    items. All fixed in one fixer round. F2, F6, F7 (binder family), R2
+    recorded as residuals below.
+  - Round 2 (fast): clean; one non-blocking duplicate-helper note
+    (Residual 6).
+- Verification: SOLID. Witnesses red-before/green-after per element; full
+  suite green; live witness green and red with D2 reverted; typecheck,
+  lint, parse gate green; no leftover processes.
+- Residuals:
+  1. `tests/live/acceptance/noninteractive-acceptance.test.ts` area (f)
+     (code-tool loop) is RED under this fix, correct reason: the fixture
+     `acc-code-tool-loop.theta` reads `acc-code-tool-loop.theta` relative to
+     an empty `mkdtempSync` scratch cwd, so its drive always ended in
+     `theta /acc-code-tool-loop returned Err: tool read call failed
+     (execution) — ENOENT …`. Before this fix that Err exited 0 with empty
+     stderr, so the cell passed vacuously; D2 now surfaces it. Signature:
+     `(f) code-tool-loop: expected a no-error exit (0), got 1. stderr: theta
+     /acc-code-tool-loop returned Err: tool read call failed (execution) —
+     ENOENT`. Not fixed here (a test file the §Fix does not name); to be
+     filed as its own bug.
+  2. The refusal-time outcome event reaches no shipped consumer: it fires
+     inside pi-theta's `session_start`, and pi-theta-herdr's reporter
+     (`src/herdr-child-reporter.ts` `onOutcome` returns while `active` is
+     false; `active` is set in its own `session_start`, loaded after
+     pi-theta) drops it, so no `FAILED` retitle. The shutdown still closes
+     the pane. Owned by pi-theta-herdr (latch an early outcome) or a later
+     pi-theta deferral; the §Fix's "pi-theta-herdr needs no change" is
+     wrong on this point.
+  3. D2 covers only `emitTopLevelErrNote` / `emitPanicNote` as the §Fix
+     scopes it. Binder short-circuit endings (`binder-run.ts`
+     `#emitBinderFailureNote`: "argument binder unavailable", "argument
+     binding cancelled") still end a `pi -p` parent with exit 0 and silent
+     stderr.
+  4. D2 has no normative sentence outside this document (SLSH-3 in
+     `slash-invocation.md` names only the note); the §Fix named only
+     subagent.md amendments.
+  5. In-process SDK embeddings (`createAgentSession` + `bindExtensions`,
+     e.g. the H8a / probe harnesses) report `ctx.mode === "print"`, so a
+     non-Ok drive there writes the note to the host process's stderr and
+     sets its `process.exitCode = 1`. No test fails from it.
+  6. `tests/production-result-channel.test.ts` and
+     `tests/subagent-result-channel-factory.test.ts` keep private copies of
+     `inertWatchdogSeams()` beside the shared
+     `tests/helpers/inert-parent-watchdog.ts`.
+  7. A launch-file (visible) child that runs a host `/reload` loses its
+     watchdog: `session_shutdown` disposes it and the fresh instance finds
+     the launch file consumed, so the regime is not re-entered. Stated in
+     subagent.md layer 2.
+  8. The last pre-commit `npm test` run had one red,
+     `tests/subagent-return-depth-refusal.test.ts`. The spawned child
+     reported `subagent model pre-flight mismatch: expected
+     'anthropic/claude-fable-5', child resolved '(unresolved: no matching
+     model)'`. Rerunning that file alone gave 2 passes out of 3. Three earlier
+     full runs over the same source were green (712/712). The failing path
+     is the child's `modelRegistry.getAvailable()`, which filters on
+     readable auth; the operator's shared `~/.pi/agent/auth.json` was being
+     rewritten by concurrent sessions during the run. No reader or writer
+     of that path is in this diff. This is attributed to the environment and
+     was not proven at HEAD.
+  9. `tests/subagent-parent-watchdog-real-process.test.ts` uses the pid of
+     an exited process; Windows pid reuse within the ~10 s poll window
+     would red it (not observed; 60 spawns showed no reuse).
+  10. The visible-refusal shutdown and the watchdog's pane-child path are
+      witnessed in-process and by a provider-free real-process test; no live
+      suite runs a visible placement backend.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals:
+  - Witness 5's text ("stderr carries `refused to register its root
+    theta`") conflicts with D2's own mechanics (mirror "the same `content`
+    string"; result line `theta /<slug> returned Err: …`) — the SNK-i row
+    (`src/runtime/err-note-render.ts:174`) renders `callee_path` and
+    `cause` only. D2 shipped literally; the live witness asserts the
+    rendered note on stderr and the refusal text on the `--mode json`
+    stdout stream.
+  - The refusing child's process exit is green before and after in the live
+    witness: acceptance children use `pipe`, whose `-p` run self-ends.
+  - The pre-fix cell M15 in
+    `tests/subagent-root-registration-refusal-envelope.test.ts` ("refusal
+    carries no outcome event") was inverted to the amended contract.
+  - Self-authorized documentation scope: the how-to paragraph
+    (`docs/how-to/place-subagents-in-a-multiplexer.md`, one paragraph plus
+    one Provenance bullet) restated the pre-fix unconditional linger.
+    Evidence: §Fix :109 amendment wording; round-1 review grep for the
+    old contract; the how-to text itself. Bound: that paragraph only, no
+    assertion or executable line.
+  - Version bump and CHANGELOG entry are owned by the separate release
+    step.
 
 ## Relation to prior bugs
 

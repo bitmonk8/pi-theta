@@ -32,6 +32,8 @@ import { bindInput, rootDouble } from "./helpers/subagent-fn-child-regime";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import {
   buildSubagentChildEnv,
+  SUBAGENT_CONTROL_PLANE_ENV_KEYS,
+  SUBAGENT_PER_LAUNCH_CONTROL_PLANE_ENV_KEYS,
   SUBAGENT_EXTENSION_PIN_ENV,
   SUBAGENT_INVOKE_DEPTH_ENV,
   SUBAGENT_PARENT_PID_ENV,
@@ -46,6 +48,7 @@ import {
   SUBAGENT_PARAMS_FILE_ENV,
 } from "../src/runtime/subagent-params";
 import { fakeExecutableHost, makeFakeJsonChildLauncher } from "./helpers/fake-json-child";
+import { authenticateControlPlane } from "../src/extension/production-subagent-host";
 import type { ModelRegistry, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 /**
@@ -197,5 +200,95 @@ describe("bug 0474 — the production launch composition carries only this launc
     for (const key of PER_LAUNCH_CONTROL_KEYS) {
       expect(env[key]).not.toBe(poisonedParentEnv()[key]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug 0493 D1 (c) — the foreign re-kick opt-out marker.
+// ---------------------------------------------------------------------------
+//
+// Session-level babysitter extensions (the pi-config pi-retry fork's stall
+// re-kicker) skip a process whose raw `process.env.PI_SUBAGENT_CHILD === "1"`
+// — the marker pi-config's own subagent children carry. A pi-theta child must
+// carry it too: its supervisor speaks PIC-59 envelopes, and a "continue the
+// task" re-kick after the envelope can never re-enter the settled theta drive,
+// so it only buys unsupervised model turns (the bug's 50-minute orphan).
+//
+// The marker is deliberately NOT control plane: it is an advisory foreign
+// convention read without authentication, so it is never scrubbed from the
+// inheritance, never ppid-gated and never carried by the launch file — and
+// every launcher along a chain rewrites the same value.
+//
+// Spec: docs/bugs/0493-visible-children-no-parent-tether-silent-print-parent.md
+// §Fix "D1 (c)" and §"Witnesses" 3; subagent.md #subagent-launch-contract.
+
+/** The foreign re-kick opt-out marker (pi-config's subagent convention). */
+const RE_KICK_OPT_OUT_MARKER = "PI_SUBAGENT_CHILD";
+
+describe("bug 0493 D1 (c) — buildSubagentChildEnv writes the PI_SUBAGENT_CHILD=1 re-kick opt-out marker", () => {
+  it("every launch carries PI_SUBAGENT_CHILD === \"1\" — with and without a root slug, from an empty parent env", () => {
+    expect(buildSubagentChildEnv({}, 4242, 0, "callee")[RE_KICK_OPT_OUT_MARKER]).toBe("1");
+    expect(buildSubagentChildEnv({}, 4242, 0)[RE_KICK_OPT_OUT_MARKER]).toBe("1");
+    expect(
+      buildSubagentChildEnv(poisonedParentEnv(), 4242, 3, "callee", {
+        [SUBAGENT_PARAMS_ENV]: '{"topic":"this-launch"}',
+      })[RE_KICK_OPT_OUT_MARKER],
+    ).toBe("1");
+  });
+
+  it("a stale inherited value is overwritten with \"1\" (written in the final spread, after the inheritance)", () => {
+    const env = buildSubagentChildEnv(
+      { ...poisonedParentEnv(), [RE_KICK_OPT_OUT_MARKER]: "0" },
+      4242,
+      0,
+      "callee",
+    );
+    expect(env[RE_KICK_OPT_OUT_MARKER]).toBe("1");
+  });
+
+  it("the launch's own control-plane patch cannot clear it either", () => {
+    const env = buildSubagentChildEnv({}, 4242, 0, "callee", {
+      [RE_KICK_OPT_OUT_MARKER]: undefined,
+    });
+    expect(env[RE_KICK_OPT_OUT_MARKER]).toBe("1");
+  });
+
+  it("the marker is NOT a control-plane key: absent from SUBAGENT_CONTROL_PLANE_ENV_KEYS and from the per-launch scrub set", () => {
+    expect(SUBAGENT_CONTROL_PLANE_ENV_KEYS).not.toContain(RE_KICK_OPT_OUT_MARKER);
+    expect(SUBAGENT_PER_LAUNCH_CONTROL_PLANE_ENV_KEYS).not.toContain(RE_KICK_OPT_OUT_MARKER);
+  });
+
+  it("the ppid authentication gate never strips it: an unauthenticated control plane is dropped, the marker survives", () => {
+    const authenticated = authenticateControlPlane(
+      {
+        [RE_KICK_OPT_OUT_MARKER]: "1",
+        [SUBAGENT_ROOT_ENV_MARKER]: "callee",
+        [SUBAGENT_PARENT_PID_ENV]: "999999",
+      },
+      4242,
+    );
+    // Premise: the gate really rejected this control plane.
+    expect(authenticated[SUBAGENT_ROOT_ENV_MARKER]).toBeUndefined();
+    expect(authenticated[RE_KICK_OPT_OUT_MARKER]).toBe("1");
+  });
+
+  it("the production launch composition hands the spawned child an env carrying the marker", async () => {
+    const launcher = makeFakeJsonChildLauncher();
+    const deps = createProductionProducerDeps({
+      pi: { sendMessage: (): void => {}, getAllTools: () => [] } as unknown as ExtensionAPI,
+      root: rootDouble(),
+      modelRegistry: {
+        getApiKeyAndHeaders: () => Promise.resolve({ ok: false }),
+        getAvailable: () => [],
+      } as unknown as ModelRegistry,
+      subagentSpawn: launcher.spawn,
+      subagentExecutableHost: fakeExecutableHost(),
+      subagentParentEnv: { PATH: "/usr/bin", [RE_KICK_OPT_OUT_MARKER]: "0" },
+      subagentParentPid: 4242,
+    });
+
+    await deps.spawnSubagentConversation(bindInput());
+    expect(launcher.spawns).toHaveLength(1);
+    expect(launcher.spawns[0]!.env[RE_KICK_OPT_OUT_MARKER]).toBe("1");
   });
 });

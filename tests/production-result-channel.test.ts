@@ -55,6 +55,29 @@ import { SUBAGENT_PARAMS_ENV } from "../src/runtime/subagent-params";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 import { FakeClock } from "./helpers/fake-clock";
 import { placedWithoutExit } from "./helpers/result-channel-harness";
+import type { SubagentParentWatchdogSeams } from "../src/runtime/subagent-parent-watchdog";
+
+/**
+ * Bug 0493 D1 (b) hazard note: every cell below composes a regime-active
+ * control plane carrying a parent pid (`"1"`) that is never the REAL parent of
+ * this vitest worker. Left unguarded, the production watchdog seams' default
+ * poll would read that pid as gone (Windows: `ESRCH`) and call
+ * `process.exit(1)` on this worker ~10 s later. Inert seams: the probe always
+ * reports "alive" and the scheduler never actually ticks, so arming is
+ * observable (via `subagentParentWatchdogSeams`) with zero risk to the worker.
+ */
+function inertWatchdogSeams(): SubagentParentWatchdogSeams {
+  return {
+    ownPid: process.pid,
+    probe: (): "alive" => "alive",
+    scheduler: {
+      setInterval: () => ({ unref: (): void => {} }),
+      clearInterval: (): void => {},
+    },
+    writeStderr: (): void => {},
+    endProcess: (): void => {},
+  };
+}
 
 // ===========================================================================
 // Tier 1 — node:net adapters.
@@ -359,6 +382,7 @@ describe("RFC-0012 §3 — the composition root routes the child's envelope to i
     const client = fakeChannelClient();
     const overrides: ComposeSeamOverrides = {
       subagentExecutableHost: fakeExecutableHost(),
+      subagentParentWatchdogSeams: inertWatchdogSeams(),
       subagentControlPlane: {
         env: {
           PATH: "/usr/bin",
@@ -388,6 +412,7 @@ describe("RFC-0012 §3 — the composition root routes the child's envelope to i
     const captured: string[] = [];
     const wiring = await composeExtensionInstance(pi, ctx, {
       subagentExecutableHost: fakeExecutableHost(),
+      subagentParentWatchdogSeams: inertWatchdogSeams(),
       subagentControlPlane: {
         env: { [SUBAGENT_ROOT_ENV_MARKER]: "refused", [SUBAGENT_PARENT_PID_ENV]: "1" },
         entry: { kind: "theta" },
@@ -407,6 +432,7 @@ describe("RFC-0012 §3 — the composition root routes the child's envelope to i
     const { pi, ctx } = fakeHost();
     const wiring = await composeExtensionInstance(pi, ctx, {
       subagentExecutableHost: fakeExecutableHost(),
+      subagentParentWatchdogSeams: inertWatchdogSeams(),
       subagentControlPlane: {
         env: { [SUBAGENT_ROOT_ENV_MARKER]: "clean", [SUBAGENT_PARENT_PID_ENV]: "1" },
         entry: { kind: "theta" },

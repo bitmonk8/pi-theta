@@ -17,6 +17,27 @@ import type { ResultChannelClient } from "../src/runtime/subagent-result-channel
 import { SUBAGENT_PARENT_PID_ENV } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 import { FakeClock } from "./helpers/fake-clock";
+import type { SubagentParentWatchdogSeams } from "../src/runtime/subagent-parent-watchdog";
+
+/**
+ * Bug 0493 D1 (b) hazard note: both compositions below carry a regime-active
+ * control plane whose parent pid (`"1"`) is never the real parent of this
+ * vitest worker. Inert seams keep the watchdog's arming observable (it still
+ * arms — these cells are not ABOUT the watchdog) without its production
+ * poll ever reading "gone" and calling `process.exit(1)` on this worker.
+ */
+function inertWatchdogSeams(): SubagentParentWatchdogSeams {
+  return {
+    ownPid: process.pid,
+    probe: (): "alive" => "alive",
+    scheduler: {
+      setInterval: () => ({ unref: (): void => {} }),
+      clearInterval: (): void => {},
+    },
+    writeStderr: (): void => {},
+    endProcess: (): void => {},
+  };
+}
 
 interface Harness {
   readonly pi: ExtensionAPI;
@@ -94,6 +115,7 @@ describe("RFC-0012 §3 — the factory latches, reuses and closes the child's re
           {
             clock: new FakeClock(),
             subagentExecutableHost: fakeExecutableHost(),
+            subagentParentWatchdogSeams: inertWatchdogSeams(),
             subagentControlPlane: {
               env: { [SUBAGENT_ROOT_ENV_MARKER]: "clean", [SUBAGENT_PARENT_PID_ENV]: "1" },
               entry: { kind: "theta" },
@@ -150,6 +172,7 @@ describe("RFC-0012 §3 — the factory latches, reuses and closes the child's re
           {
             clock: new FakeClock(),
             subagentExecutableHost: fakeExecutableHost(),
+            subagentParentWatchdogSeams: inertWatchdogSeams(),
             subagentControlPlane: {
               env: { [SUBAGENT_ROOT_ENV_MARKER]: "clean", [SUBAGENT_PARENT_PID_ENV]: "1" },
               entry: { kind: "theta" },

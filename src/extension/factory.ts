@@ -87,6 +87,7 @@ import { SUBAGENT_ROOT_ENV_MARKER } from "../runtime/subagent-root-regime";
 import { readProductionChildControlPlane } from "./production-subagent-host";
 import { SUBAGENT_LAUNCH_FLAG } from "../runtime/subagent-launcher";
 import type { ResultChannelClient } from "../runtime/subagent-result-channel";
+import type { SubagentParentWatchdogHandle } from "../runtime/subagent-parent-watchdog";
 import {
   bindPlacementRegistration,
   PlacementRegistry,
@@ -419,6 +420,13 @@ export function createThetaExtension(
     // into a repeat compose, and closed at `session_shutdown`. Undefined under
     // `pipe` and in every parent process.
     let liveResultChannel: ResultChannelClient | undefined;
+    // Bug 0493 D1 (b): the LIVE armed parent-liveness watchdog of the current
+    // composed instance, latched from the compose wiring, handed back into a
+    // repeat `session_start` compose of this instance (which reuses it), and
+    // disposed at `session_shutdown` whatever its reason (a host reload
+    // included). `undefined` outside the subagent-root regime and on
+    // every parent / harness path.
+    let liveParentWatchdog: SubagentParentWatchdogHandle | undefined;
     // RFC-0012 §5: the registered placement backends of THIS extension
     // instance and the `pi.events` binding that fills it. Created in the
     // factory body — the offer subscription must exist before another
@@ -886,6 +894,11 @@ export function createThetaExtension(
           // RFC 0015 (D5): the run-card tick sink + TUI-handle latch, so the
           // TUI composition can ride the EXST-6 tick and capture the handle.
           runCardController,
+          // Bug 0493 D1 (b): the ALREADY-ARMED watchdog handle from a prior
+          // compose of this same instance, so a repeat `session_start` reuses
+          // it instead of arming a second poll interval against the same
+          // parent pid (the `liveResultChannel` reuse pattern, mirrored).
+          liveParentWatchdog,
         );
       } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
         if (composeTailSuperseded()) {
@@ -1035,6 +1048,12 @@ export function createThetaExtension(
       if (wiring.resultChannel !== undefined) {
         liveResultChannel = wiring.resultChannel;
       }
+      // Bug 0493 D1 (b): latch the (possibly newly-armed) parent-liveness
+      // watchdog handle for the next repeat compose and for `session_shutdown`
+      // disposal.
+      if (wiring.parentWatchdog !== undefined) {
+        liveParentWatchdog = wiring.parentWatchdog;
+      }
       // Decision 6 / Increment B1: publish the shared registry the producer's
       // bind choke points register in-flight invocations into, so the teardown's
       // sub-steps 2/3 operate on REAL entries.
@@ -1082,6 +1101,8 @@ export function createThetaExtension(
       set liveStatusBus(value) { liveStatusBus = value; },
       get liveResultChannel() { return liveResultChannel; },
       set liveResultChannel(value) { liveResultChannel = value; },
+      get liveParentWatchdog() { return liveParentWatchdog; },
+      set liveParentWatchdog(value) { liveParentWatchdog = value; },
       supersededGenerations,
       placementBinding,
       placementRegistry,
@@ -1173,6 +1194,7 @@ export default function thetaExtension(pi: ExtensionAPI): void {
       resultChannel,
       placementRegistration,
       runCardView,
+      parentWatchdog,
     ) =>
       composeExtensionInstance(
         pi,
@@ -1181,6 +1203,9 @@ export default function thetaExtension(pi: ExtensionAPI): void {
           subagentControlPlane: childControlPlane,
           // RFC-0012 §3: a repeat compose reuses the live connection.
           ...(resultChannel !== undefined ? { subagentResultChannel: resultChannel } : {}),
+          // PIC-65 layer 2: a repeat compose reuses the armed watchdog rather
+          // than arming a second interval and leaking the first handle.
+          ...(parentWatchdog !== undefined ? { subagentParentWatchdog: parentWatchdog } : {}),
           // RFC-0012 §5: the factory's registered-backend set.
           ...(placementRegistration !== undefined
             ? { subagentPlacementRegistration: placementRegistration }

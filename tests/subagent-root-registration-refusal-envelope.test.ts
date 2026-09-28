@@ -94,7 +94,12 @@ import {
   THETA_ENVELOPE_VERSION,
   THETA_RESULT_KEY,
 } from "../src/runtime/subagent-envelope";
+import { SUBAGENT_PARENT_PID_ENV } from "../src/runtime/subagent-launcher";
+import type { SubagentChildControlPlane } from "../src/runtime/subagent-launch-file";
+import type { ResultChannelClient } from "../src/runtime/subagent-result-channel";
+import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 import { SUBAGENT_CHILD_OUTCOME_CHANNEL } from "../src/runtime/subagent-placement-registry";
+import { inertWatchdogSeams } from "./helpers/inert-parent-watchdog";
 import {
   createEnvSandbox,
   restoreAmbientControlPlane,
@@ -196,7 +201,8 @@ async function runLoad(
     },
     // M15: a minimal `pi.events` bus — the load-pass registration-refusal
     // envelope writer (bug 0178 element (b)) is a LOAD-pass write outside
-    // `driveSubagentRootRegime` and owes no outcome event in 0.478.0 (decision 2).
+    // `driveSubagentRootRegime`, and it is the refused child's ONLY
+    // outcome-event emitter (bug 0493 D1 (a); see the M15 cell below).
     events: {
       emit: (channel: string, data: unknown): void => {
         outcomeEmitted.push({ channel, data });
@@ -222,6 +228,7 @@ async function runLoad(
     const regimeActive = detectSubagentRootRegime(readParentEnv()).active;
     const overrides: EnvelopeCapturingOverrides = {
       subagentExecutableHost: fakeExecutableHost(),
+      subagentParentWatchdogSeams: inertWatchdogSeams(),
       emitResultEnvelope: (line: string): void => {
         captured.push(line);
       },
@@ -375,7 +382,14 @@ describe("bug 0178 element (b) — a child-side refusal of the MARKED ROOT theta
       .toContain(normativeMessage(UNRESOLVABLE_PATH_CODE).replace("<path>", MISSING_CALLEE_ENTRY));
   });
 
-  it("M15: the marked-root load-refusal envelope carries no outcome event on the pi.events channel (decision 2)", async () => {
+  it("M15: the marked-root load-refusal envelope is followed by exactly one outcome event on the pi.events channel (bug 0493 D1 (a))", async () => {
+    // The load pass is a refused child's ONLY emitter (it never reaches
+    // `driveSubagentRootRegime`); a silent load pass leaves a placement
+    // backend's outcome consumer unaware the child failed, so it never
+    // retitles the pane. The exact event shape, envelope-then-event-then-
+    // shutdown ordering and presentation gating are pinned by the D1 (a) cells
+    // below ("(i)" through "(iii-b)"); this cell pins the event beside the
+    // bug-0178 refusal premise checks.
     const outcome = await runLoad(workspaceDir, { rootSlug: "refused" });
     expect(outcome.regimeActive).toBe(true);
     expect(outcome.registered).not.toContain("refused");
@@ -385,10 +399,12 @@ describe("bug 0178 element (b) — a child-side refusal of the MARKED ROOT theta
     expect(outcome.captured.length).toBeGreaterThan(0);
     expect(
       outcome.outcomeEmitted,
-      `the load-pass write is not driveSubagentRootRegime's terminal arm, so it owes the ` +
-        `${SUBAGENT_CHILD_OUTCOME_CHANNEL} channel nothing — emitted: ` +
+      `the load-pass write is the refused child's ONLY emitter, so it owes the ` +
+        `${SUBAGENT_CHILD_OUTCOME_CHANNEL} channel one "err" event — emitted: ` +
         JSON.stringify(outcome.outcomeEmitted),
-    ).toEqual([]);
+    ).toEqual([
+      { channel: SUBAGENT_CHILD_OUTCOME_CHANNEL, data: { apiVersion: 1, outcome: "err", slug: "refused" } },
+    ]);
   });
 
   it("(2) CONTROL — a marked root that registers cleanly produces no envelope from the load pass", async () => {
@@ -470,5 +486,208 @@ describe("bug 0178 element (b) — a child-side refusal of the MARKED ROOT theta
           JSON.stringify(outcome.captured),
       )
       .toEqual([]);
+  });
+});
+
+// ===========================================================================
+// Bug 0493 D1 (a) — the refusal ends the child it declared useless.
+// ===========================================================================
+//
+// A refused marked root means the theta never ran, so there is no live session
+// worth a human reading. After the envelope the load pass owes two more
+// effects, in this order (RFC 0012 §7's Ok-arm order): the child outcome event
+// with `outcome: "err"` (so a placement backend's outcome consumer retitles the
+// pane), then — under VISIBLE presentation only — `ctx.shutdown()`. A headless
+// child requests nothing: its `-p` run ends the process by itself.
+//
+// The control plane is handed in through `subagentControlPlane` rather than
+// planted on `process.env`, because presentation only exists on the
+// launch-file view (`SubagentChildControlPlane.launch.presentation`). The
+// visible leg names a result channel, so a fake client stands in for the socket
+// the compose would otherwise dial; the envelope still reaches the capturing
+// writer, which takes precedence over the channel.
+//
+// Spec: docs/bugs/0493-visible-children-no-parent-tether-silent-print-parent.md
+// §Fix "D1 (a)" and §"Witnesses" 1; subagent.md #subagent-child-outcome-event,
+// #subagent-visible-presentation.
+
+/** One observable effect of the refusal emission, in the order it happened. */
+type RefusalEffect =
+  | { readonly kind: "envelope"; readonly line: string }
+  | { readonly kind: "event"; readonly channel: string; readonly data: unknown }
+  | { readonly kind: "shutdown" };
+
+interface RefusalExitOutcome {
+  readonly registered: readonly string[];
+  readonly effects: readonly RefusalEffect[];
+  readonly regimeActive: boolean;
+}
+
+/** A result channel that goes nowhere — the visible leg must not dial a real socket. */
+function inertResultChannel(): ResultChannelClient {
+  return { writeLine: (): void => {}, stderr: (): void => {}, close: (): void => {} };
+}
+
+function refusalControlPlane(
+  rootSlug: string,
+  presentation: "visible" | "headless" | "pipe",
+): SubagentChildControlPlane {
+  const env = {
+    [SUBAGENT_ROOT_ENV_MARKER]: rootSlug,
+    [SUBAGENT_PARENT_PID_ENV]: String(process.ppid),
+  };
+  if (presentation === "pipe") {
+    // `pipe` carries its control plane on the env and consumes no launch file.
+    return { env, entry: { kind: "theta" } };
+  }
+  return {
+    env,
+    entry: { kind: "theta" },
+    launch: {
+      nonce: "n-b0493",
+      presentation,
+      ...(presentation === "visible" ? { channel: { port: 45093, token: "t-b0493" } } : {}),
+    },
+  };
+}
+
+async function runRefusalExit(
+  cwd: string,
+  rootSlug: string,
+  presentation: "visible" | "headless" | "pipe",
+  options?: { readonly subscriberThrows?: boolean },
+): Promise<RefusalExitOutcome> {
+  const effects: RefusalEffect[] = [];
+  const { pi: basePi, ctx: baseCtx } = makeIdleModelHost(cwd, presentation === "visible");
+  const pi = {
+    ...basePi,
+    events: {
+      emit: (channel: string, data: unknown): void => {
+        effects.push({ kind: "event", channel, data });
+        if (options?.subscriberThrows === true) {
+          throw new Error("outcome subscriber exploded");
+        }
+      },
+      on: (): (() => void) => (): void => {},
+    },
+  } as unknown as ExtensionAPI;
+  const ctx = {
+    ...baseCtx,
+    shutdown: (): void => {
+      effects.push({ kind: "shutdown" });
+    },
+  } as typeof baseCtx;
+  const controlPlane = refusalControlPlane(rootSlug, presentation);
+  const overrides: EnvelopeCapturingOverrides = {
+    subagentExecutableHost: fakeExecutableHost(),
+    subagentParentWatchdogSeams: inertWatchdogSeams(),
+    subagentControlPlane: controlPlane,
+    ...(presentation === "visible" ? { subagentResultChannel: inertResultChannel() } : {}),
+    emitResultEnvelope: (line: string): void => {
+      effects.push({ kind: "envelope", line });
+    },
+  };
+  const wiring = await composeExtensionInstance(pi, ctx, overrides);
+  return {
+    registered: wiring.thetas.map((t) => t.slashName),
+    effects,
+    regimeActive: detectSubagentRootRegime(controlPlane.env).active,
+  };
+}
+
+function effectKinds(effects: readonly RefusalEffect[]): readonly string[] {
+  return effects.map((effect) => effect.kind);
+}
+
+describe("bug 0493 D1 (a) — the marked-root registration refusal emits the child outcome event and, when visible, requests shutdown", () => {
+  it("(i) the refusal emits exactly one outcome event { apiVersion: 1, outcome: \"err\", slug: <regime slug> } on the child outcome channel", async () => {
+    const outcome = await runRefusalExit(workspaceDir, "refused", "visible");
+    expect(outcome.regimeActive).toBe(true);
+    expect(outcome.registered).not.toContain("refused");
+    // Premise: the refusal envelope itself was written, so the pass really took
+    // the refusal branch this cell is about.
+    expect(effectKinds(outcome.effects).filter((kind) => kind === "envelope")).toEqual(["envelope"]);
+
+    const events = outcome.effects.filter((effect) => effect.kind === "event");
+    expect(
+      events,
+      `the refusal must tell ${SUBAGENT_CHILD_OUTCOME_CHANNEL} consumers the child failed — ` +
+        `effects: ${JSON.stringify(outcome.effects)}`,
+    ).toEqual([
+      {
+        kind: "event",
+        channel: SUBAGENT_CHILD_OUTCOME_CHANNEL,
+        data: { apiVersion: 1, outcome: "err", slug: "refused" },
+      },
+    ]);
+  });
+
+  it("(ii) under VISIBLE presentation the refusal calls ctx.shutdown() exactly once", async () => {
+    const outcome = await runRefusalExit(workspaceDir, "refused", "visible");
+    expect(outcome.regimeActive).toBe(true);
+    expect(outcome.registered).not.toContain("refused");
+    expect(effectKinds(outcome.effects)).toContain("envelope");
+    expect(
+      effectKinds(outcome.effects).filter((kind) => kind === "shutdown"),
+      "a visible child has no `-p` exit; a refused one owes a shutdown request or it idles forever — " +
+        `effects: ${JSON.stringify(outcome.effects)}`,
+    ).toEqual(["shutdown"]);
+  });
+
+  it("(iii) under `pipe` the refusal does NOT call ctx.shutdown() — its `-p` run self-ends — but still emits the outcome event", async () => {
+    const outcome = await runRefusalExit(workspaceDir, "refused", "pipe");
+    expect(outcome.regimeActive).toBe(true);
+    expect(outcome.registered).not.toContain("refused");
+    expect(effectKinds(outcome.effects)).toContain("envelope");
+    expect(
+      effectKinds(outcome.effects).filter((kind) => kind === "shutdown"),
+      `a headless child requests no shutdown — effects: ${JSON.stringify(outcome.effects)}`,
+    ).toEqual([]);
+    expect(
+      outcome.effects.filter((effect) => effect.kind === "event"),
+      `the outcome event is presentation-independent — effects: ${JSON.stringify(outcome.effects)}`,
+    ).toEqual([
+      {
+        kind: "event",
+        channel: SUBAGENT_CHILD_OUTCOME_CHANNEL,
+        data: { apiVersion: 1, outcome: "err", slug: "refused" },
+      },
+    ]);
+  });
+
+  it("(iii-b) a non-visible LAUNCH-FILE presentation (`headless`) requests no shutdown either", async () => {
+    const outcome = await runRefusalExit(workspaceDir, "refused", "headless");
+    expect(outcome.regimeActive).toBe(true);
+    expect(effectKinds(outcome.effects)).toContain("envelope");
+    expect(effectKinds(outcome.effects).filter((kind) => kind === "shutdown")).toEqual([]);
+  });
+
+  it("(iv) the effects are ordered envelope → outcome event → shutdown", async () => {
+    const outcome = await runRefusalExit(workspaceDir, "refused", "visible");
+    expect(outcome.regimeActive).toBe(true);
+    expect(
+      effectKinds(outcome.effects),
+      `RFC 0012 §7 order: the envelope is on the wire before anyone is told the outcome, ` +
+        `and both precede the shutdown request — effects: ${JSON.stringify(outcome.effects)}`,
+    ).toEqual(["envelope", "event", "shutdown"]);
+  });
+
+  it("(v) a THROWING outcome subscriber does not alter the terminal path: the compose settles, the envelope precedes the event, and a visible child still requests shutdown", async () => {
+    const outcome = await runRefusalExit(workspaceDir, "refused", "visible", { subscriberThrows: true });
+    expect(outcome.regimeActive).toBe(true);
+    expect(outcome.registered).not.toContain("refused");
+    expect(
+      effectKinds(outcome.effects),
+      "subagent.md #subagent-child-outcome-event: a subscriber's throw MUST NOT alter the child's " +
+        `terminal path — effects: ${JSON.stringify(outcome.effects)}`,
+    ).toEqual(["envelope", "event", "shutdown"]);
+  });
+
+  it("CONTROL — a marked root that registers cleanly writes no envelope, emits no event and requests no shutdown from the load pass", async () => {
+    const outcome = await runRefusalExit(workspaceDir, "clean", "visible");
+    expect(outcome.regimeActive).toBe(true);
+    expect(outcome.registered).toContain("clean");
+    // The drive, not the load pass, owns every effect for a registered root.
+    expect(outcome.effects).toEqual([]);
   });
 });
