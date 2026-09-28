@@ -1,6 +1,7 @@
 # Bug 0493 — a visible child's lifetime is tied to nothing once its envelope is delivered: Err/refusal children linger unbounded after the parent exits (one orphan re-kicked real model turns for ~50 minutes), and a `pi -p` parent whose drive ends non-Ok before any assistant turn exits 0 with empty stdout and no session file
 
-- **Status:** Open.
+- **Status:** open — §Fix settled 2026-09-27 (operator-approved direction);
+  implementation pending.
 - **Sev/Diff estimate:** D1: S2/D2 — three live interactive `pi` processes
   survived their parent by ~50 minutes each until killed by hand, one of
   them actively burning provider tokens the whole time (an unbounded
@@ -228,6 +229,276 @@ session) — the SLSH-3/cancel/panic endings should additionally reach
 stderr (the fallback chain's terminal arm) or set a non-zero disposition
 when the host exposes one, so a lane runner can tell a failed probe from a
 green one without forensics.
+
+## Fix (settled 2026-09-27, operator-approved direction)
+
+D1 is closed by three pi-theta changes (refusal exit, parent-liveness
+watchdog, re-kick opt-out marker); D2's pi-theta share is a print-mode
+failure surface at the terminal-note seam. The pi host gates and the
+pi-retry budget are explicitly NOT part of this fix (out-of-scope list at
+the end). Verified host/code facts each element rests on are cited inline —
+the implementer should not need to re-derive them.
+
+### D1 (a) — the registration-refusal path ends the child it declared useless
+
+After `emitResultEnvelope(serializeErrEnvelope(registrationRefusal,
+"mint"))` (`production-composition.ts:1206–1215`), in order:
+
+1. **Emit the child outcome event** — `{ apiVersion: 1, outcome: "err",
+   slug: <regime.slug> }` on `SUBAGENT_CHILD_OUTCOME_CHANNEL`
+   (`subagent-placement-registry.ts:52`) through the existing emit-only
+   producer seam (`subagentOutcomeEvents`,
+   `production-producer-deps.ts:246–255`; presence-probed, advisory —
+   `pi.events` absent ⇒ structural no-op). This is what lets the herdr
+   0.3.0 outcome consumer retitle the pane `FAILED <label>`; the parent
+   still never emits on this channel.
+2. **Request shutdown under visible presentation** — the same
+   presentation gate + `typeof` presence-probe as
+   `#requestVisibleChildShutdown` (`subagent-spawn-regime.ts:1352`);
+   extract that helper (or an equivalent shared function) rather than
+   forking the probe, and thread the pass's
+   `SubagentChildControlPlane.launch.presentation` to the refusal site.
+   Ordering is envelope → event → shutdown, mirroring RFC 0012 §7's Ok
+   arm. A headless (`pipe`) child requests nothing — its `-p` run
+   self-ends, as today.
+
+Accepted residual: the host may still run ONE model turn on the
+never-registered `"/<slug>"` initial message (the host demotes an
+unregistered slash command to prompt text) before `ctx.shutdown()`'s
+defer-until-idle fires. Bounded by construction, and by element (b) once
+the parent exits. No attempt to suppress that turn is in scope.
+
+Spec amendment — `subagent.md#subagent-child-outcome-event` (:79): replace
+"the marked-root registration-refusal envelope (a load-pass write, PIC-59)
+carries no event" with: the refusal write emits the same event with
+`outcome: "err"` and, under visible presentation, then requests
+`ctx.shutdown()`; the one-event-per-process invariant is preserved (a
+refused process never enters a drive, so the load pass is that process's
+only emitter).
+
+### D1 (b) — the PIC-65 layer-2 parent-liveness watchdog (the missing reader)
+
+New module `src/runtime/subagent-parent-watchdog.ts` (pure logic over
+injected seams: liveness probe, interval scheduler/clock, stderr writer,
+`endProcess`), wired in `production-composition.ts` when
+`subagentRootRegime.active`:
+
+- **Input** — the parent pid from the unified control-plane view
+  `controlPlane.env[SUBAGENT_PARENT_PID_ENV]`. Verified present on BOTH
+  carriages: env carriage (ppid-authenticated) and the launch file —
+  `SUBAGENT_PARENT_PID_ENV` is a `SUBAGENT_CONTROL_PLANE_ENV_KEYS` member
+  (`subagent-launcher.ts:277`), so `projectLaunchFileControlPlane`
+  (`subagent-launch-file.ts:98`) copies it into the file and
+  `readChildControlPlane` projects it back over the scrubbed env. The
+  logical parent (the pi process), never the OS parent (a herdr pane's
+  ppid is the herdr server).
+- **Arming guards** — arm only for a parseable integer pid > 0 that is not
+  the child's own pid; absent/garbage carriage ⇒ not armed (fail toward
+  pre-fix behaviour, never toward a kill on a bad read). Armed once per
+  process — a repeat compose pass (`/reload`) reuses the armed handle,
+  the `passResultChannel` pattern. Never armed outside the regime (the
+  parent, harnesses). Cleared on `session_shutdown` (hygiene; the
+  interval is unref'd so it never holds the process open by itself).
+- **Poll** — unref'd interval, `SUBAGENT_PARENT_LIVENESS_POLL_MS =
+  10_000` (the heartbeat cadence; ends an orphan within ~10 s against the
+  observed ~50 min). Liveness probe: `process.kill(pid, 0)` — alive on
+  success AND on `EPERM` (process exists, no permission — on win32 Node
+  routes signal 0 through libuv's OpenProcess existence check, per the
+  Node docs "signal 0 can be used to test for the existence of a
+  process", so the same call is the Windows-safe check); gone ONLY on
+  `ESRCH`. PID-reuse false-alives (aggressive on Windows) fail toward a
+  longer linger — the pre-fix behaviour — never toward killing a child
+  whose parent lives; false-dead is structurally impossible under the
+  `ESRCH`-only rule.
+- **Action on parent-gone** (single-fire): write one stderr line —
+  `pi-theta: subagent child exiting — parent process <pid> gone` — for
+  pane/log forensics, then `endProcess` (production wiring:
+  `process.exit(1)`). No grace step, per the PIC-66 doctrine: the parent
+  would have killed this process had it been able to; nothing is owed to
+  it. In-flight side effects are already covered for channel-placed
+  children (parent death closes the socket → the bug-0484 CNCL-4 sweep
+  aborts the invocation before the poll even fires); for a `pipe` child
+  the exit itself is the stop.
+- **Linger policy (settled)** — the visible `Err` linger is KEPT while the
+  parent lives (the interactive-parent inspection affordance is real) and
+  is now bounded by parent lifetime: a `pi -p` parent exits at settlement,
+  so its Err/refusal children end within one poll interval — no
+  parent-mode detection needed, the parent's lifetime IS the policy. The
+  Ok arm (`#emitOkEnvelopeGuarded` → shutdown) is unchanged.
+
+Spec amendments (`docs/spec_topics/pi-integration-contract/subagent.md`):
+
+- `#subagent-orphan-prevention` layer 2 (:264): from "explicitly
+  unimplemented … read by nothing" to implemented, naming the reader
+  (child-side watchdog armed under the subagent-root regime), the input
+  (both carriages, as above), the poll interval constant, the
+  `process.kill(pid, 0)` / `EPERM`-alive / `ESRCH`-gone semantics, the
+  single-fire stderr-line + `process.exit(1)` action, and the pid-reuse
+  false-alive residual (fails toward linger).
+- Layer 3 residual exposure (:265): the orphan window is now
+  min(one invocation, one poll interval past parent death) for every
+  placement; delete the falsified unconditional "the child self-exits
+  after emitting its envelope" reading and fold in the closed re-kick
+  aggravator (element (c)). OS-level tethering (Job Objects /
+  `PR_SET_PDEATHSIG`) stays rejected.
+- `#subagent-visible-presentation` (:109): "does **not** shut down, and
+  the pane lingers with the live session for a human to read or continue"
+  gains the bound: …lingers **while the launching parent process lives**;
+  once the parent is gone the PIC-65 layer-2 watchdog ends the child — a
+  linger without a possible reader is an orphan, not an affordance.
+
+### D1 (c) — `PI_SUBAGENT_CHILD=1` on the launch env (re-kick opt-out marker)
+
+`buildSubagentChildEnv` (`subagent-launcher.ts:319`) writes
+`PI_SUBAGENT_CHILD: "1"` beside its own markers (in the final spread, so a
+stale inherited value is overwritten). Deliberately NOT a
+`SUBAGENT_CONTROL_PLANE_ENV_KEYS` member (the bug-0474 handling decision,
+made consciously): it is a foreign-convention ADVISORY marker —
+pi-config's own children set the identical value (`subagent-pi.mjs:111`)
+and pi-retry reads raw `process.env` with no authentication — so it is
+never scrubbed, never ppid-gated, and heritable down the process tree
+(idempotent: every launcher along a chain rewrites `"1"`).
+
+Reach, verified: a `pipe` child inherits the composed env directly; the
+herdr backend declares `inheritsEnv: true` and forwards `request.env` into
+the pane process (`pi-theta-herdr/src/herdr-placement-backend.ts:40,
+60, 74, 99` — `paneEnvOverlay(request.env)`), so the marker lands in the
+observed orphan shape's real environment where pi-retry's factory-time
+read (`index.ts:191`) sees it.
+
+Justification for a FULL re-kick opt-out (the verify-and-choose the
+direction asked for): `PI_SUBAGENT_CHILD` gates exactly one behaviour in
+the pi-retry fork — `scheduleStallRekick` returns early (`index.ts:224`;
+the only other read is a telemetry field at :265). The stall WATCHDOG
+itself (abort + retryable tag) still arms in children — desired, since a
+pre-0.87 pi core retries the turn inside the live drive. What the marker
+disables is only the session-level "continue" user message, and in a
+theta child that message can NEVER be useful, bounded or not: it does not
+re-enter the theta drive (the slash dispatch has settled; the PIC-59
+envelope is one-shot and has usually already been written), so all it
+produces is unsupervised freestyle model turns with tool access, invisible
+to the parent — Run A's 50-minute burn. Retrying a stalled turn INSIDE a
+still-live drive is bug 0483's territory (the host-recovery abort must
+ride the retry instead of cancelling the theta) and is unaffected by this
+marker.
+
+Residual: a hypothetical `inheritsEnv: false` backend passes no
+environment, so the marker would not reach such a child — element (b)'s
+watchdog still bounds it (the launch file carries the pid). No shipped
+backend has that shape.
+
+Spec amendment — `#subagent-launch-contract` env-carriage prose (:43
+region): one added sentence documenting `PI_SUBAGENT_CHILD=1` as a
+non-control-plane advisory marker written for sibling-extension
+interop (session-level babysitters must treat a theta child as a
+supervised child), never scrubbed, never authenticated.
+
+### D2 — print-mode parents surface a pre-assistant non-Ok ending
+
+All three terminal non-Ok framings of a top-level drive already funnel
+through exactly two producer methods: `emitTopLevelErrNote`
+(`production-theta-producer.ts:384` — SLSH-3 `Err` AND the `cancelled`
+rendering, `err-note-render.ts:147–149`) and `emitPanicNote` (:455 region
+— both panic framings). Fix: the production composition hands the producer
+a **print-mode failure surface** — `{ mirrorLine(text), markFailed() }` —
+defined iff `ctx.mode === "print" || ctx.mode === "json"` (the
+`ExtensionMode` print pair; `"tui"` keeps its transcript rendering,
+`"rpc"` is a long-lived server where a process exit code is meaningless)
+AND `!subagentRootRegime.active` (a child's failure surface is the PIC-59
+envelope; a `pipe` child runs `--mode json` and must not double-report —
+its stderr is the parent's crash-detail hint). Both methods call it after
+their `sendSystemNote`:
+
+- `mirrorLine` — write the rendered note text (the same `content` string)
+  plus `\n` to `process.stderr`. Safe on both print surfaces: stderr is
+  already the host's own extension-error channel, and the json event
+  stream rides stdout untouched.
+- `markFailed` — `process.exitCode = 1` (assign only; never call
+  `process.exit`, never overwrite a larger code the host later sets).
+
+Host-survival fact this rests on, verified on BOTH the repo devDependency
+0.80.10 and the operator host 0.87.1 (`dist/main.js` — 0.80.10 :684–695,
+0.87.1 :795–806): the print path ends `if (exitCode !== 0)
+{ process.exitCode = exitCode; } return;` — it never calls
+`process.exit()` and never resets an extension-set non-zero
+`process.exitCode`, so Node exits with the extension's 1 when the host's
+own text-mode gate saw no trailing assistant message. Result for the
+observed shapes: runs A/B/C-style parents exit 1 with one stderr line
+(`theta /<slug> returned Err: …` / `theta /<slug> cancelled` /
+`theta /<slug> aborted…`) instead of exit 0 and silence.
+
+Explicitly HOST-OWNED and not fixable from pi-theta (out of scope, to be
+filed/upstreamed against pi): the assistant-gated session flush
+(`SessionManager._persist` `hasAssistant` gate — a `--session-dir` run
+whose drive dies pre-assistant still persists NOTHING, even with this
+fix), and the assistant-only print output/exit-code gate itself
+(`print-mode.js:104–127`). pi-theta's stderr + exit-code surface makes the
+failure observable without the session file; it does not recreate the
+transcript.
+
+### Witnesses (red before / green after)
+
+1. **Refusal exit cells** (extend the existing marked-root refusal tests,
+   bug-0178/0347 area): the refusal emission also (i) emits
+   `pi-theta:subagent-child:outcome:v1` with `outcome: "err"` and the
+   regime slug on a fake bus, (ii) calls a `ctx.shutdown` spy under
+   visible presentation, (iii) does NOT call it under `pipe`, (iv) orders
+   envelope → event → shutdown. Red before: no event, no shutdown call.
+2. **Watchdog unit cells** (new `tests/subagent-parent-watchdog.test.ts`):
+   alive probe ⇒ no fire; `ESRCH` ⇒ single fire (stderr line +
+   `endProcess(1)`, exactly once); `EPERM` ⇒ alive; pid `0` / negative /
+   NaN / own pid ⇒ never arms; interval unref'd and cleared on dispose.
+   Composition cells: armed iff regime active ∧ valid pid carriage; never
+   armed on the parent/harness path. Red before: no module, no arming.
+3. **Env-marker cells** (`buildSubagentChildEnv` tests):
+   `PI_SUBAGENT_CHILD === "1"` on every launch; a stale inherited value
+   overwritten; the key NOT in `SUBAGENT_CONTROL_PLANE_ENV_KEYS` (never
+   scrubbed by `readChildControlPlane`, never projected as control
+   plane). Red before: key absent from the composed env.
+4. **D2 producer/composition cells**: fake stderr writer + exit-code seam
+   across `ctx.mode` ∈ {print, json, tui, rpc} × ending ∈ {Err,
+   cancelled, panic, Ok}: surface fires only for non-Ok × {print, json};
+   regime-active process inert even under json; Ok always inert. Red
+   before: no stderr write, exit code untouched.
+5. **End-to-end acceptance** (H9a, runs-B/C shape, near-zero tokens): real
+   `pi -p` (text and `--mode json`) parent whose subagent callee refuses
+   registration ⇒ parent exits non-zero, stderr carries
+   `refused to register its root theta`, stdout empty in text mode, and
+   the refusing child PROCESS exits (witnesses (a) and D2 together). Red
+   before: exit 0, empty stdout/stderr, lingering child.
+6. **Live-suite guard**: existing live tests are unaffected by
+   construction — the harness pins write the live vitest process's pid,
+   which stays alive for the test's duration, so armed watchdogs in real
+   children never fire; assert nothing new red per AGENTS.md's
+   both-directions rule (prove one red by pointing a watchdog cell at a
+   dead pid, then green).
+
+### Version / CHANGELOG
+
+One minor bump at landing (house pattern: bug 0493 → `0.493.0`) with a
+`### Fixed` entry covering both defects: D1 (refusal exit + outcome event,
+PIC-65 layer-2 watchdog implemented, `PI_SUBAGENT_CHILD` marker) and D2
+(print-mode stderr + exit-code surface for pre-assistant non-Ok endings).
+
+### Out of scope (owned elsewhere, tracked, not blocking)
+
+- **pi host**: the assistant-gated session flush and the assistant-only
+  print ending (D2's evidence-trail half) — upstream report against pi;
+  this fix only makes the failure observable at the process boundary.
+- **pi-config (follow-up, separate change owned there)**: a finite
+  `DEFAULT_STALL_REKICK_MAX` in the pi-retry fork (today
+  `Number.POSITIVE_INFINITY`, `index.ts:75–77`), plus optionally reading
+  the opt-out marker at schedule time (not factory time) and/or honouring
+  `PI_THETA_SUBAGENT_ROOT` directly. Defence in depth only — the
+  pi-theta env change alone covers every shipped backend, so this fix
+  does NOT depend on it.
+- **pi-theta-herdr**: no change (the 0.3.0 outcome consumer already
+  retitles Err children it is told about; element (a) now tells it).
+- **Bug 0483** (host-recovery abort cancels the theta instead of riding
+  the retry) and **bug 0485** (Err-linger core spin) stay open on their
+  own records; neither is masked by this fix.
+- The one prompt-text model turn a refusal child may still run before its
+  shutdown request lands (accepted residual, bounded — see (a)).
 
 ## Relation to prior bugs
 
