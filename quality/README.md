@@ -114,6 +114,16 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
 7. **Fix review** — `anthropic/claude-opus-5-5` at `thinking: high` verifies each issue is actually resolved
    and nothing else was damaged, in the tree; a green, reviewed lane's commit
    is cherry-picked onto the integrated head sequentially, in cluster order.
+   A review INVOKE failure is not a verdict: a bare `cancelled` Err aborts
+   the lane (the lane's own drive is being cancelled); any other Err — e.g.
+   a stall-watchdog abort of the reviewer child arriving as `invoke_callee`
+   (bug 0483) — gets ONE review retry with identical inputs (no fixer re-run,
+   attempt counter unchanged), and a second Err aborts the lane with the
+   verdict unknown, the batch left unreverted/uncommitted. An invoke failure
+   is never synthesized into a rejection: wave qw20260928060032 lost PTQ-1524
+   when a reviewer that had already submitted ok:true was Err'd by a
+   stall-watchdog abort, counted as a rejected attempt, and the gate-green
+   batch reverted at attempt 2.
    A conflicting cherry-pick gets ONE rebase-and-retry in a fresh worktree at
    the integrated head; a second conflict, or a red retry, drops the lane and
    its issues stay open. After every lane of the wave is integrated (or
