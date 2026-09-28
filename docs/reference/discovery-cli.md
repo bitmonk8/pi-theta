@@ -256,8 +256,15 @@ theta 1.0 surface.
   written to stderr as its rendered content plus a newline, and
   `process.exitCode` is set to `1` (assigned only, never `process.exit()`; a
   numeric code greater than `1` already set is kept). `tui` and `rpc` never
-  qualify. An SDK embedder that binds no UI context reads `ctx.mode === "print"`
-  (the host runner's default) and gets the same surface. Binder short-circuit
+  qualify. Without the surface such an ending gives no process-boundary
+  signal: text print mode (`pi -p`) prints and sets the exit code only from a
+  trailing assistant message, so it exits `0` with empty stdout; `--mode json`
+  streams every session event (the note included) to stdout and exits `0`; and
+  a drive ending before any assistant turn writes no session file. When the
+  note falls to the delivery fallback chain, its content reaches stderr twice
+  (the mirrored delivery-failed diagnostic, then the surface's line). An SDK
+  embedder that passes no `mode` binding reads `ctx.mode === "print"` (the host
+  runner's default, with or without a UI context) and gets the same surface. Binder short-circuit
   notes (`argument binder unavailable`, `argument binding cancelled`) are
   excluded and still exit `0` (bug 0494). See
   [Slash-Command Invocation — Print-mode failure surface](../spec_topics/slash-invocation.md#slsh-3-print-mode-failure-surface).

@@ -309,7 +309,11 @@ export const SUBAGENT_PER_LAUNCH_CONTROL_PLANE_ENV_KEYS: readonly string[] = Obj
  * session-level "continue the task" re-kick. `buildSubagentChildEnv` writes
  * `"1"` on every launch so a pi-theta subagent child is treated identically to
  * one of pi-config's own — a child whose supervisor speaks PIC-59 envelopes
- * must never be independently re-kicked by a session-level babysitter.
+ * must never be independently re-kicked by a session-level babysitter. The
+ * marker rides the launch env, so it reaches only children whose placement
+ * passes that env through: `pipe` and `inheritsEnv: true` backends. An
+ * `inheritsEnv: false` child (the `exec` default included) never carries it
+ * (subagent.md#subagent-launch-contract).
  */
 export const SUBAGENT_REKICK_OPT_OUT_ENV = "PI_SUBAGENT_CHILD";
 
@@ -370,7 +374,10 @@ export function buildSubagentChildEnv(
     // data, not this launch's own control plane, and every launcher along a
     // chain re-writing the same `"1"` is exactly the intended idempotent
     // heritability — the session-level babysitter must see a theta child as
-    // supervised at every hop of the chain.
+    // supervised at every hop of the chain whose placement passes this env
+    // through (`pipe`, `inheritsEnv: true` backends; an `inheritsEnv: false`
+    // launch file carries only the control-plane keys, so the marker stops
+    // there).
     [SUBAGENT_REKICK_OPT_OUT_ENV]: "1",
   };
 }

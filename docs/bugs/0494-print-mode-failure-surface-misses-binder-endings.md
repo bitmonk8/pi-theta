@@ -140,6 +140,12 @@ Recorded at fix time as 0493 Residual 3; this bug is that residual filed.
    non-child parent mirrors every top-level-cascade note (SLSH-3 Err,
    cancelled, panic, the binder failure rows, BNDR-9) to stderr and sets
    exit code 1.
+   *Note (2026-09-28):* the normative home now exists at
+   [slash-invocation.md — Print-mode failure surface](../spec_topics/slash-invocation.md#slsh-3-print-mode-failure-surface);
+   this fix amends its binder-exclusion sentence there. Correction to
+   §Observed: a `--mode json` parent does not end with empty stdout —
+   it streams every session event (the note included) to stdout and exits
+   `0`; empty stdout holds for text-mode `pi -p` only.
 4. **Witnesses.** Extend `tests/print-mode-failure-surface.test.ts` (or a
    sibling) over the real `BinderRunner`: each of the seven endings ×
    `ctx.mode` ∈ {print, json} fires the surface exactly once with the
