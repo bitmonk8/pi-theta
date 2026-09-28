@@ -24,6 +24,12 @@ let clones = bash({ command: "node tools/quality/clone-scan.mjs map --files " + 
 
 import { ReviewSummary } from "./quality.thetalib"
 
+// PARALLEL FILINGS REQUIRE A DEMONSTRATED DRIFT COST (2026-09-28): 6/6 old
+// D4 parallel filings in intake hit deliberate divergences and were rejected
+// on 2026-09-28 - symmetry alone predicts nothing. The parallel class below
+// therefore mirrors D1's divergent-solutions rule (drift that ALREADY
+// happened, or a concrete misread); clone-group (token-similar) filings are
+// unchanged.
 let summary: ReviewSummary = @`REVIEW BRIEF — lens D4 (duplication & drift), wave ${wave}.
 
 Scope — review ONLY these files (one repo-relative path per line; all are
@@ -53,8 +59,13 @@ Three classes, one lens:
   step (a switch over the same discriminant set in two passes, per-mode
   tables, a wire encoder and its decoder) with no clone-level similarity.
   Filed only with the mechanism named: "when X gains a case, Y must too -
-  today Y covers N of X's M cases" (counted). Incidental similarity (two
-  loops that look alike and owe each other nothing) is never filed.
+  today Y covers N of X's M cases" (counted) - AND with a DEMONSTRATED
+  drift cost: the strongest evidence is drift that ALREADY happened between
+  the pair (cite the commit or docs/bugs/ record); a concrete misread a
+  maintainer following one side makes on the other is acceptable; symmetry
+  alone ("they could drift") is NEVER fileable - triage rejects it.
+  Incidental similarity (two loops that look alike and owe each other
+  nothing) is never filed.
 
 Evidence rules (all mandatory; counted, not adjectived):
 - Cite ALL copies (every one, not a sample), each path:line-range + excerpt
@@ -102,7 +113,8 @@ fix_scope: module (all copies share a directory) or cross-module (they
 straddle directories). Body sections as the template: Observation, Evidence
 (every copy's excerpt, the diff verdict, the clone-map group id when
 applicable), Why this is a problem (incidental-vs-load-bearing reasoning,
-or the counted parallel-coverage claim), Suggested direction (the natural
+or the counted parallel-coverage claim plus its demonstrated drift cost),
+Suggested direction (the natural
 shared home as a hypothesis, never a design), False-positive check, ##
 Triage.
 
