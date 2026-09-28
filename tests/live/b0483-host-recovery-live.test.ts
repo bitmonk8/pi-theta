@@ -42,7 +42,8 @@
 //      first query resolves Ok on the retried text. The in-run arm exists only
 //      below pi 0.87 (0.87 bails its post-run retry after an extension abort),
 //      so the cell fails loudly naming the host pin on a pi >= 0.87 host rather
-//      than accepting cell A's path in its place.
+//      than accepting cell A's path in its place. RETIREMENT: retire or convert
+//      cell B when the dev pin crosses 0.87 (version-bump checklist item (av)).
 //
 // At HEAD both cells are RED for the bug's reason: the per-turn
 // `forwardSlashCommandCancel` in `LivePromptQueryModel.#driveUserVisibleTurn`
@@ -330,7 +331,8 @@ describe("bug 0483 live: a host-recovery abort of a driven turn rides the host's
       failLoudly(
         `bug 0483 live cell B precondition unmet: the in-run core-retry arm exists only below pi 0.87 ` +
           `(0.87 bails its post-run retry after an extension abort), but the host pin ` +
-          `@earendil-works/pi-coding-agent is ${VERSION}`,
+          `@earendil-works/pi-coding-agent is ${VERSION}; retire or convert cell B when the dev pin ` +
+          `crosses 0.87 (version-bump checklist item (av))`,
       );
     }
     const stem = "b0483rideinrun";

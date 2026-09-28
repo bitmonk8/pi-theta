@@ -6,15 +6,16 @@
 // no marker, no reason difference (docs/bugs/0483-…md §"Measured host
 // facts"). The two ARE distinguishable once the aborted turn settles: a host
 // recovery rewrites the trailing assistant to `stopReason: "error"` with an
-// errorMessage the host's OWN retry classifier — pi-ai's
-// `isRetryableAssistantError` — accepts; a genuine cancel settles
+// errorMessage the host's OWN retry classifier accepts — `AgentSession`'s
+// `_isRetryableError`: pi-ai's `isContextOverflow` exclusion, then pi-ai's
+// `isRetryableAssistantError`; a genuine cancel settles
 // `stopReason: "aborted"` (or with no assistant at all). This module owns
 // exactly that settle-time classification; the deferral / ride / cancel
 // mechanics live in `live-prompt-query-driver.ts`.
 //
 // Spec: pi-integration-contract/conversation-drive.md PIC-78.
 
-import { isRetryableAssistantError, type AssistantMessage, type Message } from "@earendil-works/pi-ai";
+import { isContextOverflow, isRetryableAssistantError, type AssistantMessage, type Message } from "@earendil-works/pi-ai";
 import { PROMPT_MODE_NORMAL_STOP_REASONS } from "../runtime/prompt-transport-mapping";
 
 /**
@@ -55,22 +56,40 @@ export const PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT =
   "Continue from where you left off; if the final answer was already complete, repeat it in full.";
 
 /**
+ * The host's own retry predicate over one assistant message, composed exactly
+ * as `AgentSession._isRetryableError` composes it: a context overflow is never
+ * retried (the host routes it to compaction), even though
+ * `isRetryableAssistantError`'s unanchored patterns accept overflow texts such
+ * as `prompt is too long: 205000 tokens > 200000 maximum`. `contextWindow` is
+ * the session model's window, `0` when no model is selected — the host's own
+ * fallback. The `stopReason` check runs first so `isContextOverflow` never
+ * reaches its usage-based arms, which read `usage` and apply only to non-error
+ * stops.
+ */
+function isHostRetryableErrorStop(message: AssistantMessage, contextWindow: number): boolean {
+  return (
+    message.stopReason === "error" &&
+    !isContextOverflow(message, contextWindow) &&
+    isRetryableAssistantError(message)
+  );
+}
+
+/**
  * Classify a settled, host-abort-observed driven turn (bug 0483 §Fix item 1).
  *
  * `turnSlice` is this turn's own message slice (from the turn's `turnStart`
  * anchor through the end of the session's message list — the same span
  * `extractTrailingTurnText`/PIC-53 reads). `finalAssistant` is the slice's
  * LAST `assistant`-role message, or `undefined` when the slice carries none.
+ * `contextWindow` is the session model's context window (`ctx.model`), `0`
+ * when no model is selected.
  */
 export function classifyHostRecoverySettle(
   turnSlice: readonly Message[],
   finalAssistant: AssistantMessage | undefined,
+  contextWindow: number,
 ): HostRecoverySettleClassification {
-  if (
-    finalAssistant !== undefined &&
-    finalAssistant.stopReason === "error" &&
-    isRetryableAssistantError(finalAssistant)
-  ) {
+  if (finalAssistant !== undefined && isHostRetryableErrorStop(finalAssistant, contextWindow)) {
     return "recovering";
   }
   if (finalAssistant !== undefined && PROMPT_MODE_NORMAL_STOP_REASONS.has(finalAssistant.stopReason)) {
@@ -83,8 +102,7 @@ export function classifyHostRecoverySettle(
       (message): boolean =>
         message.role === "assistant" &&
         message !== finalAssistant &&
-        message.stopReason === "error" &&
-        isRetryableAssistantError(message),
+        isHostRetryableErrorStop(message, contextWindow),
     );
     if (hasRetryResidue) {
       return "recovered";

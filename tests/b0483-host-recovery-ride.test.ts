@@ -38,7 +38,8 @@
 //   7. PIC-53 exclusion `[user, error asst("partial"), stop asst("full")]`
 //      → Ok("full")                                                  [RED]
 //   8. agent_end gating: post-settle aborted ctx.signal + tagged settle
-//      → no synthesised agent_end cancel                             [RED]
+//      → no synthesised agent_end cancel; the settle rides (one
+//      continuation, Ok(<continuation text>), one ride note)         [RED]
 //   9. captured respond + non-retryable error-stop, no abort →
 //      Err(transport) (the capture pre-empts the probe only on a
 //      host-recovery settle)                                    [GREEN, pin]
@@ -55,6 +56,30 @@
 // Cells 9, 10, 12, 13 and 14 are green at HEAD only because HEAD forwards
 // the abort at signal time or has no ride path; they pin the deferred
 // path's dispositions for these shapes.
+//
+// LATER-RUN AND REVIEW CELLS (verdict at a250d9a0, the first fix commit,
+// in brackets). One driven turn can span several agent runs, each with its
+// own `ctx.signal`; a recorder bound to the first run alone misses them:
+//  15. pi ≥ 0.87: core retry after a retryable error starts run 2, the
+//      watchdog aborts run 2, the tagged error-stop settles idle →
+//      exactly one ride, Ok(<continuation text>)                     [RED]
+//  16. pi ≤ 0.86: the same, then core retry re-runs in-run (run 3) →
+//      Ok(<retried text>), zero rides — recovered via core retry
+//      [GREEN, pin: an unrecorded abort falls through to the same
+//      normal extraction a "recovered" classification does]
+//  17. ESC aborts run 2 (after a core retry) → Err(cancelled), the ESC
+//      reason by identity                                           [RED]
+//  18. watchdog abort on run 1, core retry, ESC on run 2 → the LATEST
+//      recorded reason (the ESC's) is forwarded                     [RED]
+//  19. a recorded abort over a context-overflow error-stop the
+//      unanchored retry patterns accept → Err(cancelled), no ride
+//      (the host's overflow exclusion)                              [RED]
+//  20. the PIC-17 install persists across a ride: no setActiveTools
+//      between the original and the continuation send          [GREEN, pin]
+//  21. rounds add up across attempts: attempt 1 spends the whole
+//      max_rounds budget, attempt 2's tool round is blocked     [GREEN, pin]
+//  22. PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT is the continuation text
+//      PIC-78 specifies verbatim                                [GREEN, pin]
 //
 // HARNESS. The bug-0288/0319/0482 scripted-session pattern: drive the REAL
 // producer (`createProductionProducerDeps` → `bindPromptConversation` →
@@ -86,17 +111,26 @@
 // The complete() queue mock must be imported before any production module
 // (cell 5 pins ZERO off-session respond dispatches; an empty queue throws).
 import { scripted } from "./helpers/scripted-complete-queue-mock";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { isRetryableAssistantError, type AssistantMessage, type Message } from "@earendil-works/pi-ai";
 import {
+  isContextOverflow,
+  isRetryableAssistantError,
+  type AssistantMessage,
+  type Message,
+} from "@earendil-works/pi-ai";
+import {
+  classifyHostRecoverySettle,
   PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT,
   PROMPT_MODE_HOST_RECOVERY_RIDE_BOUND,
 } from "../src/extension/host-recovery";
+import { TOOL_LOOP_EXHAUSTED_REASON } from "../src/extension/prompt-tool-loop-governor";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { TURN_SETTLE_POLL_BOUND } from "../src/extension/turn-settlement";
@@ -157,6 +191,12 @@ type HostStep =
     }
   /** The model calls the typed query's respond tool: execute + toolUse/toolResult entries. */
   | { readonly kind: "respond"; readonly payload: unknown }
+  /**
+   * One model tool round: fires the governor's captured `before_provider_request`
+   * then `tool_call` handlers (the host's order), records the `tool_call`
+   * decision, and commits the toolUse/toolResult entries.
+   */
+  | { readonly kind: "toolRound"; readonly toolName: string }
   /** pi ≤ 0.86 in-run core retry: a fresh run controller; the session stays non-idle. */
   | { readonly kind: "retryRun" }
   /** The run settles: the session reads idle. */
@@ -177,6 +217,12 @@ interface TurnScript {
    * next send.
    */
   readonly signalExposure?: "live" | "post-settle";
+}
+
+/** The `PromptToolLoopGovernor` handlers the pi double captures from `pi.on(...)`. */
+interface GovernorHandlers {
+  beforeProviderRequest?: () => void;
+  toolCall?: (event: Record<string, unknown>) => unknown;
 }
 
 interface ActiveRun {
@@ -201,6 +247,10 @@ class HostRecoverySession {
   respondExecutor: ((payload: unknown) => Promise<unknown>) | undefined = undefined;
   /** Every respond-tool `execute` result promise, in order. */
   readonly respondResults: Promise<unknown>[] = [];
+  /** The governor handlers, filled by the pi double's `on`. */
+  readonly governor: GovernorHandlers = {};
+  /** Every `toolRound` step's `tool_call` decision (`undefined` = allowed), in order. */
+  readonly toolCallDecisions: unknown[] = [];
 
   readonly #scripts: TurnScript[];
   #run: ActiveRun | undefined = undefined;
@@ -303,6 +353,36 @@ class HostRecoverySession {
         });
         return;
       }
+      case "toolRound": {
+        const { beforeProviderRequest, toolCall } = this.governor;
+        if (beforeProviderRequest === undefined || toolCall === undefined) {
+          throw new Error(
+            "b0483 scripted host: a `toolRound` step ran but the governor's before_provider_request/" +
+              "tool_call handlers were never registered — the REAL PromptToolLoopGovernor was not reached",
+          );
+        }
+        const toolCallId = `tc-round-${this.toolCallDecisions.length}`;
+        beforeProviderRequest();
+        this.toolCallDecisions.push(toolCall({ type: "tool_call", toolName: step.toolName, toolCallId, input: {} }));
+        appendMessageEntry(this.entries, {
+          role: "assistant",
+          content: [{ type: "toolCall", id: toolCallId, name: step.toolName, arguments: {} }],
+          api: "anthropic-messages",
+          provider: "anthropic",
+          model: "m1",
+          stopReason: "toolUse",
+          timestamp: 0,
+        });
+        appendMessageEntry(this.entries, {
+          role: "toolResult",
+          toolCallId,
+          toolName: step.toolName,
+          content: [{ type: "text", text: "tool output" }],
+          isError: false,
+          timestamp: 0,
+        });
+        return;
+      }
       case "retryRun":
         run.controller = new AbortController();
         return;
@@ -336,31 +416,59 @@ function rootDouble(session: HostRecoverySession): RuntimeRoot {
   } as unknown as RuntimeRoot;
 }
 
+/** The user session's active tool set before any theta drive touches it. */
+const AMBIENT_ACTIVE_TOOLS: readonly string[] = ["ambient_read"];
+
+/** One active-set / send event, in call order (cell 20's observable). */
+type ActiveSetEvent =
+  | { readonly kind: "setActiveTools"; readonly names: readonly string[] }
+  | { readonly kind: "send"; readonly text: string; readonly activeTools: readonly string[] };
+
 interface PiRecord {
   readonly api: ExtensionAPI;
   readonly registeredTools: ToolDefinition[];
   /** Every `theta-system-note` message object as sent, in emission order. */
   readonly notes: Record<string, unknown>[];
+  /** Every `setActiveTools` call and every send, in call order. */
+  readonly activeSetEvents: ActiveSetEvent[];
+  /** The active tool set as the pi double holds it now. */
+  activeTools(): readonly string[];
 }
 
 function piDouble(session: HostRecoverySession): PiRecord {
   const registeredTools: ToolDefinition[] = [];
   const notes: Record<string, unknown>[] = [];
+  const activeSetEvents: ActiveSetEvent[] = [];
+  let activeTools: readonly string[] = [...AMBIENT_ACTIVE_TOOLS];
   const api = {
-    sendUserMessage: (content: string): void => session.sendUserMessage(content),
-    getActiveTools: (): string[] => [],
-    setActiveTools: (): void => {},
+    sendUserMessage: (content: string): void => {
+      activeSetEvents.push({ kind: "send", text: content, activeTools: [...activeTools] });
+      session.sendUserMessage(content);
+    },
+    getActiveTools: (): string[] => [...activeTools],
+    setActiveTools: (names: string[]): void => {
+      activeSetEvents.push({ kind: "setActiveTools", names: [...names] });
+      activeTools = [...names];
+    },
     registerTool: (tool: ToolDefinition): void => {
       registeredTools.push(tool);
     },
-    on: (): void => {},
+    on: (event: string, handler: (...args: unknown[]) => unknown): void => {
+      if (event === "before_provider_request") {
+        session.governor.beforeProviderRequest = (): void => {
+          void handler(undefined, undefined);
+        };
+      } else if (event === "tool_call") {
+        session.governor.toolCall = (e: Record<string, unknown>): unknown => handler(e, undefined);
+      }
+    },
     sendMessage: (message: Record<string, unknown>): void => {
       if (message["customType"] === "theta-system-note") {
         notes.push({ ...message });
       }
     },
   } as unknown as ExtensionAPI;
-  return { api, registeredTools, notes };
+  return { api, registeredTools, notes, activeSetEvents, activeTools: (): readonly string[] => activeTools };
 }
 
 /** How the ctx double's `waitForIdle()` behaves: resolved at once (pi-faithful for a settled run) or never. */
@@ -477,6 +585,18 @@ const REPAIR_TYPED_QUERY_THETA = [
   "",
 ].join("\n");
 
+/** An untyped query with a one-round tool-loop budget (cell 21). */
+const ONE_ROUND_BUDGET_THETA = [
+  "---",
+  "mode: prompt",
+  "tool_loop:",
+  "  max_rounds: 1",
+  "---",
+  `let v = @\`${QUERY_TEXT}\`?`,
+  "v",
+  "",
+].join("\n");
+
 const TYPED_QUERY_THETA = [
   "---",
   "mode: prompt",
@@ -536,6 +656,51 @@ function expectRideNotes(notes: readonly Record<string, unknown>[], count: numbe
 
 /** An errorMessage the host's retry classifier rejects (no retryable pattern). */
 const NON_RETRYABLE_ERROR = "invalid_request_error: messages.0.content: field required";
+
+/** A provider error pi's core retry re-runs with no abort involved (cells 15\u201317's run 1). */
+const OVERLOADED_ERROR = '529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}';
+
+/**
+ * A context-overflow errorMessage: `isRetryableAssistantError` alone accepts
+ * it, but the host's `_isRetryableError` excludes it first (cell 19).
+ */
+const CONTEXT_OVERFLOW_ERROR = "prompt is too long: 205000 tokens > 200000 maximum";
+
+/** Assert the premise that `errorMessage` is one the host's own retry predicate accepts. */
+function expectHostRetryable(errorMessage: string): void {
+  const probe = { role: "assistant", stopReason: "error", errorMessage } as unknown as AssistantMessage;
+  expect(
+    isRetryableAssistantError(probe) && !isContextOverflow(probe, 0),
+    `fixture premise: the host would retry ${JSON.stringify(errorMessage)}`,
+  ).toBe(true);
+}
+
+const CONVERSATION_DRIVE = "docs/spec_topics/pi-integration-contract/conversation-drive.md";
+
+/** Read a required spec file as text, failing loudly and naming it if absent. */
+function readSpec(relPath: string): string {
+  const url = new URL(`../${relPath}`, import.meta.url);
+  try {
+    return readFileSync(fileURLToPath(url), "utf8");
+  } catch (cause) {
+    throw new Error(`b0483 precondition unmet: required spec file not readable: ${relPath} (${String(cause)})`);
+  }
+}
+
+/**
+ * The PIC-78 section: from its anchor up to the next line-leading `<a id=`
+ * anchor or heading. Fails loudly naming the anchor if it is absent.
+ */
+function extractPic78(specText: string): string {
+  const anchor = '<a id="pic-78">';
+  const start = specText.indexOf(anchor);
+  if (start === -1) {
+    throw new Error(`b0483 precondition unmet: PIC-78 anchor '${anchor}' not found in ${CONVERSATION_DRIVE}`);
+  }
+  const rest = specText.slice(start + anchor.length);
+  const next = rest.search(/\n(?:<a id=|#)/);
+  return next === -1 ? rest : rest.slice(0, next);
+}
 
 /** The mocked `complete()` reply: the forced respond turn calls the respond tool with `payload`. */
 function forcedRespondReply(payload: unknown): (typeof scripted)["queue"][number] {
@@ -864,25 +1029,20 @@ describe("bug 0483 — a host-recovery abort must ride the host's retry, not can
       `bug 0483 §Fix: the abortForAgentEnd synthesis is gated by the settle classification — ` +
         `skipped for a "recovering" settle; observed ${disposition(out)}`,
     ).toBe(false);
-    // The §Fix leaves one choice open for a settle whose abort only the
-    // post-settle site observed: ride it (Ok(<continuation text>)) or let
-    // PIC-51 map the tagged error-stop (Err(transport)). Either is a host
-    // recovery disposition; `cancelled` is not.
-    const e = out.execution;
-    const rode =
-      e.outcome === "success" &&
-      e.result.value === "continued answer after recovery" &&
-      out.session.sends.length === 2;
-    const transported =
-      e.outcome === "fail" &&
-      (e.error as { readonly kind?: unknown } | undefined)?.kind === "transport" &&
-      (e.error as { readonly message?: unknown } | undefined)?.message === TAGGED_RETRYABLE_ERROR &&
-      out.session.sends.length === 1;
+    // PIC-78: an abort observed only post-settle is classified like a recorded
+    // one, so a "recovering" settle rides exactly as a recorded abort does.
     expect(
-      rode || transported,
-      `a gated host-recovery settle resolves Ok(<continuation text>) after one ride or ` +
-        `Err(transport, <tagged errorMessage>) — never cancelled; observed ${disposition(out)}`,
-    ).toBe(true);
+      out.execution.outcome,
+      `PIC-78: the post-settle-observed recovering settle rides; observed ${disposition(out)}`,
+    ).toBe("success");
+    expect(out.session.sends, "exactly one continuation send follows the original query send").toEqual([
+      QUERY_TEXT,
+      PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT,
+    ]);
+    expect(out.execution.result.value, "PIC-53: the continuation turn's text only").toBe(
+      "continued answer after recovery",
+    );
+    expectRideNotes(out.pi.notes, 1);
   });
   it("(9) captured respond + a NON-retryable error-stop, no abort: the PIC-51 probe still answers Err(transport) (the captured payload pre-empts the probe only on a host-recovery settle)", async () => {
     const probe = { role: "assistant", stopReason: "error", errorMessage: NON_RETRYABLE_ERROR } as unknown as AssistantMessage;
@@ -1018,5 +1178,256 @@ describe("bug 0483 — a host-recovery abort must ride the host's retry, not can
     expect(out.thetaAbort.signal.reason, "CNCL-4: the recorded source reason, by identity").toBe(abortReason);
     expect(out.session.sends, "a cancelled turn is never continued").toEqual([QUERY_TEXT]);
     expectRideNotes(out.pi.notes, 0);
+  });
+
+  // --- Later agent runs of one driven turn (cells 15–18) ---------------------
+  // `ctx.signal` is the ACTIVE run's signal; the `retryRun` step starts a fresh
+  // run (fresh controller) with the session still non-idle, the shape pi's core
+  // retry, overflow compaction and a queued message all share.
+
+  it("(15) pi ≥ 0.87 later run: core retry starts run 2, the watchdog aborts run 2, the tagged error-stop settles idle → exactly ONE ride, Ok(<continuation text>) — RED at a250d9a0: Err(transport, tagged)", async () => {
+    expectTaggedMessageIsHostRetryable();
+    expectHostRetryable(OVERLOADED_ERROR);
+    const out = await driveLiveTheta(ONE_QUERY_THETA, [
+      {
+        steps: [
+          // Run 1: a retryable provider error with no abort; core retry re-runs.
+          { kind: "assistant", stopReason: "error", text: "run 1 partial", errorMessage: OVERLOADED_ERROR },
+          { kind: "retryRun" },
+          // Run 2: the watchdog aborts THIS run's signal; pi ≥ 0.87 bails its
+          // post-run retry after an extension abort, so the run settles idle.
+          { kind: "abort", reason: watchdogAbortReason() },
+          { kind: "assistant", stopReason: "error", text: "run 2 partial", errorMessage: TAGGED_RETRYABLE_ERROR },
+          { kind: "idle" },
+        ],
+      },
+      cleanTurn("continued answer after recovery"),
+    ]);
+
+    expect(out.session.abortTick, "cell premise: the watchdog abort fired on run 2").toBeDefined();
+    expect(
+      out.thetaAbort.signal.aborted,
+      `a host recovery on a later run of the turn is not a cancellation; observed ${disposition(out)}`,
+    ).toBe(false);
+    expect(
+      out.execution.outcome,
+      `PIC-78: the recorder re-arms on run 2's signal, so its tagged settle rides; observed ${disposition(out)}`,
+    ).toBe("success");
+    expect(out.session.sends, "exactly one continuation send follows the original query send").toEqual([
+      QUERY_TEXT,
+      PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT,
+    ]);
+    expect(out.execution.result.value, "PIC-53: the continuation turn's text only").toBe(
+      "continued answer after recovery",
+    );
+    expectRideNotes(out.pi.notes, 1);
+  });
+
+  it("(16) pi ≤ 0.86 later run: the watchdog aborts run 2 and core retry re-runs in-run (run 3) → Ok(<retried text>), ZERO rides — recovered via core retry", async () => {
+    expectTaggedMessageIsHostRetryable();
+    expectHostRetryable(OVERLOADED_ERROR);
+    const out = await driveLiveTheta(ONE_QUERY_THETA, [
+      {
+        steps: [
+          { kind: "assistant", stopReason: "error", text: "run 1 partial", errorMessage: OVERLOADED_ERROR },
+          { kind: "retryRun" },
+          { kind: "abort", reason: watchdogAbortReason() },
+          { kind: "assistant", stopReason: "error", text: "run 2 partial", errorMessage: TAGGED_RETRYABLE_ERROR },
+          // pi ≤ 0.86 retries in-run even after an extension abort.
+          { kind: "retryRun" },
+          { kind: "assistant", stopReason: "stop", text: "retried answer" },
+          { kind: "idle" },
+        ],
+      },
+    ]);
+
+    expect(out.session.abortTick, "cell premise: the watchdog abort fired on run 2").toBeDefined();
+    expect(out.thetaAbort.signal.aborted, `core retry recovered the turn; observed ${disposition(out)}`).toBe(false);
+    expect(out.execution.outcome, `"recovered" falls through to the extraction; observed ${disposition(out)}`).toBe(
+      "success",
+    );
+    expect(out.execution.result.value, "PIC-53: the retried text only, both error-stops excluded").toBe(
+      "retried answer",
+    );
+    expect(out.session.sends, "zero continuation sends: core retry already re-ran the turn").toEqual([QUERY_TEXT]);
+    expectRideNotes(out.pi.notes, 0);
+  });
+
+  it("(17) ESC aborts run 2 (after a core retry of run 1) → Err(cancelled) with the ESC reason by identity — RED at a250d9a0: Err(transport)", async () => {
+    expectHostRetryable(OVERLOADED_ERROR);
+    const esc = escAbortReason();
+    const out = await driveLiveTheta(ONE_QUERY_THETA, [
+      {
+        steps: [
+          { kind: "assistant", stopReason: "error", text: "run 1 partial", errorMessage: OVERLOADED_ERROR },
+          { kind: "retryRun" },
+          { kind: "abort", reason: esc },
+          { kind: "assistant", stopReason: "aborted", text: "run 2 partial" },
+          { kind: "idle" },
+        ],
+      },
+    ]);
+
+    expect(out.execution.outcome, `an ESC on a later run cancels; observed ${disposition(out)}`).toBe("cancel");
+    expect(out.thetaAbort.signal.reason, "CNCL-4: the recorded source reason, by identity").toBe(esc);
+    expect(out.session.sends, "a cancelled turn is never continued").toEqual([QUERY_TEXT]);
+    expectRideNotes(out.pi.notes, 0);
+  });
+
+  it("(18) watchdog abort on run 1, core retry, ESC on run 2 → Err(cancelled) forwarding the LATEST recorded reason (the ESC's) — RED at a250d9a0: the watchdog's reason", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const watchdog = watchdogAbortReason();
+    const esc = escAbortReason();
+    const out = await driveLiveTheta(ONE_QUERY_THETA, [
+      {
+        steps: [
+          { kind: "abort", reason: watchdog },
+          { kind: "assistant", stopReason: "error", text: "run 1 partial", errorMessage: TAGGED_RETRYABLE_ERROR },
+          { kind: "retryRun" },
+          { kind: "abort", reason: esc },
+          { kind: "assistant", stopReason: "aborted", text: "run 2 partial" },
+          { kind: "idle" },
+        ],
+      },
+    ]);
+
+    expect(out.execution.outcome, `the ESC on run 2 cancels; observed ${disposition(out)}`).toBe("cancel");
+    expect(
+      out.thetaAbort.signal.reason,
+      "CNCL-4: the LATEST recorded reason is forwarded — the user's ESC, not the earlier watchdog abort",
+    ).toBe(esc);
+    expect(out.session.sends, "a cancelled turn is never continued").toEqual([QUERY_TEXT]);
+    expectRideNotes(out.pi.notes, 0);
+  });
+
+  it("(19) a recorded abort over a context-overflow error-stop the unanchored retry patterns accept → Err(cancelled), no ride (the host's overflow exclusion) — RED at a250d9a0: rides", async () => {
+    const overflow = {
+      role: "assistant",
+      stopReason: "error",
+      errorMessage: CONTEXT_OVERFLOW_ERROR,
+    } as unknown as AssistantMessage;
+    expect(
+      isRetryableAssistantError(overflow),
+      "fixture premise: isRetryableAssistantError alone accepts the overflow text (its patterns are unanchored)",
+    ).toBe(true);
+    expect(isContextOverflow(overflow, 0), "fixture premise: pi-ai classifies the text as a context overflow").toBe(
+      true,
+    );
+    // The residue arm applies the same exclusion: overflow residue under a
+    // normal final assistant is not a core-retry recovery.
+    const slice = [
+      { role: "user", content: [{ type: "text", text: QUERY_TEXT }], timestamp: 0 },
+      overflow,
+      { role: "assistant", content: [{ type: "text", text: "after compaction" }], stopReason: "stop", timestamp: 0 },
+    ] as unknown as readonly Message[];
+    expect(
+      classifyHostRecoverySettle(slice, slice[2] as AssistantMessage, 0),
+      "overflow residue is not retry residue: the host never retries an overflow",
+    ).toBe("cancel");
+    expect(
+      classifyHostRecoverySettle(slice.slice(0, 2), overflow, 0),
+      "a trailing overflow error-stop is not a host-retryable settle",
+    ).toBe("cancel");
+
+    const esc = escAbortReason();
+    const out = await driveLiveTheta(ONE_QUERY_THETA, [
+      {
+        steps: [
+          { kind: "abort", reason: esc },
+          { kind: "assistant", stopReason: "error", errorMessage: CONTEXT_OVERFLOW_ERROR },
+          { kind: "idle" },
+        ],
+      },
+      // Scripted in case a ride is issued; unconsumed on the fixed tree.
+      cleanTurn("continued answer after recovery"),
+    ]);
+
+    expect(out.execution.outcome, `an overflow settle is not a host recovery; observed ${disposition(out)}`).toBe(
+      "cancel",
+    );
+    expect(out.thetaAbort.signal.reason, "CNCL-4: the recorded source reason, by identity").toBe(esc);
+    expect(out.session.sends, "no continuation for an overflow settle").toEqual([QUERY_TEXT]);
+    expectRideNotes(out.pi.notes, 0);
+  });
+
+  it("(20) the PIC-17 install persists across a ride: both sends see the same install vector, no setActiveTools between them, the ambient set restored after", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(
+      TYPED_QUERY_THETA,
+      [idleRecoveryTurn(), cleanTurn("free-phase answer after recovery")],
+      { completeQueue: [forcedRespondReply({ score: 4 })] },
+    );
+
+    expect(out.execution.outcome, `the ridden typed query settles Ok; observed ${disposition(out)}`).toBe("success");
+    expect(out.execution.result.value, "the forced respond payload is the typed value").toEqual({ score: 4 });
+    const events = out.pi.activeSetEvents;
+    const sendIndexes = events.flatMap((event, i) => (event.kind === "send" ? [i] : []));
+    expect(sendIndexes.length, `cell premise: the original send plus one continuation; events=${JSON.stringify(events)}`).toBe(2);
+    const [firstSend, secondSend] = sendIndexes as [number, number];
+    const between = events.slice(firstSend + 1, secondSend);
+    expect(
+      between,
+      "PIC-78: a ride runs inside the SAME open PIC-17 window — no setActiveTools between the sends",
+    ).toEqual([]);
+    const installs = events.slice(0, firstSend).filter((event) => event.kind === "setActiveTools");
+    expect(installs.length, `exactly one install ahead of the first send; events=${JSON.stringify(events)}`).toBe(1);
+    const installVector = installs[0]!.names;
+    expect(
+      installVector.some((name) => name.startsWith("__theta_respond_")),
+      `the install vector carries the typed query's respond tool; observed ${JSON.stringify(installVector)}`,
+    ).toBe(true);
+    for (const index of sendIndexes) {
+      const event = events[index]!;
+      expect(
+        event.kind === "send" ? event.activeTools : undefined,
+        "each send, the continuation included, sees the install vector",
+      ).toEqual(installVector);
+    }
+    expect(out.pi.activeTools(), "the step-4 restore returns the ambient active set").toEqual(AMBIENT_ACTIVE_TOOLS);
+  });
+
+  it("(21) rounds add up across attempts: attempt 1 spends the whole max_rounds budget, then rides; attempt 2's tool round is BLOCKED → Err(tool_loop_exhausted)", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(ONE_ROUND_BUDGET_THETA, [
+      {
+        steps: [
+          { kind: "toolRound", toolName: "read" },
+          { kind: "abort", reason: watchdogAbortReason() },
+          { kind: "assistant", stopReason: "error", errorMessage: TAGGED_RETRYABLE_ERROR },
+          { kind: "idle" },
+        ],
+      },
+      {
+        steps: [
+          { kind: "toolRound", toolName: "read" },
+          { kind: "assistant", stopReason: "stop", text: "answer after a blocked round" },
+          { kind: "idle" },
+        ],
+      },
+    ]);
+
+    expect(out.session.sends, "cell premise: the original send plus one continuation").toEqual([
+      QUERY_TEXT,
+      PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT,
+    ]);
+    expectRideNotes(out.pi.notes, 1);
+    expect(
+      out.session.toolCallDecisions,
+      "PIC-78: a ride never mints fresh round budget — attempt 1's round is allowed, attempt 2's is blocked",
+    ).toEqual([undefined, { block: true, reason: TOOL_LOOP_EXHAUSTED_REASON }]);
+    const leaf = expectErrOfKind(out.execution, "tool_loop_exhausted");
+    expect(leaf["rounds"], "ERR-19: rounds == max_rounds").toBe(1);
+    expect(leaf["last_tool_name"], "the blocked round's tool").toBe("read");
+    expect(out.thetaAbort.signal.aborted, "an exhausted budget is not a cancellation").toBe(false);
+  });
+
+  it("(22) PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT is the continuation text PIC-78 specifies verbatim", () => {
+    const pic78 = extractPic78(readSpec(CONVERSATION_DRIVE));
+    expect(
+      pic78.includes(
+        `sends the fixed continuation prompt \`PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT\`, whose text is exactly \`${PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT}\``,
+      ),
+      "PIC-78 names the continuation constant and quotes its text byte-exact; code and spec must not drift",
+    ).toBe(true);
   });
 });

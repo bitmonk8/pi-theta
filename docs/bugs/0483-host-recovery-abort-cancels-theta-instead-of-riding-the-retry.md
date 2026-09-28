@@ -378,13 +378,22 @@ The version bump and CHANGELOG entry land at the separate release step; the
 - What shipped (keyed to §Fix *Per-component changes*):
   - `src/extension/host-recovery.ts` (new, item 1) —
     `classifyHostRecoverySettle` (`recovering` / `recovered` / `cancel`)
-    over pi-ai `isRetryableAssistantError`; `recovered` requires a
+    over the host's own retry predicate, composed as `_isRetryableError`
+    composes it: pi-ai `isContextOverflow` (with `ctx.model?.contextWindow
+    ?? 0`) excluded first, then `isRetryableAssistantError` (whose
+    unanchored patterns alone accept `prompt is too long: … tokens > …
+    maximum`); `recovered` requires a
     normal-boundary final assistant (`PROMPT_MODE_NORMAL_STOP_REASONS`, now
     exported from `src/runtime/prompt-transport-mapping.ts`);
     `PROMPT_MODE_HOST_RECOVERY_RIDE_BOUND = 3`,
     `PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT`.
   - `src/extension/live-prompt-query-driver.ts` (item 2) — the per-turn
-    `ctx.signal` forward is a deferred recorder; the send + polls run as a
+    `ctx.signal` forward is a deferred recorder (`DeferredHostAbort`) that
+    re-arms per agent run: each non-idle end-poll read follows the current
+    `ctx.signal` object, detaching the previous run's listener, so an abort
+    of a later run of the same turn (core retry, overflow compaction, a
+    queued message) is recorded and the latest recorded reason is the one a
+    `cancel` forwards; the send + polls run as a
     bounded attempt loop inside one active-set window and one governor
     budget; settle classification drives recovered (fall through) /
     recovering (captured respond wins, else ride with the informational
@@ -398,43 +407,65 @@ The version bump and CHANGELOG entry land at the separate release step; the
     both `nextFreePhaseTurn` and `#driveRestartedRepairPhase`.
   - `src/runtime/conversation-drive.ts` (item 3) — `extractTrailingTurnText`
     skips `stopReason: "error"` assistant entries.
-  - `src/extension/sdk-inventory.ts` — `isRetryableAssistantError`
-    peer-named-import row (inventory-closure gate).
+  - `src/extension/sdk-inventory.ts` — `isRetryableAssistantError` and
+    `isContextOverflow` peer-named-import rows (inventory-closure gate).
   - Comment-only: `src/extension/production-theta-producer.ts`,
     `src/extension/production-producer-deps.ts` (per-turn forward is now
-    deferred), `tests/b0288-…`, `tests/b0413-…` (citations),
+    deferred and detached per run), `tests/b0288-…`, `tests/b0413-…`
+    (citations by file and symbol),
     `tests/live/harness.ts` (second user of `extraExtensionPaths` /
     `settingsManager`).
   - Spec: `cancellation.md` slash-command forwarding bullet
-    (settle-classified); `conversation-drive.md` new PIC-78, PIC-70 scoped to
-    an observed `thetaAbort`, PIC-53 join exclusion, typed-query bullet
-    exception for the bounded ride continuation; `version-bump-step2.md`
-    item (av) + preamble ranges to (av); `query/query-tool-loop.md` QRY-14
+    (settle-classified, recorded on every agent run of the turn, retry
+    classifier after excluding context overflow); `conversation-drive.md`
+    new PIC-78 (recorder re-arms per agent run, overflow exclusion,
+    continuation sends skip the PIC-70 pre-send gate and why that race is
+    accepted), PIC-70 scoped to an observed `thetaAbort`, PIC-53 join
+    exclusion, typed-query bullet exception for the bounded ride
+    continuation; `version-bump-step2.md` item (av) + preamble ranges to
+    (av) + the live cell B retirement note; `query/query-tool-loop.md` QRY-14
     sentence; `runtime-event-channel.md` informational-note list (ten notes,
     ride note added); `docs/plan_topics/coverage-matrix.md` PIC-78 row.
 - Tests that lock it:
-  - `tests/b0483-host-recovery-ride.test.ts` — 16 cells: the eight §Witness
+  - `tests/b0483-host-recovery-ride.test.ts` — 24 cells: the eight §Witness
     cells (3 and 7 split a/b) plus (9)/(10) captured respond does not pre-empt
     a non-abort error-stop / `length` probe, (11) respond-repair restarted
     phase keeps a captured payload across a recovery abort, (12)/(13)
     recorded-abort lifecycle expiries resolve `cancel`, (14) `length` retry
     is not `recovered`. At HEAD: 8 red (1, 2, 4, 5, 7a, 7b, 8, 11) with the
     bug symptom (`Err(cancelled)` / `"partial\nfull"`), 8 green regression
-    pins; fixed tree 16/16.
+    pins. Cell (8) is pinned to the ride (two sends, the continuation value,
+    exactly one ride note). Review round 1 added (15) pi ≥ 0.87 watchdog
+    abort of a later agent run → exactly one ride, (16) pi ≤ 0.86 later-run
+    abort recovered via core retry, (17) ESC on a later run → cancel with
+    the ESC reason, (18) the latest recorded reason is forwarded, (19) a
+    context-overflow error-stop is not a host recovery, (20) the PIC-17
+    install persists across a ride, (21) governor rounds add up across
+    attempts, (22) the continuation constant equals PIC-78's quoted text.
+    At `a250d9a0`: 15, 17, 18, 19 red (`Err(transport, <tagged>)`,
+    `Err(transport, "provider transport failure")`, the watchdog's reason,
+    `"recovered"`); 16, 20, 21, 22 green pins (16 because an unrecorded
+    abort falls through to the same extraction `recovered` does); fixed
+    tree 24/24.
   - `tests/live/b0483-host-recovery-live.test.ts` +
     `tests/live/fixtures/b0483-watchdog-mimic-extension.ts` — H8a, cell A
     (`retry.enabled` off, idle-recovery arm: one continuation, one `ride 1/3`
     note) and cell B (`retry.enabled` on, 0.80.10 in-run arm: zero
-    continuations, zero ride notes; fails loudly on a ≥ 0.87 host). At HEAD
+    continuations, zero ride notes; fails loudly on a ≥ 0.87 host — retire
+    or convert it when the dev pin crosses 0.87, item (av)). At HEAD
     both red with `systemNotes=["theta /b0483rideidle cancelled"]` /
     `["theta /b0483rideinrun cancelled"]`; fixed tree 2/2 green.
-- Gates: parse gate `Tests 58 passed (58)`; `npm run typecheck` exit 0;
-  `npm run lint` exit 0; `npm test` `Test Files 713 passed (713)`,
-  `Tests 11988 passed (11988)`; live b0483 2/2, plus regression live runs
-  green (`live-production-acceptance` prompt-mode turn / schema-typed
-  @-query / subagent-mode theta / typed invoke; `typed-query-wire-shapes`,
-  `live-session-control`, `b0480live-…`, `b0481live-…`,
-  `off-session-overflow-classification`).
+- Gates (release review round 1 tree): parse gate `Tests 58 passed (58)`;
+  `npm run typecheck` exit 0; `npm run lint` exit 0; targeted families
+  (b0483, drive/cancellation/typed/respond/governor, sdk-inventory,
+  inventory-closure, closing-gate) `Test Files 25 passed (25)`,
+  `Tests 370 passed (370)`; `npm test` `Test Files 713 passed (713)`,
+  `Tests 11996 passed (11996)`; live b0483 2/2. First-round gates (before
+  the release review): `npm test` `Tests 11988 passed (11988)`; live b0483
+  2/2, plus regression live runs green (`live-production-acceptance`
+  prompt-mode turn / schema-typed @-query / subagent-mode theta / typed
+  invoke; `typed-query-wire-shapes`, `live-session-control`,
+  `b0480live-…`, `b0481live-…`, `off-session-overflow-classification`).
 - Review: 2 rounds. Round 1 (deep): 13 findings — captured-respond
   precedence unscoped (fidelity), repair-phase capture discarded
   (correctness), recorded-abort lifecycle expiries minted transport `Err`
@@ -442,24 +473,32 @@ The version bump and CHANGELOG entry land at the separate release step; the
   structure/accuracy (PIC-53 bullet split, informational-note list, (av)
   ranges, retry-predicate wording, PIC-78 vs code), comment and witness
   gaps, a `globalThis` record in the live fixture. All fixed. Round 2
-  (fast): clean.
+  (fast): clean. Release review round 1: the recorder watched only the
+  first agent run (a watchdog abort of a later run on pi ≥ 0.87 went
+  unrecorded and surfaced `Err(transport)`); the classifier missed the
+  host's context-overflow exclusion; witness gaps (cell 8 accepted either
+  disposition, no active-set / governor-across-attempts / spec-literal
+  cells); line-number citations; live cell B retirement; the pre-send-gate
+  skip unstated in PIC-78. All fixed.
 - Verification: VERIFIED — witnesses red on a HEAD scratch copy and green
   on the fixed tree (unit and live); full suite green; live end-to-end and
   regression live runs green; lint, typecheck, parse gate green.
 - Residuals:
-  1. pi ≤ 0.86: an ESC landing during pi's own in-run retry run is not
-     observed (the recorder listens on the first run's signal; HEAD has the
-     same gap); after a recorded watchdog abort, a later ESC forwards the
-     watchdog's reason.
+  1. The recorder re-arms per agent run by polling: it follows a new run's
+     `ctx.signal` at the end-poll's non-idle reads (10 ms cadence), so an
+     agent run that starts, is aborted, and ends entirely between two reads
+     is not recorded. A later ESC after a recorded watchdog abort now
+     forwards the ESC's reason (cell 18).
   2. pi ≤ 0.86: an ESC during the retry backoff after a watchdog abort
      settles on the tagged error-stop and rides — a direct consequence of
      classifying by settle shape.
   3. Continuation sends do not pass the bug-0288 pre-send idle gate (the
-     §Fix-accepted sub-second double-send race with an external re-kicker).
+     §Fix-accepted sub-second double-send race with an external re-kicker;
+     PIC-78 states the skip and why the race is accepted).
   4. Real-child-process default-suite tests intermittently fail with
      `subagent model pre-flight mismatch … (unresolved: no matching model)`
      under full-suite load (reviewer and verifier runs; each file green in
-     isolation); unrelated to this change.
+     isolation); unrelated to this change — filed as bug 0497.
 - Discharge notes appended: none.
 - Pinned dispositions / non-goals: the §Fix *Out of scope* list stands
   (upstream pi abort distinction, `fix-cluster-tree.theta` one-retry

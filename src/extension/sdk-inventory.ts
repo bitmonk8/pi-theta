@@ -409,6 +409,10 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     // `AgentSession._isRetryableError` delegates to after a context-overflow
     // exclusion (retry.enabled / maxRetries gate the host's retry besides).
     { id: "isRetryableAssistantError", kind: "peer-named-import" },
+    // Bug 0483: the same classifier applies the host's context-overflow
+    // exclusion first, as `_isRetryableError` does, because
+    // `isRetryableAssistantError`'s unanchored patterns accept overflow texts.
+    { id: "isContextOverflow", kind: "peer-named-import" },
     { id: "UserMessage", kind: "peer-named-import" },
     { id: "ToolResultMessage", kind: "peer-named-import" },
     { id: "TextContent", kind: "peer-named-import" },

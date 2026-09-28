@@ -50,12 +50,64 @@ const HOST_RECOVERY_ABORT_SETTLE_GRACE_POLL_BOUND = 50;
 
 /**
  * Bug 0483 §Fix item 2: one attempt's deferred `ctx.signal` abort — the
- * per-turn listener records the source reason here instead of forwarding it
- * into `thetaAbort` at signal time.
+ * listener records the source reason here instead of forwarding it into
+ * `thetaAbort` at signal time.
+ *
+ * `ctx.signal` is the ACTIVE agent run's own signal (pi-agent-core
+ * `Agent.signal`), and one driven turn can span several runs: pi's core
+ * retry after a retryable error, overflow compaction, and a queued or
+ * `agent_before_settle` message each start a fresh run with a fresh signal
+ * inside the same turn. A recorder bound to the first run alone would miss
+ * an abort of any later run, so `follow` re-arms on every new run signal it
+ * is shown, detaching the previous listener, and a later abort overwrites
+ * the recorded reason: the LATEST recorded reason is the one a `cancel`
+ * forwards (CNCL-4).
  */
-interface DeferredHostAbort {
-  recorded: boolean;
-  reason?: unknown;
+class DeferredHostAbort {
+  #recorded = false;
+  #reason: unknown = undefined;
+  #watched: AbortSignal | undefined = undefined;
+  #onAbort: (() => void) | undefined = undefined;
+
+  get recorded(): boolean {
+    return this.#recorded;
+  }
+
+  get reason(): unknown {
+    return this.#reason;
+  }
+
+  /**
+   * Watch `signal` for an abort when it is a run signal not yet watched; the
+   * currently watched signal and `undefined` (no active run) are no-ops.
+   */
+  follow(signal: AbortSignal | undefined): void {
+    if (signal === undefined || signal === this.#watched) {
+      return;
+    }
+    this.dispose();
+    this.#watched = signal;
+    if (signal.aborted) {
+      this.#record(signal);
+      return;
+    }
+    const onAbort = (): void => this.#record(signal);
+    this.#onAbort = onAbort;
+    signal.addEventListener("abort", onAbort, { once: true });
+  }
+
+  /** Detach the listener on the watched signal; the recorded state is kept. */
+  dispose(): void {
+    if (this.#watched !== undefined && this.#onAbort !== undefined) {
+      this.#watched.removeEventListener("abort", this.#onAbort);
+    }
+    this.#onAbort = undefined;
+  }
+
+  #record(signal: AbortSignal): void {
+    this.#recorded = true;
+    this.#reason = signal.reason;
+  }
 }
 
 /**
@@ -866,6 +918,9 @@ class LivePromptQueryModel implements QueryModelDriver {
         // armed governor budget (a recovery ride never mints fresh budget).
         let attemptText = text;
         let rides = 0;
+        // The current attempt's recorder, held here so the `finally` detaches
+        // its listener on every exit path.
+        let liveRecorder: DeferredHostAbort | undefined;
         try {
           for (;;) {
             // Bug 0414 (conversation-drive.md PIC-70): an abort observed inside
@@ -922,33 +977,22 @@ class LivePromptQueryModel implements QueryModelDriver {
               return;
             }
             // Bug 0483 §Fix item 2 (PIC-78): once the start poll has cleared,
-            // `ctx.signal` reflects THIS attempt whenever the host observed it
-            // streaming (it is `undefined` at idle slash-entry, and inert below when
-            // the fast path never observed the run non-idle at all). The listener
-            // RECORDS the abort reason and leaves `thetaAbort` alone: a
-            // stall-watchdog `ctx.abort()` and a user ESC abort the SAME signal with
-            // no marker distinguishing them (§Measured host facts), so the
-            // cancel-or-ride decision waits for this attempt's settle, below.
-            // Decision 6 / Increment B2: this per-turn listener is deliberately NOT
-            // collected onto the shared `forwardingSignals` sink; it is `{once:true}`
-            // on a per-turn-transient `ctx.signal` and self-cleans.
-            const recordedAbortSignal = this.#ctx.signal;
-            const recorder: DeferredHostAbort = { recorded: false };
-            if (recordedAbortSignal !== undefined) {
-              if (recordedAbortSignal.aborted) {
-                recorder.recorded = true;
-                recorder.reason = recordedAbortSignal.reason;
-              } else {
-                recordedAbortSignal.addEventListener(
-                  "abort",
-                  (): void => {
-                    recorder.recorded = true;
-                    recorder.reason = recordedAbortSignal.reason;
-                  },
-                  { once: true },
-                );
-              }
-            }
+            // `ctx.signal` is the signal of the run THIS attempt started whenever
+            // the host observed it streaming (it is `undefined` at idle slash-entry,
+            // and inert below when the fast path never observed the run non-idle at
+            // all); the end-poll re-arms the recorder on each later run of the same
+            // turn. The recorder RECORDS the abort reason and leaves `thetaAbort`
+            // alone: a stall-watchdog `ctx.abort()` and a user ESC abort the SAME
+            // signal with no marker distinguishing them (§Measured host facts), so
+            // the cancel-or-ride decision waits for this attempt's settle, below.
+            // Decision 6 / Increment B2: this per-attempt listener is deliberately
+            // NOT collected onto the shared `forwardingSignals` sink; the recorder
+            // detaches it when a later run's signal replaces it, when the next
+            // attempt starts, and in this loop's `finally`.
+            liveRecorder?.dispose();
+            const recorder = new DeferredHostAbort();
+            liveRecorder = recorder;
+            recorder.follow(this.#ctx.signal);
             if (!this.#ctx.isIdle()) {
               // Bug 0288 §Fix item 4: bounded end-poll, then a bounded `waitForIdle`
               // race, then a bounded wait for THIS turn's own slice to settle. Each
@@ -960,7 +1004,18 @@ class LivePromptQueryModel implements QueryModelDriver {
               // with the recorded reason instead (PIC-78; `#recordLifecycleExpiry`).
               // The end-poll itself is not shortened: on pi <= 0.86 the session reads
               // non-idle through the in-run retry's backoff, and that IS the recovery.
-              const endCleared = await this.#pollWhile(() => !this.#ctx.isIdle(), TURN_END_POLL_BOUND);
+              // Each non-idle read shows the recorder the run signal then current, so
+              // an abort of a later run of this turn (core retry, overflow
+              // compaction, a queued message) is recorded too. Only non-idle reads
+              // re-arm: a signal still exposed after the run settled belongs to the
+              // post-settle `agent_end` site below.
+              const endCleared = await this.#pollWhile(() => {
+                if (this.#ctx.isIdle()) {
+                  return false;
+                }
+                recorder.follow(this.#ctx.signal);
+                return true;
+              }, TURN_END_POLL_BOUND);
               if (!endCleared) {
                 this.#recordLifecycleExpiry("settle", TURN_END_POLL_BOUND * POLL_INTERVAL_MS, recorder);
                 return;
@@ -1064,10 +1119,14 @@ class LivePromptQueryModel implements QueryModelDriver {
                 break;
               }
             }
-            const classification = classifyHostRecoverySettle(turnSlice, finalAssistant);
+            const classification = classifyHostRecoverySettle(
+              turnSlice,
+              finalAssistant,
+              this.#ctx.model?.contextWindow ?? 0,
+            );
             if (classification === "cancel") {
               if (recorder.recorded) {
-                // CNCL-4 reason identity: forward the RECORDED source reason.
+                // CNCL-4 reason identity: forward the LATEST recorded source reason.
                 this.#thetaAbort.abort(recorder.reason);
               } else {
                 // CANCEL-2 (agent_end user-cancel trigger, CNCL-4 synthesised
@@ -1118,6 +1177,7 @@ class LivePromptQueryModel implements QueryModelDriver {
             attemptText = PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT;
           }
         } finally {
+          liveRecorder?.dispose();
           if (capture !== undefined) {
             this.#respond?.captureHost.clearActiveCapture();
             if (capture.captured) {

@@ -7,10 +7,10 @@
 // docs/bugs/0413-pic51b-non-error-terminators-extract-as-ok.md (the spec, as
 // filed against the pre-fix tree at `c2c25d81`; line citations below are
 // re-derived against the fixed tree, not the bug doc's originally-cited ones).
-// Before the fix, `extractPromptModeQueryResult` (now
-// src/runtime/prompt-transport-mapping.ts:184) applied only PIC-51's
+// Before the fix, `extractPromptModeQueryResult` (now in
+// src/runtime/prompt-transport-mapping.ts) applied only PIC-51's
 // cancellation short-circuit and the `trailing.stopReason === "error"` arm (now
-// prompt-transport-mapping.ts:205); every other terminator, and the
+// the same function's error-stop arm); every other terminator, and the
 // absent-trailing-assistant case, fell through to the unconditional
 // `return { ok: true, value: extractTrailingTurnText(messages) }`. The two
 // consumer sites compounded the gap: both filtered
