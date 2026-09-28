@@ -18,7 +18,7 @@ import {
 import {
   DISCARDED_QUERY_RESULT_CODE,
   DISCARDED_QUERY_RESULT_MESSAGE,
-} from "../src/runtime/query-discard";
+} from "../src/parser/query-discard-checks";
 
 // V19a-T — failing tests for the paired `V19a` whole-program parser.
 //

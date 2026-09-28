@@ -1,13 +1,11 @@
-// V13g / V13g-T — discarded-query result discipline and discard observability.
+// V13g / V13g-T — discard observability.
 //
-// This module owns two coupled obligations from
-// query/query-escapes-stringification.md:
+// This module owns the runtime half of the discarded-query discipline from
+// query/query-escapes-stringification.md; the QRY-19 parse-time half (the
+// `theta/parse/discarded-query-result` parse error on a bare `@`...``
+// expression-statement, `checkDiscardedQueryResult`) lives in
+// src/parser/query-discard-checks.ts.
 //
-//   - QRY-19 — the `theta/parse/discarded-query-result` parse error on a bare
-//     `@`...`` expression-statement (the `Result` dropped without `?`,
-//     `let _ =`, or an annotation). Only the bare expression-statement position
-//     triggers the error; the `?`-propagate, `let _ =`-discard, and
-//     `let x = ...?`-bind forms are all accepted.
 //   - QRY-20 — the discard-observability contract: `let _ = @`...`` (and the
 //     equivalent `void`-tail form) is a true discard at the user-facing surface
 //     (no user-visible `theta-system-note`, no `Result` to the caller), but an
@@ -20,94 +18,19 @@
 //     expression, for the void-tail form). A discarded `Ok` produces no event.
 //
 // V13g-T (tests-task) declared the seam shapes; V13g (this leaf) supplies the
-// two behaviour-bearing functions: `checkDiscardedQueryResult` fires the QRY-19
-// parse error, and `emitDiscardObservability` emits the `display: false`
-// QRY-20 event preserving `kind` / `message` / `discard_site` on an `Err` and
-// nothing on an `Ok`.
+// behaviour-bearing function: `emitDiscardObservability` emits the
+// `display: false` QRY-20 event preserving `kind` / `message` / `discard_site`
+// on an `Err` and nothing on an `Ok`.
 //
-// Spec: query/query-escapes-stringification.md (QRY-19, QRY-20),
+// Spec: query/query-escapes-stringification.md (QRY-20),
 // pi-integration-contract/runtime-event-channel.md §"Runtime event channel".
 
-import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 import { type QueryError } from "./query-error";
 import {
   emitRuntimeEvent,
   type RuntimeEvent,
 } from "./runtime-event-channel";
 import { type SystemNoteChannelDeps } from "../extension/system-note-channel";
-
-// --- QRY-19 — discarded-query parse error ----------------------------------
-
-/** `theta/parse/discarded-query-result` (E). */
-export const DISCARDED_QUERY_RESULT_CODE = "theta/parse/discarded-query-result";
-
-/**
- * Registry Message for `theta/parse/discarded-query-result`, sourced verbatim
- * from diagnostics/code-registry-parse.md per the Diagnostic message anchors
- * rule.
- */
-export const DISCARDED_QUERY_RESULT_MESSAGE =
-  "query result discarded; use ? to propagate failure or 'let _ = ...' to discard explicitly";
-
-/** Registry Hint for `theta/parse/discarded-query-result`. */
-export const DISCARDED_QUERY_RESULT_HINT =
-  "Use `?` to propagate failure or `let _ = @`...`` to discard explicitly.";
-
-/**
- * The statement-position disposition of a query (`@`...``) result (QRY-19). Only
- * the bare expression-statement position triggers the parse error; the other
- * three forms acknowledge the `Result` at the call site.
- */
-export type QueryStatementDisposition =
-  /** `@`...`` alone in statement position — the `Result` is dropped. */
-  | "bare-expr-statement"
-  /** `@`...``? — early-return propagation. */
-  | "propagate"
-  /** `let _ = @`...`` — explicit discard of both `Ok` and `Err`. */
-  | "discard-let-underscore"
-  /** `let x = @`...``? — bind the success value. */
-  | "bind";
-
-/**
- * A statement whose expression may be a must-use `@`...`` query result, with
- * the disposition the author gave it and its source location.
- */
-export interface QueryStatement {
-  /** Whether the statement's expression is a must-use `@`...`` query result. */
-  readonly isQuery: boolean;
-  /** The disposition the author chose at the call site. */
-  readonly disposition: QueryStatementDisposition;
-  /** Source file of the statement. */
-  readonly file: string;
-  /** Source range of the statement (used as the diagnostic location). */
-  readonly range: SourceRange;
-}
-
-/**
- * QRY-19. Return `theta/parse/discarded-query-result` when a must-use `@`...``
- * query result sits in bare expression-statement position; `undefined` for the
- * `?`-propagate, `let _ =`-discard, and `let x = ...?`-bind forms (and for any
- * non-query statement).
- */
-export function checkDiscardedQueryResult(
-  stmt: QueryStatement,
-): Diagnostic | undefined {
-  // QRY-19: only a must-use `@`...`` query result in bare expression-statement
-  // position drops the `Result` without acknowledgement. The `?`-propagate,
-  // `let _ =`-discard, and `let x = ...?`-bind forms acknowledge it at the call
-  // site and are accepted.
-  if (!stmt.isQuery || stmt.disposition !== "bare-expr-statement") {
-    return undefined;
-  }
-  return {
-    severity: "error",
-    code: DISCARDED_QUERY_RESULT_CODE,
-    file: stmt.file,
-    range: stmt.range,
-    message: DISCARDED_QUERY_RESULT_MESSAGE,
-    hint: DISCARDED_QUERY_RESULT_HINT,
-  };
-}
 
 // --- QRY-20 — discard observability ----------------------------------------
 

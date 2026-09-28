@@ -24,12 +24,14 @@ import type { QueryError, TransportError } from "../src/runtime/query-error";
 import {
   DISCARDED_QUERY_RESULT_CODE,
   DISCARDED_QUERY_RESULT_MESSAGE,
-  buildDiscardEvent,
   checkDiscardedQueryResult,
-  emitDiscardObservability,
-  type DiscardEmitInput,
   type QueryStatement,
   type QueryStatementDisposition,
+} from "../src/parser/query-discard-checks";
+import {
+  buildDiscardEvent,
+  emitDiscardObservability,
+  type DiscardEmitInput,
 } from "../src/runtime/query-discard";
 
 const RANGE = {
