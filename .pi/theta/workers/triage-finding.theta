@@ -65,6 +65,12 @@ Method — run every step:
    in-body comment documents the supersession — the class is about what the
    title asserts; and the same stale wording recurring across same-commit
    sibling tests is repeated drift, not a design choice (PTQ-0266, PTQ-0280).
+   And a resolved issue's prescribed final form is not a finding: before
+   confirming, check quality/resolved/ for a resolved PTQ whose fix
+   prescribed exactly the wrapper/helper shape the candidate files (e.g.
+   PTQ-1390's per-file parse-trio joiner, PTQ-1082/1403's loadCleanly
+   wrappers) — re-filing that shape = false-positive citing the resolved
+   PTQ (TRIAGE_LOG.md 2026-09-28 human-precedent row).
    lens: D9 — covers placement & breakdown in src/ ONLY; the candidate's
    d9_class selects the check. Verify the ACCOUNTING, never the proposed seam or
    home. breakdown: (a) re-run node tools/quality/size-scan.mjs map --files <a
