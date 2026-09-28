@@ -197,11 +197,17 @@ Method — run every step:
    lens: D1 — design consistency in src/ ONLY; d1_class selects the check.
    reported_by must be exactly "lens-d1-design (anthropic/claude-fable-5-1)" —
    a mismatch is malformed (the identity is dictated; this lens's model has
-   misnamed itself in benchmark runs). Re-run EVERY stated search verbatim
-   FIRST: a stated command whose hit count does not reproduce refutes the
-   citation (fabricated-search claims are a known failure mode of this lens's
+   misnamed itself in benchmark runs). Every stated search must paste its
+   raw output lines (the first 10 plus a total count is enough) - a
+   count-only search claim is malformed. Re-run EVERY stated search verbatim
+   FIRST and compare its output against the pasted lines: a stated command
+   whose lines or hit count do not reproduce refutes the citation
+   (fabricated-search claims are a known failure mode of this lens's
    model — treat a non-reproducing search as false-positive naming it, not as
-   drift). divergent-solutions: confirm every cited way at its lines; run
+   drift). The clone map quoted in the brief is worker-theta-injected: a
+   filing citing the "injected clone map" made no search claim there; only a
+   filing claiming to have RUN clone-scan itself must reproduce as one.
+   divergent-solutions: confirm every cited way at its lines; run
    node tools/quality/clone-scan.mjs map --files <a one-line manifest of the
    first cited file> — a clone group covering the observation makes this D4's
    (out-of-scope, route); confirm the demonstrated cost is real (the cited

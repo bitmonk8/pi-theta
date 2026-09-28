@@ -30,7 +30,7 @@ d10_class: decayed-pointer   # D10 only: unwitnessed-claim | decayed-pointer | m
 d1_class: divergent-solutions # D1 only: divergent-solutions | wide-surface
 wave: <wave id>
 reported_by: <worker> (<model>)
-date: <YYYY-MM-DD>
+date: <YYYY-MM-DD>           # the wave's UTC date, from the wave id (qwYYYYMMDDhhmmss -> YYYY-MM-DD); never the local clock
 ---
 
 # <title>

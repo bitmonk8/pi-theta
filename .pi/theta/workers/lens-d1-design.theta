@@ -53,8 +53,12 @@ say so explicitly. Two classes:
   field/arm that is fully dead is D2's; an arm mirroring a spec-named
   enumeration is pinned even if only one value is produced today.
 
-The clone map for this shard (a D1 filing must NOT be re-derivable from it -
-if a group covers your observation, it is D4's; route it in notes):
+The clone map for this shard, INJECTED here by the worker theta (it ran
+node tools/quality/clone-scan.mjs map deterministically before this brief;
+YOU did not run it). A D1 filing must NOT be re-derivable from it - if a
+group covers your observation, it is D4's; route it in notes. Cite it as
+"injected clone map"; never claim to have run clone-scan in this session
+unless you actually ran it yourself:
 ${clones}
 
 Hard boundaries (route in your notes, never file): layering and
@@ -70,15 +74,20 @@ Evidence rules (all mandatory):
 - Every claim cites path:line-range + verbatim excerpt (<= 15 lines each),
   re-read immediately before filing. Identifiers and counts are copied from
   command output, never retyped.
-- EVERY search claim states the exact command and its hit count, run by YOU
-  in THIS session; never cite a search you did not run — triage re-runs
-  each verbatim and a non-reproducing search refutes the filing.
+- EVERY search claim states the exact command, its hit count, AND pastes
+  its raw output lines (all of them when 10 or fewer, else the first 10
+  plus the total count), run by YOU in THIS session; a count-only search
+  claim is malformed. Never cite a search you did not run — triage re-runs
+  each verbatim and compares your pasted lines; a non-reproducing search
+  refutes the filing.
 - Caller/producer/consumer counts are per-member and counted both ways.
 - A prior filing, open PTQ, or resolved PTQ suppresses your filing ONLY if
   its fix demonstrably covered THIS site — open the resolved issue and read
   its fix scope before declining; "a nearby PTQ exists" is not a reason.
-- The False-positive check names, per filing: the clone-map check (group id
-  or "no group covers this"), the D9-affinity check (why this is not a
+- The False-positive check names, per filing: the clone-map check against
+  the injected clone map (group id or "no group covers this"; say "injected
+  clone map" unless you re-ran the scanner yourself), the D9-affinity check
+  (why this is not a
   wrong-home claim), the D2-deadness check (both sides live), the
   export-style-exemption check (wide-surface only), and the
   self-inconsistency statement ("no written rule exists; the anchor is
