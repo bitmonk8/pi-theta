@@ -79,12 +79,13 @@ export const SUBAGENT_SPAWN_FAILED_CODE = "theta/runtime/subagent-spawn-failed";
 // presence is now expressed by the presence of the root-slug marker.
 
 /**
- * The env var carrying the parent PID to the child. Its live reader is the
- * control-plane authentication gate (`authenticateControlPlane`,
- * `production-subagent-host.ts`): the child compares it against its real
- * `ppid` and drops every control-plane carriage on a mismatch. It is also the
- * input reserved for the RECORDED BUT UNIMPLEMENTED child-side parent-PID
- * watchdog (PIC-65 orphan-prevention class-2 fallback). This is NOT the
+ * The env var carrying the parent PID to the child. It has two live readers.
+ * The control-plane authentication gate (`authenticateControlPlane`,
+ * `production-subagent-host.ts`) compares it against the child's real `ppid`
+ * and drops every control-plane carriage on a mismatch. The child-side
+ * parent-liveness watchdog (`armSubagentParentWatchdog`,
+ * `subagent-parent-watchdog.ts`; PIC-65 orphan-prevention layer 2) polls the
+ * pid it names and ends the child once that process is gone. This is NOT the
  * invoke-depth counter — that rides `SUBAGENT_INVOKE_DEPTH_ENV` below.
  */
 export const SUBAGENT_PARENT_PID_ENV = "PI_THETA_SUBAGENT_PARENT_PID";

@@ -332,10 +332,13 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     // (host-interfaces-core.md #model-registry-pin).
     { id: "ctx.modelRegistry.getProviderAuthStatus", kind: "ctx-member" },
     // RFC-0012 §7: a VISIBLE subagent child (interactive TUI in a multiplexer
-    // pane) requests its own shutdown after an `Ok` envelope so the pane
-    // closes; the host defers it until the session is idle. Presence-probed
-    // `typeof`-only inside the child regime; absent leaves the pane open (the
-    // `Err` behaviour), no diagnostic. Never called in the parent.
+    // pane) requests its own shutdown so the pane closes, at two sites: after
+    // an `Ok` envelope, and after the load pass's marked-root registration-
+    // refusal envelope and outcome event (a refused root has no session worth
+    // reading). The host defers it until the session is idle. Presence-probed
+    // `typeof`-only inside the child regime; absent leaves the pane open until
+    // the parent-liveness watchdog ends the child after parent death, no
+    // diagnostic. Never called in the parent.
     { id: "ctx.shutdown", kind: "ctx-member" },
     { id: "ctx.ui", kind: "ctx-member" },
     { id: "ctx.hasUI", kind: "ctx-member" },

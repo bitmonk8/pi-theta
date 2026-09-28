@@ -249,6 +249,18 @@ theta 1.0 surface.
   formatted from the error (prompt or subagent mode alike). A subagent theta reached
   via `invoke(...)` is not a slash-dispatch boundary and cascades to its parent
   instead.
+- **Print-mode failure surface.** When `ctx.mode` is `print` or `json` and the
+  process is not a subagent child (the subagent-root regime is inactive), a
+  top-level SLSH-3 `Err` note (the `cancelled` rendering and the
+  stamp-failure fallback arm included) or either runtime-panic framing is also
+  written to stderr as its rendered content plus a newline, and
+  `process.exitCode` is set to `1` (assigned only, never `process.exit()`; a
+  numeric code greater than `1` already set is kept). `tui` and `rpc` never
+  qualify. An SDK embedder that binds no UI context reads `ctx.mode === "print"`
+  (the host runner's default) and gets the same surface. Binder short-circuit
+  notes (`argument binder unavailable`, `argument binding cancelled`) are
+  excluded and still exit `0` (bug 0494). See
+  [Slash-Command Invocation — Print-mode failure surface](../spec_topics/slash-invocation.md#slsh-3-print-mode-failure-surface).
 
 Per-`kind` system-note templates (SLSH-4; renderers emit the surrounding template
 verbatim, only `<…>` placeholders interpolated; the table is exhaustive over the

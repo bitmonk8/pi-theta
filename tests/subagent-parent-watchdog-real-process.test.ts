@@ -11,8 +11,11 @@
 // type stripping; the module has no imports of its own) and arms it with the
 // production seams:
 //
-//   - against the pid of an already-exited process: the child exits with code
-//     1 within one poll interval plus margin, and its stderr is exactly the
+//   - against `MAX_PROCESS_ID` (2147483647), a pid no process holds: it is
+//     above Linux's pid ceiling (2^22) and, not being a multiple of 4, is never
+//     a Windows process id, so it reads `ESRCH` without the pid-reuse race a
+//     recently exited donor's pid would carry. The child exits with code 1
+//     within one poll interval plus margin, and its stderr is exactly the
 //     forensic line;
 //   - CONTROL, against the pid of this (live) test process: the child is still
 //     running one poll interval plus margin after arming, with empty stderr.
@@ -30,7 +33,10 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { SUBAGENT_PARENT_LIVENESS_POLL_MS } from "../src/runtime/subagent-parent-watchdog";
+import {
+  MAX_PROCESS_ID,
+  SUBAGENT_PARENT_LIVENESS_POLL_MS,
+} from "../src/runtime/subagent-parent-watchdog";
 
 const WATCHDOG_MODULE_URL = pathToFileURL(resolve("src/runtime/subagent-parent-watchdog.ts")).href;
 const ARMED_SENTINEL = "watchdog-armed";
@@ -56,23 +62,6 @@ function requireTypeStripping(): void {
         "cells need Node's type stripping",
     );
   }
-}
-
-/** Spawn a process that exits at once and resolve its pid, dead by the time it resolves. */
-async function deadPid(): Promise<number> {
-  const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
-  spawned.push(child);
-  const pid = child.pid;
-  if (pid === undefined) {
-    throw new Error("precondition unmet: the dead-pid donor process did not spawn");
-  }
-  await new Promise<void>((settle, reject) => {
-    child.once("error", reject);
-    child.once("exit", () => {
-      settle();
-    });
-  });
-  return pid;
 }
 
 interface WatchedChild {
@@ -132,10 +121,10 @@ function sleep(ms: number): Promise<void> {
 
 describe("bug 0493 D1 (b) — the watchdog over its production seams ends a real orphaned process", () => {
   it(
-    "a child armed against an exited pid exits 1 with exactly the forensic stderr line; a child armed against a live pid keeps running",
+    "a child armed against a pid no process holds exits 1 with exactly the forensic stderr line; a child armed against a live pid keeps running",
     async () => {
       requireTypeStripping();
-      const gonePid = await deadPid();
+      const gonePid = MAX_PROCESS_ID;
       const orphan = spawnWatchedChild(gonePid);
       const control = spawnWatchedChild(process.pid);
       const [orphanArmedAt, controlArmedAt] = await Promise.all([orphan.armedAt, control.armedAt]);

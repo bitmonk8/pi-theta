@@ -576,6 +576,18 @@ PIC-65 layer-2 watchdog implemented, `PI_SUBAGENT_CHILD` marker) and D2
     recorded as residuals below.
   - Round 2 (fast): clean; one non-blocking duplicate-helper note
     (Residual 6).
+  - Post-commit review round 1: F1 `ctx.shutdown` rows
+    (`host-interfaces-core.md`, `capability-probe.md` PIC-73) name the
+    refusal-time request and the watchdog bound on a refused visible child;
+    F2 the print-mode failure surface is normative in `slash-invocation.md`
+    `#slsh-3-print-mode-failure-surface` (gate, endings, stderr write, exit
+    code, SDK-embedder `"print"` default, binder exclusion), with pointers
+    from `error-model.md` Runtime panics and `runtime-event-channel.md`
+    Delivery surface, a Reference bullet in `docs/reference/discovery-cli.md`,
+    and `ctx.mode` added to the `ExtensionContext` member block; F3 the
+    `PI_SUBAGENT_CHILD` reach is qualified in `subagent.md` (launch contract,
+    layer 3; Residual 11); F4 the `SUBAGENT_PARENT_PID_ENV` and `ctx.shutdown`
+    inventory comments corrected; R6, R10 fixed (Residuals 9, 6).
 - Verification: SOLID. Witnesses red-before/green-after per element; full
   suite green; live witness green and red with D2 reverted; typecheck,
   lint, parse gate green; no leftover processes.
@@ -589,8 +601,8 @@ PIC-65 layer-2 watchdog implemented, `PI_SUBAGENT_CHILD` marker) and D2
      stderr, so the cell passed vacuously; D2 now surfaces it. Signature:
      `(f) code-tool-loop: expected a no-error exit (0), got 1. stderr: theta
      /acc-code-tool-loop returned Err: tool read call failed (execution) —
-     ENOENT`. Not fixed here (a test file the §Fix does not name); to be
-     filed as its own bug.
+     ENOENT`. Not fixed here (a test file the §Fix does not name); filed as
+     bug 0495.
   2. The refusal-time outcome event reaches no shipped consumer: it fires
      inside pi-theta's `session_start`, and pi-theta-herdr's reporter
      (`src/herdr-child-reporter.ts` `onOutcome` returns while `active` is
@@ -598,22 +610,24 @@ PIC-65 layer-2 watchdog implemented, `PI_SUBAGENT_CHILD` marker) and D2
      pi-theta) drops it, so no `FAILED` retitle. The shutdown still closes
      the pane. Owned by pi-theta-herdr (latch an early outcome) or a later
      pi-theta deferral; the §Fix's "pi-theta-herdr needs no change" is
-     wrong on this point.
+     wrong on this point. Filed as bug 0496.
   3. D2 covers only `emitTopLevelErrNote` / `emitPanicNote` as the §Fix
      scopes it. Binder short-circuit endings (`binder-run.ts`
      `#emitBinderFailureNote`: "argument binder unavailable", "argument
      binding cancelled") still end a `pi -p` parent with exit 0 and silent
-     stderr.
-  4. D2 has no normative sentence outside this document (SLSH-3 in
-     `slash-invocation.md` names only the note); the §Fix named only
-     subagent.md amendments.
+     stderr. Filed as bug 0494; the exclusion is stated in
+     `slash-invocation.md` `#slsh-3-print-mode-failure-surface`.
+  4. Resolved by post-commit review round 1: D2 is normative in
+     `slash-invocation.md` `#slsh-3-print-mode-failure-surface`.
   5. In-process SDK embeddings (`createAgentSession` + `bindExtensions`,
      e.g. the H8a / probe harnesses) report `ctx.mode === "print"`, so a
      non-Ok drive there writes the note to the host process's stderr and
-     sets its `process.exitCode = 1`. No test fails from it.
-  6. `tests/production-result-channel.test.ts` and
-     `tests/subagent-result-channel-factory.test.ts` keep private copies of
-     `inertWatchdogSeams()` beside the shared
+     sets its `process.exitCode = 1`. No test fails from it. Recorded in
+     `#slsh-3-print-mode-failure-surface` and the `ctx.mode` member row of
+     `host-interfaces-core.md`.
+  6. Resolved by post-commit review round 1:
+     `tests/production-result-channel.test.ts` and
+     `tests/subagent-result-channel-factory.test.ts` import the shared
      `tests/helpers/inert-parent-watchdog.ts`.
   7. A launch-file (visible) child that runs a host `/reload` loses its
      watchdog: `session_shutdown` disposes it and the fresh instance finds
@@ -630,12 +644,25 @@ PIC-65 layer-2 watchdog implemented, `PI_SUBAGENT_CHILD` marker) and D2
      rewritten by concurrent sessions during the run. No reader or writer
      of that path is in this diff. This is attributed to the environment and
      was not proven at HEAD.
-  9. `tests/subagent-parent-watchdog-real-process.test.ts` uses the pid of
-     an exited process; Windows pid reuse within the ~10 s poll window
-     would red it (not observed; 60 spawns showed no reuse).
+  9. Resolved by post-commit review round 1:
+     `tests/subagent-parent-watchdog-real-process.test.ts` arms against
+     `MAX_PROCESS_ID` (above Linux's pid ceiling, not a multiple of 4 so
+     never a Windows process id) instead of an exited donor's pid.
   10. The visible-refusal shutdown and the watchdog's pane-child path are
       witnessed in-process and by a provider-free real-process test; no live
       suite runs a visible placement backend.
+  11. D1 (c)'s `PI_SUBAGENT_CHILD=1` reaches only children whose placement
+      passes the launch env through: `pipe` and `inheritsEnv: true` backends
+      (`herdr`, `exec` with `env: "inherit"`). An `inheritsEnv: false`
+      placement — the `exec` default `env: "none"` and the how-to's canonical
+      tmux template included — runs the child under the multiplexer server's
+      environment, and the launch file carries only
+      `SUBAGENT_CONTROL_PLANE_ENV_KEYS`, so that child never gets the marker.
+      With stored (`auth.json`) credentials the credential guard does not
+      re-place it by `pipe`, so it runs visibly unmarked: a stall re-kicker
+      in it is unopposed while the parent lives, and only the layer-2
+      watchdog bounds it, after parent death. Stated in `subagent.md`
+      launch contract and layer 3.
 - Discharge notes appended: none.
 - Pinned dispositions / non-goals:
   - Witness 5's text ("stderr carries `refused to register its root
