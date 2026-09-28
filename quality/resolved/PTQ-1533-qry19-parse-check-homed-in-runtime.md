@@ -2,7 +2,7 @@
 id: PTQ-1533
 title: The QRY-19 parse-time check cluster (checkDiscardedQueryResult and its code/message/hint and input types) lives in src/runtime/query-discard.ts while its only production consumer is the parser's structural walk
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/query-discard.ts:41-110

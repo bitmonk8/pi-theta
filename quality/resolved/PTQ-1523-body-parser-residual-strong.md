@@ -2,7 +2,7 @@
 id: PTQ-1523
 title: src/parser/body-parser.ts residual after the PTQ-1280 Seam A extraction still bundles eight method groups in one 4076-LOC strong-band file
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/body-parser.ts:1-4076
