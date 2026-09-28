@@ -65,6 +65,12 @@ Method — run every step:
    in-body comment documents the supersession — the class is about what the
    title asserts; and the same stale wording recurring across same-commit
    sibling tests is repeated drift, not a design choice (PTQ-0266, PTQ-0280).
+   And a resolved issue's prescribed final form is not a finding: before
+   confirming, check quality/resolved/ for a resolved PTQ whose fix
+   prescribed exactly the wrapper/helper shape the candidate files (e.g.
+   PTQ-1390's per-file parse-trio joiner, PTQ-1082/1403's loadCleanly
+   wrappers) — re-filing that shape = false-positive citing the resolved
+   PTQ (TRIAGE_LOG.md 2026-09-28 human-precedent row).
    lens: D9 — covers placement & breakdown in src/ ONLY; the candidate's
    d9_class selects the check. Verify the ACCOUNTING, never the proposed seam or
    home. breakdown: (a) re-run node tools/quality/size-scan.mjs map --files <a
@@ -105,8 +111,14 @@ Method — run every step:
    absent or unverifiable → questionable — drift verified; which copy is
    right needs a human ruling (the fixer never picks a behaviour).
    parallel: verify the counted coverage claim (X has M cases, Y covers N)
-   against the current code; accurate → questionable — accounting verified;
-   the shared source of truth is a design decision for a human ruling (never
+   against the current code, AND confirm the demonstrated drift cost is real
+   (the cited drift commit / bug record exists; the misread is concrete) —
+   no demonstrated cost, symmetry-only ("they could drift") = false-positive,
+   the canonical D4-parallel rejection (6/6 old parallel filings hit
+   deliberate divergences; ruled 2026-09-28); cost claimed and plausible but
+   unproven → questionable — coverage verified; the cost claim needs a human
+   ruling; accurate and costed → questionable — accounting verified; the
+   shared source of truth is a design decision for a human ruling (never
    confirmed); inaccurate → false-positive with the corrected counts.
    lens: D8 — simplification in src/ ONLY. Verify the ACCOUNTING, never the
    simpler shape: re-count the named concepts/layers/states/special cases at

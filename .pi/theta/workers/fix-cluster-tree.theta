@@ -163,71 +163,107 @@ while start < all_issues.length && lane_aborted == "" {
       let gate_state = gate.includes("GATE_PASS") ? "green" : (gate.includes("gate-bash-error:") ? gate : "red")
       let _ = theta_progress({ message: "batch " + label + ": gate " + gate_state, scope: key })?
       trail = trail + "attempt " + att + ": gate " + gate_state + "; "
-      let rv = match review_fix(subman, fr.already_resolved.join(",")) {
-        Ok(r) => r,
-        Err(e) => FixReview { ok: false, fixed_confirmed: [], already_resolved_confirmed: [], already_resolved_sha: "", must_fix: "fix-review worker failed: " + e.kind + " - fixer notes were: " + fr.notes, unconfirmed: "" },
+      // REVIEW INVOKE FAILURE != REVIEW REJECTION (2026-09-28). An Err from
+      // review_fix carries NO verdict: the reviewer may have already submitted
+      // ok:true when a stall-watchdog abort (bug 0483) Err'd its drive with
+      // kind invoke_callee - wave qw20260928060032 lost PTQ-1524 exactly so
+      // (the old synthesized ok:false counted as a rejected attempt and
+      // reverted a gate-green batch at attempt 2). A bare "cancelled" is the
+      // lane's OWN abort (a child-internal cancellation arrives wrapped as
+      // invoke_callee): abort like the fixer arm above. Any other Err earns
+      // ONE review retry with identical inputs - no fixer re-run, attempt
+      // counter unchanged, the tree still holds the same gated fix awaiting
+      // its verdict. A second Err aborts the lane with the verdict UNKNOWN
+      // (committed predecessor batches are safe git history, squashed below;
+      // this batch is left unreverted/uncommitted) - never a synthesized
+      // rejection. Genuine ok:false verdicts keep the rejected/revert path.
+      let mut rv_res = review_fix(subman, fr.already_resolved.join(","))
+      let mut review_err = match rv_res {
+        Ok(r) => "",
+        Err(e) => e.kind,
       }
-      let _ = theta_progress({ message: "batch " + label + ": review " + (rv.ok ? "confirmed" : "rejected"), scope: key })?
-      if gate.includes("GATE_PASS") && rv.ok && (rv.fixed_confirmed.length > 0 || rv.already_resolved_confirmed.length > 0) {
-        // Reviewer-confirmed already-resolved issues need no commit (problem
-        // gone at HEAD, no attributable diff): collect them lane-wide; the
-        // resolving sha survives only while every batch names the same one.
-        if rv.already_resolved_confirmed.length > 0 {
-          if already.length == 0 {
-            already_sha = rv.already_resolved_sha
-          } else if already_sha != rv.already_resolved_sha {
-            already_sha = ""
-          }
-          already = already.concat(rv.already_resolved_confirmed)
+      if review_err == "cancelled" {
+        lane_aborted = "review invoke cancelled on batch " + label + " attempt " + att + "; lane aborted - the lane's own drive is being cancelled; verdict unknown; batch left unreverted/uncommitted per lane-abort."
+        let _ = theta_progress({ message: "review invoke CANCELLED - lane aborted: " + key, scope: key })?
+      } else if review_err != "" {
+        let _ = theta_progress({ message: "batch " + label + ": review invoke failed (" + review_err + ") - retrying review_fix once with identical inputs (no fixer re-run, attempt counter unchanged): " + key, scope: key })?
+        rv_res = review_fix(subman, fr.already_resolved.join(","))
+        review_err = match rv_res {
+          Ok(r) => "",
+          Err(e) => e.kind,
         }
-        if rv.fixed_confirmed.length == 0 {
-          // Every confirmed issue in this batch was already resolved
-          // upstream: the empty diff IS the valid outcome here (a commit
-          // would fail on nothing staged), so the batch ends without one.
-          done = true
-          fixer_notes = fixer_notes + "[" + label + "] " + fr.notes + (rv.unconfirmed == "" ? "" : " | review unconfirmed: " + rv.unconfirmed) + " || "
-          notes = notes + "[" + label + "] gate green, review confirmed already-resolved " + rv.already_resolved_confirmed.join(",") + " on attempt " + att + " - no commit needed. "
-          let _ = theta_progress({ message: "batch " + label + ": already resolved upstream - no commit", scope: key })?
+        if review_err != "" {
+          lane_aborted = "review invoke failed twice (" + review_err + ") after gate " + gate_state + "; verdict unknown; batch left unreverted/uncommitted per lane-abort"
+          let _ = theta_progress({ message: "review invoke FAILED twice (" + review_err + ") - lane aborted: " + key, scope: key })?
+        }
+      }
+      if lane_aborted == "" {
+        let rv = match rv_res {
+          Ok(r) => r,
+          Err(e) => FixReview { ok: false, fixed_confirmed: [], already_resolved_confirmed: [], already_resolved_sha: "", must_fix: "unreachable: review_err aborted above", unconfirmed: "" },
+        }
+        let _ = theta_progress({ message: "batch " + label + ": review " + (rv.ok ? "confirmed" : "rejected"), scope: key })?
+        if gate.includes("GATE_PASS") && rv.ok && (rv.fixed_confirmed.length > 0 || rv.already_resolved_confirmed.length > 0) {
+          // Reviewer-confirmed already-resolved issues need no commit (problem
+          // gone at HEAD, no attributable diff): collect them lane-wide; the
+          // resolving sha survives only while every batch names the same one.
+          if rv.already_resolved_confirmed.length > 0 {
+            if already.length == 0 {
+              already_sha = rv.already_resolved_sha
+            } else if already_sha != rv.already_resolved_sha {
+              already_sha = ""
+            }
+            already = already.concat(rv.already_resolved_confirmed)
+          }
+          if rv.fixed_confirmed.length == 0 {
+            // Every confirmed issue in this batch was already resolved
+            // upstream: the empty diff IS the valid outcome here (a commit
+            // would fail on nothing staged), so the batch ends without one.
+            done = true
+            fixer_notes = fixer_notes + "[" + label + "] " + fr.notes + (rv.unconfirmed == "" ? "" : " | review unconfirmed: " + rv.unconfirmed) + " || "
+            notes = notes + "[" + label + "] gate green, review confirmed already-resolved " + rv.already_resolved_confirmed.join(",") + " on attempt " + att + " - no commit needed. "
+            let _ = theta_progress({ message: "batch " + label + ": already resolved upstream - no commit", scope: key })?
+          } else {
+            // Single-writer rule: the tree commits code only. Any stray quality/
+            // edit is unstaged before the commit so the store stays the
+            // orchestrator's.
+            let committed = bash({ command: "git add -A && git restore --staged -- quality >/dev/null 2>&1; git commit -q -m \"quality: " + wave + " fix " + key + " batch " + label + "\" >/dev/null 2>&1 && git rev-parse HEAD || echo COMMIT_FAIL" })?
+            if committed.includes("COMMIT_FAIL") {
+              notes = notes + "[" + label + "] in-tree commit failed after a green gate and a confirming review. "
+              let _ = theta_progress({ message: "batch " + label + ": commit FAILED", scope: key })?
+              done = true
+            } else {
+              batches_committed += 1
+              confirmed = confirmed.concat(rv.fixed_confirmed)
+              done = true
+              fixer_notes = fixer_notes + "[" + label + "] " + fr.notes + (rv.must_fix == "" ? "" : " | review: " + rv.must_fix) + (rv.unconfirmed == "" ? "" : " | review unconfirmed: " + rv.unconfirmed) + " || "
+              notes = notes + "[" + label + "] gate green, review confirmed " + rv.fixed_confirmed.join(",") + " on attempt " + att + ((rv.already_resolved_confirmed.length > 0) ? " (plus already-resolved " + rv.already_resolved_confirmed.join(",") + ")" : "") + ". "
+              let _ = theta_progress({ message: "batch " + label + ": committed", scope: key })?
+            }
+          }
         } else {
-          // Single-writer rule: the tree commits code only. Any stray quality/
-          // edit is unstaged before the commit so the store stays the
-          // orchestrator's.
-          let committed = bash({ command: "git add -A && git restore --staged -- quality >/dev/null 2>&1; git commit -q -m \"quality: " + wave + " fix " + key + " batch " + label + "\" >/dev/null 2>&1 && git rev-parse HEAD || echo COMMIT_FAIL" })?
-          if committed.includes("COMMIT_FAIL") {
-            notes = notes + "[" + label + "] in-tree commit failed after a green gate and a confirming review. "
-            let _ = theta_progress({ message: "batch " + label + ": commit FAILED", scope: key })?
-            done = true
-          } else {
-            batches_committed += 1
-            confirmed = confirmed.concat(rv.fixed_confirmed)
-            done = true
-            fixer_notes = fixer_notes + "[" + label + "] " + fr.notes + (rv.must_fix == "" ? "" : " | review: " + rv.must_fix) + (rv.unconfirmed == "" ? "" : " | review unconfirmed: " + rv.unconfirmed) + " || "
-            notes = notes + "[" + label + "] gate green, review confirmed " + rv.fixed_confirmed.join(",") + " on attempt " + att + ((rv.already_resolved_confirmed.length > 0) ? " (plus already-resolved " + rv.already_resolved_confirmed.join(",") + ")" : "") + ". "
-            let _ = theta_progress({ message: "batch " + label + ": committed", scope: key })?
-          }
-        }
-      } else {
-        trail = trail + "review ok=" + (rv.ok ? "true" : "false") + ", confirmed " + (rv.fixed_confirmed.length == 0 ? "none" : rv.fixed_confirmed.join(",")) + (rv.must_fix == "" ? "" : ", must_fix: " + rv.must_fix) + "; fixer: " + fr.notes + " | "
-        // A retry's seed stays in front of the review's must_fix: attempt 2
-        // must still know the tree already holds prior batches' changes.
-        guidance = "ATTEMPT 2 (LAST): " + (retry_context == "" ? "" : retry_context + " ") + rv.must_fix + (gate.includes("GATE_PASS") ? "" : " ALSO: the offline gate is red after your changes - make it green. Gate failures (tail): " + gate_tail + " -- If a census/pin/inventory gate reds, its own failure message names the sanctioned same-commit re-derivation - follow it rather than avoiding the edit.")
-        if attempt >= 2 {
-          // Batch revert boundary: reset to the pre-batch commit and clean the
-          // failed attempt's untracked leftovers (a new helper module etc.) so
-          // they cannot leak into the NEXT batch's `git add -A` commit.
-          // quality/ is excluded: the manifests and gate log live there
-          // (gitignored) and the next batch still needs them.
-          let _ = theta_progress({ message: "batch " + label + ": reverting after 2 rejected attempts", scope: key })?
-          let restore_ok = match bash({ command: "git reset --hard " + boundary + " >/dev/null 2>&1 && git clean -fd -e quality >/dev/null 2>&1; git status --porcelain | wc -l" }) {
-            Ok(n) => n.trim() == "0",
-            Err(e) => false,
-          }
-          if restore_ok {
-            notes = notes + "[" + label + "] 2 rejected fix attempts, batch reverted. Trail: " + trail + " "
-          } else {
-            let residue = bash({ command: "git status --porcelain | head -10" })?
-            notes = notes + "[" + label + "] 2 rejected attempts; UNCLEAN batch revert (leftovers: " + residue.trim() + ") - lane halted to protect later batches. Trail: " + trail + " "
-            lane_aborted = "unclean batch revert at " + label
+          trail = trail + "review ok=" + (rv.ok ? "true" : "false") + ", confirmed " + (rv.fixed_confirmed.length == 0 ? "none" : rv.fixed_confirmed.join(",")) + (rv.must_fix == "" ? "" : ", must_fix: " + rv.must_fix) + "; fixer: " + fr.notes + " | "
+          // A retry's seed stays in front of the review's must_fix: attempt 2
+          // must still know the tree already holds prior batches' changes.
+          guidance = "ATTEMPT 2 (LAST): " + (retry_context == "" ? "" : retry_context + " ") + rv.must_fix + (gate.includes("GATE_PASS") ? "" : " ALSO: the offline gate is red after your changes - make it green. Gate failures (tail): " + gate_tail + " -- If a census/pin/inventory gate reds, its own failure message names the sanctioned same-commit re-derivation - follow it rather than avoiding the edit.")
+          if attempt >= 2 {
+            // Batch revert boundary: reset to the pre-batch commit and clean the
+            // failed attempt's untracked leftovers (a new helper module etc.) so
+            // they cannot leak into the NEXT batch's `git add -A` commit.
+            // quality/ is excluded: the manifests and gate log live there
+            // (gitignored) and the next batch still needs them.
+            let _ = theta_progress({ message: "batch " + label + ": reverting after 2 rejected attempts", scope: key })?
+            let restore_ok = match bash({ command: "git reset --hard " + boundary + " >/dev/null 2>&1 && git clean -fd -e quality >/dev/null 2>&1; git status --porcelain | wc -l" }) {
+              Ok(n) => n.trim() == "0",
+              Err(e) => false,
+            }
+            if restore_ok {
+              notes = notes + "[" + label + "] 2 rejected fix attempts, batch reverted. Trail: " + trail + " "
+            } else {
+              let residue = bash({ command: "git status --porcelain | head -10" })?
+              notes = notes + "[" + label + "] 2 rejected attempts; UNCLEAN batch revert (leftovers: " + residue.trim() + ") - lane halted to protect later batches. Trail: " + trail + " "
+              lane_aborted = "unclean batch revert at " + label
+            }
           }
         }
       }
