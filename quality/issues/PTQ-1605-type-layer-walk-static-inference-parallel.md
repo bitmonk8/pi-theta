@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1605
 title: TypeLayerWalk and StaticTypeInferencePass AST classification walks are parallel passes
 lens: D4
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/type-layer-walk.ts:170-265
   - src/parser/type-layer-walk.ts:1418-1577
@@ -176,3 +176,4 @@ verdict: questionable — accounting verified: I recounted the case arms at HEAD
 verdict: questionable — accounting verified: I counted the arms again at HEAD. theta-ast.ts has 18 `Stmt` members (829-847) and 20 `Expr` members (339-359). `walkStmt` (type-layer-walk.ts:170-265) names all 18, with a `never` default. `#walkStmt` (static-type-inference.ts:180-232) names 11 and sends the rest to a silent `default: return`. `walkExpr` (1418-1577) and `#typeValue` (341-467) each name all 20. Both passes are live: type-layer-checks.ts:366/379 builds both. Whether to share one traversal is a design call for a human. No open issue in quality/issues/ covers this pair (triage: claude-opus-5-5)
 verdict: questionable — accounting verified: I recounted at HEAD. theta-ast.ts has 18 `Stmt` members (829-847) and 20 `Expr` members (339-359). `walkStmt` (type-layer-walk.ts:170-265) has 18 case arms plus a `never` default. `#walkStmt` (static-type-inference.ts:180-232) has 11 arms, and the other 7 kinds fall to a silent `default`. `walkExpr` (1418-1577) and `#typeValue` (341-467) each name all 20 `Expr` kinds. Both passes are live: type-layer-checks.ts:366/379 builds both. Whether to share one traversal is a design call for a human. No PTQ covers this pair: PTQ-1527 is a D9 filing, and intake d4-05 is about match patterns (triage: claude-opus-5-5)
 verdict: questionable — accounting verified at HEAD 07056fcf: theta-ast.ts has 18 `Stmt` members (829-847) and 20 `Expr` members (339-359). `walkStmt` (type-layer-walk.ts:170-265) has 18 case arms plus a `never` default. `#walkStmt` (static-type-inference.ts:180-232) has 11 arms, and the other 7 kinds fall to a silent `default`. `walkExpr` (1418-1577) and `#typeValue` (341-467) each name all 20 `Expr` kinds. Both passes are live: type-layer-checks.ts:366/379 builds both. Whether they should share one traversal is a design call for a human, and the 2026-09-28 human-keep-whole ruling on d4-01 (a different pair, lexical-call-sites/par-for-body-checks: "a shared fold needs per-pass hooks") probably applies here too. The only gap that ruling does not cover is the missing `never` backstop in `#walkStmt` (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: Do not unify the two walks. Add a `never` exhaustiveness check (assertNever-style default arm) to both switches so a new expression kind fails to compile in both; behaviour unchanged.

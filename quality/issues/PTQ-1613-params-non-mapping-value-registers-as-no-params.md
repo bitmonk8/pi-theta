@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1613
 title: A present non-mapping, non-null `params:` value (`params: [a, b]`, `params: 42`, `params: hello`) registers as a no-params theta with zero diagnostics, because extractParsedParams returns silently on `!isMap` while `params: null` and non-mapping `tool_loop:` / `respond_repair:` values are refused
 lens: D6
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/frontmatter-params.ts:98-100
   - src/parser/frontmatter.ts:816-832
@@ -99,3 +99,4 @@ Refuse a present non-mapping, non-null `params:` value at the frontmatter read, 
 
 ## Triage
 verdict: questionable — divergence verified but the anchor does not pin params: I checked frontmatter-params.ts:98-100 (`!isMap` → silent undefined), frontmatter.ts:816-832 (only null refused), frontmatter-yaml.ts:366-390 and frontmatter.ts:659-663 (checkBlockShape refuses non-mapping tool_loop/respond_repair), and all the stated searches reproduce (1 isMap hit; 12 paramsNode hits, 9+3; 24 params bug files; 2 non-mapping files; commits 264dcbd6/4d18f5cf). A scratch vite-node probe with `mode: prompt` gives `params: [a, b]`/`42`/`hello` → registered, [] diagnostics, no params, `params: null` → params-null, `tool_loop: 42` → malformed-tool-loop-field. But the anchor is the tool_loop row (frontmatter-fields-a.md:48) and the tools/system rows (:45-46), which are other fields' clauses. The params row (:49) pins only absent ≡ `{}` and `params: null`, and no registry row covers a non-mapping params value (the filing admits this). So which posture is right, and which new code or widened params-null would carry it, needs a human spec/registry ruling (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: refuse a present non-mapping, non-null 'params:' value at the frontmatter read the way checkBlockShape refuses tool_loop/respond_repair - mint theta/load/malformed-params-field (E, load; message: malformed 'params:' field; expected a mapping, got <kind>) with a code-registry-load.md row and a frontmatter-fields-a.md params-row sentence FIRST, then the code gate; the theta does not register. params: null keeps theta/load/params-null; absent and params: {} stay the silent no-params spellings. Failure-path-only: mapping-valued params: lowering unchanged.

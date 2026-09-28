@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1614
 title: The createRunCardRenderer entry-closure catch returns undefined (the card disappears), while its sibling RunCardComponent.render catch falls back to the static form for the same class of run-card render defect
 lens: D6
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/execution-status/render/run-card-component.ts:346-348
   - src/extension/execution-status/render/run-card-component.ts:124-130
@@ -107,3 +107,4 @@ Align the entry-closure catch with its render-leg sibling: return the static com
 
 ## Triage
 verdict: questionable — divergence verified; which posture is right needs a human ruling. All excerpts reproduce: run-card-component.ts:346-348 returns undefined, :124-130 falls back to #renderStatic, :86-88 has the doc line, system-note-renderer.ts:59-73 matches, custom-entry.js rebuild() returns early on a falsy component, and the stated grep finds 3 hits. But the anchor does not pin the right side. PIC-21 is written for the `theta-system-note` message renderer (raw `message.content`, `display` arms). PIC-71 carries over to entry renderers only the "MUST NOT throw out of the renderer invocation" obligation, and the :346 catch meets that. PIC-75 and RFC 0015 §"Modes and degradation" say nothing about what a caught entry-leg throw should return. Also, the same "PIC-21 analogue" token family resolves to render-nothing at entry-channel.ts:204 (a malformed milestone returns undefined) (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: align the createRunCardRenderer entry-closure catch (run-card-component.ts:346-348) to its render-leg sibling - the catch returns deps.staticFallback(entry, options, theme) under a nested guard, and undefined only when staticFallback itself throws; update the :346 allow-broad-catch token text to name the static-form degrade. Failure-path-only: the try body's existing :336 degrade route, the render-leg catch, and all payloads unchanged.

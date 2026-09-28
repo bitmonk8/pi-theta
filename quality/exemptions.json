@@ -26,5 +26,40 @@
     "finding": "quality/intake/qw20260913183958-d9-02-package-discovery-six-concerns-bundled.md",
     "loc": 710,
     "reason": "human 2026-09-13: zone band (710 LOC, no presumption of breakdown) and one cohesive feature (package discovery); the six concerns are 28/27/55/69/209/137 LOC, so a split yields 30-70-LOC modules for no band change. Keep whole. The function-level resolvePiThetas (105 LOC, justify) stays separately fileable under its own #host key."
+  },
+  "D9:src/extension/import-resolution-kit.ts#createImportResolutionKit": {
+    "class": "breakdown",
+    "date": "2026-09-28",
+    "finding": "quality/intake/qw20260923145222-d9-02-import-resolution-kit-residual.md",
+    "loc": 128,
+    "reason": "post-PTQ-1208 factory; 39-LOC seam adds a factory for no consumer, no band relief"
+  },
+  "D9:src/extension/import-specifier-facts.ts#recordImportedSpecifierFacts": {
+    "class": "breakdown",
+    "date": "2026-09-28",
+    "finding": "quality/intake/qw20260923145222-d9-03-record-imported-specifier-facts-phases.md",
+    "loc": 179,
+    "reason": "linear recording pass over shared parsed/facts context; both seams are private shuffles leaving justify"
+  },
+  "D9:src/parser/body-parser.ts#BodyParser.parseQuery": {
+    "class": "breakdown",
+    "date": "2026-09-28",
+    "finding": "quality/intake/qw20260923185337-d9-01-parsequery-annotation-template-phases.md",
+    "loc": 111,
+    "reason": "grammar production: one query-production recogniser, two captures in source order"
+  },
+  "D9:src/parser/system-param-types.ts": {
+    "class": "breakdown",
+    "date": "2026-09-28",
+    "finding": "quality/intake/qw20260923145222-d9-01-system-param-types-two-concerns.md",
+    "loc": 637,
+    "reason": "zone band, no presumption; header-documented pairing over one SystemParamType table"
+  },
+  "D9:src/parser/type-walk.ts#walkType": {
+    "class": "breakdown",
+    "date": "2026-09-28",
+    "finding": "quality/intake/qw20260923145222-d9-03-walktype-object-arm-residual.md",
+    "loc": 163,
+    "reason": "stays in the justify band after the split; grammar production"
   }
 }

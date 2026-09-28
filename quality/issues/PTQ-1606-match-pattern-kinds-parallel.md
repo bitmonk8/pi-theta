@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1606
 title: Match pattern kind switches are parallel across parser and runtime passes
 lens: D4
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/match-result.ts:197-270
   - src/runtime/executor-result-flow.ts:251-280
@@ -139,3 +139,4 @@ verdict: questionable — accounting verified: runtime `Pattern` (runtime/match-
 verdict: questionable — accounting verified: runtime `Pattern` (runtime/match-result.ts:113-122) and `PatternNode` (theta-ast.ts:224-258) declare the same six kinds. A src/ grep for `switch (pattern.kind)` returns exactly the five counted sites: runtime/match-result.ts:202, executor-result-flow.ts:320 (cited 251-280 has drifted; the content matches), structural-checks.ts:744, parser/match-result.ts:43 (four arms plus a `default` for wildcard/literal, as filed), and type-layer-walk.ts:1178. The Pass 1 excerpt paraphrases an older shape (HEAD has `defineRecordField` and `valuesEqual(value, pattern.value)`), but the arms match. Not a duplicate of PTQ-1129 (binder-collector clone). The shared source of truth (a visitor or exhaustiveness guards) is a design decision for a human ruling (triage: claude-opus-5-5)
 verdict: questionable — accounting verified: runtime `Pattern` (runtime/match-result.ts:114-122) and `PatternNode` (theta-ast.ts:225-258) declare the same six kinds. A src/ grep for `switch (pattern.kind)` returns exactly the five counted sites: runtime/match-result.ts:202, executor-result-flow.ts:320 (all six arms; cited 251-280 has drifted, content matches), structural-checks.ts:744 (all six), parser/match-result.ts:43 (four arms plus a `default` for wildcard/literal, as filed), and type-layer-walk.ts:1178 (all six). The Pass 1 excerpt paraphrases an older shape, but its arms match. Not a duplicate of PTQ-1129 (binder-collector clone). The shared source of truth (a visitor or exhaustiveness guards) is a design decision for a human ruling (triage: claude-opus-5-5)
 verdict: questionable — accounting verified at HEAD 07056fcf: runtime `Pattern` (runtime/match-result.ts:114-122) and `PatternNode` (theta-ast.ts) declare the same six kinds. A src/ grep for `switch (pattern.kind)` returns exactly the five counted sites: runtime/match-result.ts:202 (all six), executor-result-flow.ts:320 (all six; cited 251-280 has drifted), structural-checks.ts:735 (all six; cited 740-770 has drifted slightly), parser/match-result.ts:43 (four arms plus a `default` for wildcard/literal, as filed), and type-layer-walk.ts:1178 (all six). The Pass 1 excerpt paraphrases an older shape (HEAD has `defineRecordField` and `valuesEqual(value, pattern.value)`), but the arms match. Not a duplicate of PTQ-1129 (binder-collector clone) or PTQ-1546. The shared source of truth (a visitor or exhaustiveness guards) is a design decision for a human ruling; the closest precedent is the sibling d4-01 walker ruling, which was human-keep-whole (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: Do not unify. Add `never` exhaustiveness checks to the three full switches over the pattern kinds so a new kind fails to compile in each; behaviour unchanged.

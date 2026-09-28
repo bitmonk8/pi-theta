@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1615
 title: A present non-scalar `description:` or `argument-hint:` value (a sequence or mapping) is silently recorded as absent, while every other recognised frontmatter field's collect arm keeps a present non-scalar as present-but-bad and the load refuses it
 lens: D6
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/frontmatter.ts:203-209
   - src/parser/frontmatter.ts:220-229
@@ -107,3 +107,4 @@ Keep a present non-scalar `description:` / `argument-hint:` distinguishable from
 
 ## Triage
 verdict: questionable — divergence verified: collectDescriptionField/collectArgumentHintField (frontmatter.ts:203-209, 220-229) map a non-scalar to undefined, indistinguishable from absent at :1158-1165, while the bind_context/system arms (:279-289, :353-373) keep present-but-bad and :891-900 refuses it. Stated searches reproduce (9 bug docs, 0 test hits, 0299:141-143 non-goal). But the d6_anchor (fields-a.md:46) pins only the `system` row, and the `description` (:38) / `argument-hint` (:39) rows say nothing about a present non-scalar; the filing itself says a spec/registry decision is needed first. Which posture is right, and which code, needs a human ruling (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: keep a present non-scalar description:/argument-hint: distinguishable from absent at the collect arms (the collectSystemField pattern: presence + undefined value) and refuse at checkRecognisedFields with minted theta/load/malformed-description-field and theta/load/malformed-argument-hint-field (E, load; the malformed-system-field shape and message form) - code-registry-load.md rows and fields-a.md :38/:39 row sentences FIRST, then the gate; the theta does not register. Null-scalar -> absent (bug 0299) and scalar values unchanged. Failure-path-only.

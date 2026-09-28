@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1612
 title: readLaunchEntryFromEnv turns a present-but-malformed PI_THETA_SUBAGENT_ENTRY into the theta entry and keeps the control plane, while parseLaunchFileDocument refuses the same malformed entry and drops the whole control plane
 lens: D6
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/subagent-launch-file.ts:288-308
   - src/runtime/subagent-launch-file.ts:353-357
@@ -105,3 +105,4 @@ Give a present-but-undecodable env entry the verdict the launch-file carrier giv
 
 ## Triage
 verdict: questionable — divergence verified: subagent-launch-file.ts:233-236 has parseLaunchFileDocument return undefined on a bad entry, so readChildControlPlane drops to the scrubbed env (:363-366), while readLaunchEntryFromEnv maps a present-but-malformed value to THETA_LAUNCH_ENTRY (:296-307) and keeps the authenticated env (:353-357). The writer (subagent-launcher.ts:471-472) sets the key only for fn entries, and all stated searches reproduce (3 parseLaunchEntry( hits, 5 docs hits, 0 docs/bugs hits, 4ae9b29c origin, test pin at tests/subagent-launch-file.test.ts:292-297). The anchor does not pin the env side, though: subagent.md:116 gives the drop verdict only for a launch-file path that "does not exist, is not owned by the current user, or fails to parse", and it scopes ppid to env carriage without saying what a malformed PI_THETA_SUBAGENT_ENTRY does. subagent.md:64 and RFC 0012 :830-834/:1107 say nothing on it either. The filing gets from the file clause to the env carrier by analogy, and its own direction ("a refusal") leaves open whether that means dropping the control plane or sending an err envelope. Which posture is right needs a human ruling (triage: claude-opus-5-5)
+verdict: confirmed — RATIFIED: a present-but-undecodable PI_THETA_SUBAGENT_ENTRY (malformed JSON or a parseLaunchEntry refusal) takes the failed-ppid-check verdict, matching the launch-file carrier: readLaunchEntryFromEnv signals refusal instead of defaulting, and readChildControlPlane's pipe arm then mirrors :363-366 - scrub every SUBAGENT_CONTROL_PLANE_ENV_KEYS member and return the theta entry, so the child runs as ordinary top-level pi and the parent observes exit-without-envelope. Absent key keeps the theta-entry arm (a .theta callee writes no key). Update the :288-292 doc comment and the :303 allow-broad-catch token to name the drop, and flip tests/subagent-launch-file.test.ts:292-297 to the new verdict.
