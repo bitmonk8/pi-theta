@@ -650,7 +650,7 @@ class TypeParser {
    * stands on the group's opening `[` and the source goes on to close it —
    * `-1` when the cursor is not on `[` or the group never closes.
    *
-   * The frame stack mirrors `findCutBracketGroupText`'s (`./params`, bug
+   * The frame stack mirrors `findCutBracketGroupText`'s (`./type-text-split`, bug
    * 0217's recovery of the same construct's source text on the lowering side)
    * rather than a bare bracket counter, so a `{…}` written inside the group
    * cannot close it. Requiring the matching `]` is bug 0217's own

@@ -179,8 +179,8 @@ export function parseLiteralArm(source: string): { readonly value: unknown } | u
  * c: boolean}>`'s middle shard, `b: integer`) carries neither `{` nor `}`
  * and this predicate alone would still call it refusable — that shard no
  * longer reaches this function from the generic-argument recursion (bug 0204
- * §Fix (b)(3), `classifyGenericArgumentSegments` beside
- * `lowerGenericArgument` in params.ts): it is filtered out before the `unspellable` sink
+ * §Fix (b)(3), `classifyGenericArgumentSegments` below, called from
+ * `lowerGenericApplication` in params-lowering.ts): it is filtered out before the `unspellable` sink
  * this predicate reads ever collects it, not by widening what this predicate
  * declines. The filter is per SEGMENT of that split, so a WHOLE argument of
  * the same list still arrives here and is still judged
@@ -247,8 +247,8 @@ function hasUnterminatedStringLiteral(text: string): boolean {
  * behind it, so an escaped quote does not close the literal. This is the ONE
  * copy of the quote/escape rule the quote-aware scanners share —
  * `isSingleEnclosingBraceGroup`, `isBraceBalanced`,
- * `hasUnterminatedStringLiteral` and `topLevelColon` here,
- * `findCutBracketGroupText` (./params), `splitParamValue`
+ * `hasUnterminatedStringLiteral`, `topLevelColon` and
+ * `findCutBracketGroupText` here, `splitParamValue`
  * (./frontmatter-params) and `braceGroupCarriesUnmatchedCloseToken`
  * (./annotation-validation) — so all of them agree on what a quoted region
  * is by construction rather than by seven mirrored loops. A caller resumes
@@ -319,8 +319,8 @@ export function topLevelColon(entry: string): number {
  *     every lowered byte are exactly what this mode always produced — but the
  *     pieces of such a cut are no longer JUDGED: bug 0204 §Fix (b)(3) marks
  *     each segment whole-in-the-source or not
- *     (`classifyGenericArgumentSegments`, `withoutUnspellableSink`, both
- *     defined beside `lowerGenericArgument` in params.ts) and recurses only the pieces
+ *     (`classifyGenericArgumentSegments`, below, with `withoutUnspellableSink`
+ *     beside `lowerGenericArgument` in params-lowering.ts) and recurses only the pieces
  *     under a `LowerCtx` carrying no `unspellable` sink, so a piece can never
  *     reach `isUnspellableTextRefusable`'s decline while a whole argument
  *     beside it still can.
@@ -434,3 +434,209 @@ export function splitTopLevel(
 }
 
 export { isBraceBalanced, hasUnterminatedStringLiteral };
+
+/** One segment of a generic argument list, with whether the SOURCE spells it. */
+export interface ClassifiedArgumentSegment {
+  /** The trimmed segment text — byte-identical to `splitTopLevel`'s entry. */
+  readonly text: string;
+  /** Whole in the source: both delimiting commas at group depth 0, and balanced. */
+  readonly whole: boolean;
+}
+
+/**
+ * `lowerTypeExpr`'s generic-argument list, cut exactly where its angle-only
+ * `splitTopLevel` cuts it, with each segment marked whole-in-the-source or not
+ * (bug 0204 §Fix (b)(3)). A segment is WHOLE iff every comma boundary that
+ * delimits it sat at `{…}`/`[…]` depth 0 — the start and end of the interior
+ * count as such boundaries — and the segment's own groups balance. Anything
+ * else is a piece the split cut out of a group the author wrote as one unit,
+ * and only those pieces recurse without the refusal sink.
+ *
+ * `array<{a: string, b: integer, c: boolean}, ???>`'s interior is why the
+ * decision is per SEGMENT and not per list: three of its four segments are
+ * pieces of the cut `{…}` group, and the fourth, `???`, is a whole argument
+ * the source spells and keeps its judgement.
+ *
+ * The scan reproduces `splitTopLevelSegments`' `"angle"` idiom byte for byte —
+ * in that mode the split's stack holds only `<`, so its length is the same
+ * floored angle depth this scan counts, the same quote/escape handling, the
+ * same trim, and `splitTopLevel`'s non-empty filter — so `text` in order equals
+ * `splitTopLevel(interior, ",")` and the classification indexes that array
+ * directly. It adds one counter the split does not keep, `{}`/`[]` depth, and
+ * changes no cut point: widening the split itself is §Fix (b)(1), whose cost
+ * is landed lowered bytes (bug 0164's `d6`/`d7` pin the unwidened shape as
+ * deliberate), and sharing bug 0124's position-level decline over the whole
+ * captured source is §Fix (b)(2), which drops TRUE refusals
+ * (`{a: array<Cat +>}` and its siblings) that carry both a brace and an angle
+ * bracket. Classifying leaves the split, its segment count and every lowered
+ * byte untouched; only a manufactured piece's access to the refusal sink
+ * changes.
+ */
+export function classifyGenericArgumentSegments(interior: string): ClassifiedArgumentSegment[] {
+  const segments: ClassifiedArgumentSegment[] = [];
+  let angle = 0;
+  let group = 0;
+  let quote: string | undefined;
+  let current = "";
+  // The interior's start is a boundary at group depth 0 by construction.
+  let leftBoundaryWhole = true;
+  let segmentGroup = 0;
+  let segmentUnbalanced = false;
+  const push = (rightBoundaryWhole: boolean): void => {
+    const text = current.trim();
+    if (text.length > 0) {
+      segments.push({
+        text,
+        whole:
+          leftBoundaryWhole && rightBoundaryWhole && segmentGroup === 0 && !segmentUnbalanced,
+      });
+    }
+    current = "";
+    segmentGroup = 0;
+    segmentUnbalanced = false;
+    leftBoundaryWhole = rightBoundaryWhole;
+  };
+  for (let i = 0; i < interior.length; i += 1) {
+    const c = interior[i] ?? "";
+    if (quote !== undefined) {
+      current += c;
+      if (c === "\\" && i + 1 < interior.length) {
+        current += interior[i + 1] ?? "";
+        i += 1;
+      } else if (c === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+    } else if (c === "<") {
+      angle += 1;
+    } else if (c === ">") {
+      // Floored, not decremented: a stray `>` with no open `<` must not cancel
+      // an enclosing `{`/`[` group, and this scan is angle-only, so the floor
+      // and bug 0238's typed opener-stack rule coincide here (§Fix
+      // constraint 3 — this scan reproduces `splitTopLevelSegments`' `"angle"`
+      // idiom byte for byte).
+      angle = Math.max(0, angle - 1);
+    } else if (c === "{" || c === "[") {
+      group += 1;
+      segmentGroup += 1;
+    } else if (c === "}" || c === "]") {
+      group -= 1;
+      segmentGroup -= 1;
+      if (segmentGroup < 0) {
+        segmentUnbalanced = true;
+      }
+    } else if (c === "," && angle === 0) {
+      push(group === 0);
+      continue;
+    }
+    current += c;
+  }
+  // The interior's end is a boundary at group depth 0 whenever the whole
+  // interior balances; an unbalanced tail is itself a piece, not an argument.
+  push(group === 0);
+  return segments;
+}
+
+/**
+ * For a generic-argument-list `interior`, the source text of the innermost
+ * `[…]` group that the angle-only comma split (`splitTopLevel`,
+ * `classifyGenericArgumentSegments`, above) CUTS — the group enclosing a cut
+ * comma (angle depth 0, `{}`/`[]` group depth ≥ 1) whose innermost currently
+ * open group is bracket-rooted — extended LEFT over the immediately
+ * preceding identifier run and through the matching `]`, or `undefined` when
+ * the split cuts no such group (bug 0217 §Fix (b)(2)).
+ *
+ * A `{…}` group is `ObjectType` (grammar.md:101, :109) — one of `Type`'s six
+ * alternatives (grammar.md:90–:102) — so a cut `{…}` group is exactly what
+ * bug 0204's per-segment suppression protects and this helper never returns
+ * it: only a group whose innermost open frame at the cut is `[` is a
+ * candidate, because `enum[…]` and every other `[…]` spelling derive from
+ * none of `Type`'s six alternatives at any depth (schemas.md:93, stated with
+ * no depth qualifier). `array<{a: enum["a", "b"]}>`'s interior is why the
+ * frame stack — not a bare brace/bracket depth counter — is what decides it:
+ * the comma inside `enum["a", "b"]` sits under an OPEN `{` too, but the
+ * innermost open frame at that comma is the `[`, so this returns the `enum`
+ * spelling and never the enclosing derivable object.
+ *
+ * The scan reproduces `classifyGenericArgumentSegments`' idiom byte for byte
+ * — the same angle counter, the same `{}`/`[]` depth tracking, the same
+ * quote/escape handling — so the cut point this finds is the SAME cut point
+ * that scan already marks non-whole. This is a sibling read of that scan, not
+ * a second splitter: it never changes `splitTopLevel`'s cut points or
+ * `classifyGenericArgumentSegments`' `text`/`whole` vectors (bug 0204 cell
+ * l3's lock, restated over bug 0217's interiors in
+ * tests/nested-inline-enum-generic-argument-refusal.test.ts group (a)).
+ *
+ * The returned text is the construct the AUTHOR wrote, not the bracket pair
+ * alone — `enum["a", "b"]`, never the bare `["a", "b"]` and never either
+ * manufactured piece (`enum["a`, `"b"]`) — so the sink entry a caller pushes
+ * (`pushCutBracketGroupAsLastResort`, ./params-lowering) names the illegal spelling
+ * itself, matching what the bare `enum["a", "b"]` already carries into this
+ * same sink at depth 0.
+ *
+ * When more than one bracket group is cut (nested brackets), the innermost
+ * one is returned by construction: its closing bracket is reached, and its
+ * frame popped, before any enclosing bracket frame's own closing bracket is,
+ * so the first frame recorded here is already the innermost.
+ *
+ * The matching `]` is REQUIRED: a group the source never closes
+ * (`array<enum["a", "b">`) leaves its frame open at the end of the scan, no
+ * frame is ever recorded, and this returns `undefined` — so such an input
+ * draws whatever the positions' other rows draw for it and nothing from this
+ * helper. That is an AUTHORIZED under-refusal, stated here rather than left
+ * to be discovered: the returned text is the construct the author wrote, and
+ * there is no such construct to name when its extent is unknown — an
+ * unclosed group's end could be any byte to the interior's end. §Fix names
+ * two routes for a CUT, CLOSED bracket group and neither addresses malformed
+ * bracket nesting, so an unclosed group stays outside bug 0217's reach and
+ * with the positions' own capture-level rows (measured: the alias arm refuses
+ * it, the `schema` field type and `params:` admit it, and the `let` position
+ * draws its own `let-without-initialiser` — fence cell (h1) in
+ * tests/nested-inline-enum-generic-argument-refusal.test.ts).
+ */
+export function findCutBracketGroupText(interior: string): string | undefined {
+  interface BracketFrame {
+    readonly opener: "{" | "[";
+    readonly start: number;
+    cut: boolean;
+  }
+  const stack: BracketFrame[] = [];
+  let angle = 0;
+  let found: { readonly start: number; readonly end: number } | undefined;
+  for (let i = 0; i < interior.length; i += 1) {
+    const c = interior[i] ?? "";
+    if (c === '"' || c === "'") {
+      i = skipQuotedRegion(interior, i);
+    } else if (c === "<") {
+      angle += 1;
+    } else if (c === ">") {
+      // Floored for the same reason as `classifyGenericArgumentSegments`,
+      // above, whose idiom this scan reproduces byte for byte (bug 0238 §Fix
+      // constraint 3): angle-only, so the floor is the typed rule here.
+      angle = Math.max(0, angle - 1);
+    } else if (c === "{" || c === "[") {
+      stack.push({ opener: c, start: i, cut: false });
+    } else if (c === "}" || c === "]") {
+      const frame = stack.pop();
+      if (frame !== undefined && frame.cut && frame.opener === "[" && found === undefined) {
+        found = { start: frame.start, end: i };
+      }
+    } else if (c === "," && angle === 0 && stack.length > 0) {
+      const top = stack[stack.length - 1];
+      if (top !== undefined && top.opener === "[") {
+        top.cut = true;
+      }
+    }
+  }
+  if (found === undefined) {
+    return undefined;
+  }
+  let left = found.start;
+  while (left > 0 && /[A-Za-z0-9_]/.test(interior[left - 1] ?? "")) {
+    left -= 1;
+  }
+  return interior.slice(left, found.end + 1);
+}

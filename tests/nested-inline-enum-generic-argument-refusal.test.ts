@@ -379,8 +379,8 @@ describe("bug 0217 (a) — the split and the segment classification are byte-unt
 
   // -------------------------------------------------------------------------
   // The direct seam on `findCutBracketGroupText` itself (route §Fix (b)(2)'s
-  // sibling helper, src/parser/params-lowering.ts, beside `classifyGenericArgumentSegments`
-  // / `withoutUnspellableSink`): the interior→group-text mapping, the
+  // sibling helper, src/parser/type-text-split.ts, beside `classifyGenericArgumentSegments`;
+  // `withoutUnspellableSink` stays in src/parser/params-lowering.ts): the interior→group-text mapping, the
   // left-extension over the preceding identifier run, and the innermost-group
   // choice when brackets nest. FENCE in both directions — this helper's
   // contract, not the classification's.

@@ -873,7 +873,7 @@ describe("bug 0204 (k) — the theta registers again", () => {
 // integer, c: boolean}, ???>` spells `???` as a WHOLE argument, and a list
 // whose OTHER comma sat inside the `{…}` group would carry it out of judgement
 // with the manufactured shards. So wholeness is decided per segment:
-// `classifyGenericArgumentSegments` (src/parser/params-lowering.ts) reproduces the
+// `classifyGenericArgumentSegments` (src/parser/type-text-split.ts) reproduces the
 // angle-only split's cut points and marks a segment whole iff both delimiting
 // commas sat at `{}`/`[]` depth 0 and the segment's own groups balance.
 //

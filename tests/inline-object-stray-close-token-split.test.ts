@@ -62,7 +62,7 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseD
 // `TypeParser.skipMalformedEntry` (src/parser/type-grammar.ts) so the two
 // inventories of one interior agree (§Expected behaviour 1). In `"angle"` mode
 // the typed rule and a bare floor coincide, so `classifyGenericArgumentSegments`
-// and `findCutBracketGroupText` (src/parser/params-lowering.ts) — the angle-only scans
+// and `findCutBracketGroupText` (src/parser/type-text-split.ts) — the angle-only scans
 // bug 0204 §Fix (b)(3) requires reproduce the split byte for byte (§Fix
 // constraint 3) — take the floor. No diagnostic code is minted and no registry
 // row moves: the only newly-refusing inputs draw codes already registered for
@@ -781,7 +781,7 @@ describe("bug 0238 (U) — splitTopLevelSegments / topLevelColon at their own se
     // MATCHING opener; a close token that does have one keeps closing its
     // level, which is what these five observables pin. §Fix constraint 3: the
     // angle-only scans (`classifyGenericArgumentSegments`,
-    // `findCutBracketGroupText`, src/parser/params-lowering.ts) reproduce this idiom
+    // `findCutBracketGroupText`, src/parser/type-text-split.ts) reproduce this idiom
     // byte for byte, so a change here moves them too.
     expect(
       {
