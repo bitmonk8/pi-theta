@@ -12,7 +12,7 @@ import {
   RESERVED_KEYWORDS,
   isIdentifierShaped,
 } from "./frontmatter-yaml";
-import { skipQuotedRegion } from "./type-text-split";
+import { skipQuotedRegion, splitTopLevel } from "./type-text-split";
 import { isTypeLikeName } from "../lexer/name-case";
 
 /**
@@ -48,10 +48,13 @@ function splitParamValue(raw: string): { typeSource: string; defaultSource?: str
   return { typeSource: raw.trim() };
 }
 
-/** Whether a lowered type expression is a nullable union (a top-level `| null` arm). */
+/**
+ * Whether a lowered type expression is a nullable union (a top-level `| null`
+ * arm, split by `splitTopLevel` so arms nested in `<...>` or string literals
+ * do not count).
+ */
 function typeSourceIsNullable(typeSource: string): boolean {
-  return typeSource
-    .split("|")
+  return splitTopLevel(typeSource, "|")
     .map((arm) => arm.trim())
     .some((arm) => arm === "null");
 }
