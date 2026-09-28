@@ -1,7 +1,10 @@
 # Bug 0483 — a host-recovery abort (pi-retry's stall watchdog `ctx.abort()` + retryable rewrite) cancels the whole theta invocation instead of riding through the host's retry of the driven turn
 
-- **Status:** open — design + measurement pending. Observed live once, at the
-  most benign possible site (below); the exposure is structural.
+- **Status:** open — `## Fix` settled 2026-09-28 (measurements resolved,
+  operator-approved next after 0493); implementation pending. Observed live
+  twice: once at the most benign possible site (below), once at the most
+  expensive (a review-fix child whose typed respond had ALREADY captured
+  `ok: true` — see §Fix, *Second observation*).
 - **Sev/Diff estimate:** S2/D3 — S2: a stall-watchdog abort during ANY driven
   turn of a long-running theta cancels the entire invocation (a 43-minute
   quality-loop wave would lose its in-flight phase; this occurrence cost
@@ -61,6 +64,303 @@ subagent-child twin (the child's own drive has the same forwarding).
   stalls), or `0`/`off` disables the watchdog (a true stall then hangs the
   drive until ESC — theta itself has no wall-clock ceiling by design,
   NOCEIL-1).
+
+## Fix (settled 2026-09-28; measurements resolved)
+
+Defer the cancellation decision for a mid-turn host abort to TURN-SETTLE
+time, classify the settled turn against the host's OWN retry classifier, and
+ride a host-recovery settle — waiting out an in-run core retry on pi ≤ 0.86,
+issuing theta's own bounded continuation re-drive on pi ≥ 0.87 — instead of
+cancelling. A typed query whose respond tool already captured a valid payload
+settles on that payload without riding at all. User ESC keeps today's
+semantics, one settle-wait (ms) later. Everything lands in the prompt-mode
+driver plus one extraction rule; `cancellation-core.ts`,
+`forwarding-listener-trap.ts` and the reverse (bug 0319) bridge are
+untouched.
+
+### Second observation — the answer-in-hand shape (wave qw20260928060032)
+
+Child session `~/.pi/agent/sessions/--C--UnitySrc-pi-theta--/2026-09-28T05-57-07-285Z_…/2026-09-28T06-45-47-550Z_theta-fix-cluster-tree#7140efbb/2026-09-28T07-53-30-221Z_theta-review-fix#a6918693.jsonl`
+(pi 0.87.1, pre-0.493.0 child env), a gate-green review-passed lane:
+
+- entry 45 (08:00:53): the model calls `__theta_respond_b58527061b046b2a`
+  with `ok: true` + full payload; entry 46: tool result
+  `final answer recorded` — the QRY-14 early-respond capture VALIDATED and
+  fired.
+- entry 47 (08:01:00): the NEXT provider request (post-tool-result
+  continuation) stalls; pi-retry aborts; trailing assistant settles
+  `stopReason: "error"`, `errorMessage: "Request aborted\n\n[stall-watchdog-retry]
+  provider returned error; treating stalled provider stream as retryable.
+  [halfhour-window-rescue] request started in the :00/:30 hang window; …"`.
+- theta's forwarding read the abort as cancellation: the child drive ended
+  `Err`, the parent's `review_fix()` got `Err(kind: "invoke_callee")`
+  (wrapper `src/runtime/subagent-fn-call.ts:21`), and the lane initially
+  counted it as a rejection and reverted a gate-green batch (mitigated
+  theta-side by one blind review retry, `6af8650c` — a stopgap, not this
+  fix).
+- entries 48–49: pi-retry's re-kick prompt landed at +1 s and the model
+  answered "The review was already finished and recorded before the stall…"
+  at 08:01:11 — a completed recovery turn nothing was left alive to read.
+
+Post-0493 children carry `PI_SUBAGENT_CHILD=1`, so pi-retry no longer
+re-kicks them AT ALL: in a child, theta's own ride below is the only
+recovery.
+
+### Measured host facts (the §Candidate-contract open items, resolved)
+
+Retry-vs-cancel is NOT distinguishable at signal time — a stall-watchdog
+`ctx.abort()` and user ESC abort the same per-run `ctx.signal`
+(`runner.getSignalFn()`, no marker, no reason difference). It IS
+distinguishable, on both pins, from the settled trailing assistant message:
+
+- **Cancel shape:** user/host cancel settles the trailing assistant
+  `stopReason: "aborted"` (or no assistant at all when aborted pre-token);
+  nothing rewrites it.
+- **Recovery shape:** a retry extension that intends recovery REWRITES the
+  settle to `stopReason: "error"` + an errorMessage the host's retry
+  machinery classifies retryable — that rewrite IS the upstream pi-retry
+  contract (fork `pi-config/extensions/pi-retry/index.ts:418–421` abort,
+  `:545–553` rewrite), and pi's own classifier for it is
+  `isRetryableAssistantError` (pi-ai `dist/utils/retry.d.ts:11`, exported
+  from the package root at the pin — `dist/index.js:17`), the exact function
+  `AgentSession._isRetryableError` delegates to on 0.80.10
+  (`agent-session.js:2083`) and 0.87.1.
+- `agent_end.willRetry` is NOT usable: extensions receive the raw event
+  without it (0.80.10 `agent-session.js:349` / 0.87.1 `:581` enrich only the
+  post-extension `_emit` copy), 0.87 forces it `false` after any extension
+  abort (`:628–629`), and PIC-18 bars `pi.on` as a completion signal anyway.
+- **(a) does pi retry re-run the turn in the same run?** pi ≤ 0.86: YES —
+  `_handlePostAgentRun` (0.80.10 `:764`) has no abort bail; the rewritten
+  message passes `_isRetryableError` → `_prepareRetry` (backoff) →
+  `agent.continue()` inside the same `_runAgentPrompt` while-loop (`:751–757`),
+  and `_isAgentRunActive` stays true until `_emitAgentSettled` (`:310–311`),
+  so the session never reads idle mid-retry. pi ≥ 0.87: NO —
+  `abort()` sets `_agentRunAbortRequested` (0.87.1 `:1608–1619`) and
+  `_handlePostAgentRun` bails at `:1111` BEFORE the retryable check; the run
+  settles idle with the tagged error and only a NEW user turn (pi-retry's
+  re-kick at top level; nothing in a child) can continue it.
+- **(b) where does the retried turn stream?** ≤ 0.86 in-run retry:
+  `_prepareRetry` removes the failed assistant from AGENT state but keeps it
+  in the SESSION ("keep in session for history", 0.80.10 `:2108–2112`), so
+  the retried assistant appends to the SAME trailing turn after the error
+  entry — PIC-51's final-assistant probe reads the retried one
+  (`trailingTurnFinalAssistant`), but PIC-53's join would concatenate both
+  texts (fixed below). ≥ 0.87 re-kick/continuation: a NEW user message
+  re-anchors the trailing turn; no contamination.
+- **(c) the subagent-child twin:** the child drives its root theta through
+  the identical prompt-mode driver (PIC-58), so one driver fix covers both;
+  post-0493 the child has NO external re-kicker.
+- The only production sites that convert the stall abort into `thetaAbort`
+  are driver-local: the per-turn forward
+  (`live-prompt-query-driver.ts:861`) and the post-settle `agent_end`
+  synthesis (`:945`). The dispatch/bind-time forwards
+  (`theta-composition-producer.ts:219`,
+  `production-theta-producer.ts:819`) attach at idle entry where
+  `ctx.signal` is `undefined`; no persistent five-event forwarding handlers
+  exist. The fix is therefore local to the driver.
+
+### Per-component changes
+
+**1. `src/extension/host-recovery.ts` (new) — the settle classifier.**
+`classifyHostRecoverySettle(turnSlice, finalAssistant)` returns one of:
+
+- `"recovering"` — final assistant `stopReason === "error"` AND
+  `isRetryableAssistantError(finalAssistant)` (imported from
+  `@earendil-works/pi-ai`, the extension layer already imports pi-ai values
+  — `off-session-respond-dispatch.ts:5`). Matches the fork's rewrite, the
+  halfhour-rescue variant, upstream pi-retry, and any compliant retry
+  extension; deliberately NOT the literal `[stall-watchdog-retry]` tag.
+- `"recovered"` — final assistant settled on a normal boundary AND the turn
+  slice (from this turn's `turnStart` anchor) contains an earlier
+  retry-classified error-stop assistant (the ≤ 0.86 in-run-retry residue).
+- `"cancel"` — everything else: trailing `"aborted"`, a non-retryable
+  error-stop, a clean settle with NO retry residue (an ESC that raced the
+  turn's natural end keeps today's cancellation), or no assistant.
+
+Plus constants: `PROMPT_MODE_HOST_RECOVERY_RIDE_BOUND = 3` (continuation
+re-drives per driven turn — a count bound, not wall-clock; NOCEIL-1 intact)
+and `PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT` (fixed continuation prompt:
+previous response interrupted by a transient provider failure and retried;
+continue from where you left off; if the final answer was already complete,
+repeat it in full).
+
+**2. `src/extension/live-prompt-query-driver.ts` — defer, classify, ride.**
+Inside `#driveUserVisibleTurn`:
+
+- The per-turn `forwardSlashCommandCancel(this.#thetaAbort, this.#ctx.signal)`
+  (`:861`) becomes a DEFERRED recorder: on `ctx.signal` abort it records
+  `{reason}` and does NOT abort `thetaAbort`. `#pollWhile`'s early-exit
+  still keys on `thetaAbort` (other-source cancels — session shutdown,
+  parent invoke — behave exactly as today, and the ride loop bails to the
+  cancel path whenever `thetaAbort.signal.aborted`).
+- The send + start/end/settle polls become a bounded ATTEMPT LOOP. After a
+  settle with a recorded abort (or after a settle whose final assistant is
+  an error-stop), classify:
+  - `recovered` → discard the recorded abort; fall through to the normal
+    probe/extraction (the ≤ 0.86 ride: core retry already re-ran the turn
+    while the end-poll waited out the non-idle session).
+  - `recovering` → if this is a typed query whose early-respond capture
+    already fired (`capture.captured`), stop: the answer is in hand (see
+    decided sub-case). Else if rides < bound: emit one informational
+    system note (`theta /<name>: driven turn aborted by a host stall
+    recovery and marked retryable; continuing the turn (ride N/3)`, no
+    `details` key per bug 0401), record a fresh `turnStart`, send
+    `PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT`, and loop — same open
+    active-set/model/thinking windows (PIC-17 vector, respond tool
+    included, stays installed), same armed governor budget (rounds
+    accumulate across attempts; a recovery never mints fresh budget).
+    Else (bound spent): discard the recorded abort and return — PIC-51
+    maps the tagged error-stop to a loud `Err(transport)` carrying the
+    tagged errorMessage, never `cancelled`.
+  - `cancel` → forward the RECORDED reason into `thetaAbort` now (CNCL-4
+    reason identity preserved; the one-shot guard and the bug-0319 reverse
+    bridge compose unchanged) — `Err(cancelled)` exactly as today.
+- With a recorded abort and an idle session whose slice never grows a
+  trailing assistant, a short grace (existing poll cadence) then classifies
+  `cancel` — the pre-first-token ESC does not sit out the full settle bound.
+  A lifecycle-bound expiry with a recorded abort likewise resolves `cancel`
+  (never a minted transport `Err` for a genuine ESC;
+  `#recordLifecycleExpiry`'s aborted no-op extends to the recorded state).
+- The `abortForAgentEnd` synthesis (`:945`) is gated by the same
+  classification: skipped when the settled turn classifies
+  `recovering`/`recovered`.
+
+**3. `src/runtime/conversation-drive.ts` — PIC-53 residue exclusion.**
+`extractTrailingTurnText` skips assistant entries with
+`stopReason: "error"`: they are failure narration/retry residue pi
+deliberately keeps in session history, not answer text. This also fixes the
+pre-existing contamination when core retry succeeds mid-turn WITHOUT any
+abort (reachable today on both pins whenever `retry.enabled` recovers a
+retryable error-stop).
+
+**4. Unchanged, by design:** `cancellation-core.ts` (idle-entry and generic
+forwards keep their semantics), `forwarding-listener-trap.ts`,
+`turn-settlement.ts` predicates, the off-session dispatches (forced respond
+/ binder — never watchdog-observed: they fire no `before_provider_request`),
+subagent-mode kill forwarding, and the bug-0482 compaction seam
+(`trailingCompactionUnanswered` composes: an unanswered compaction still
+holds settledness before classification runs).
+
+### Decided sub-case — respond already succeeded
+
+A typed query whose respond tool already captured a valid payload
+(`#earlyRespond`/`capture.captured`, snapshotted in the turn's `finally`
+even on abort paths) settles on the captured value when the free-phase turn
+ends in a HOST-RECOVERY abort: no ride, no continuation send;
+`forcedRespondTurn` returns the captured payload (QRY-14 early respond
+already pins the skip). The wave shape above becomes
+`Ok({ok: true, …})` with zero extra provider traffic. A GENUINE
+cancellation (abort-shaped settle) still cancels and discards the capture —
+cancellation.md §Surfacing is unchanged, and CNCL-5's no-retroactive-rewrite
+rule is not in tension: the query operation never returned `Ok` (the capture
+resolves the payload, not the checkpoint), and user ESC intent outranks an
+unreturned value.
+
+### Spec amendments
+
+- `cancellation.md` §"Forwarding into `thetaAbort`", slash-command bullet:
+  the prompt-mode mid-turn `ctx.signal` forward is settle-classified — an
+  abort observed while a driven turn is in flight forwards into `thetaAbort`
+  only after that turn settles and only when the settled turn is not a
+  host-recovery settle (definition: final trailing assistant error-stop the
+  host's own retry classifier — pi-ai `isRetryableAssistantError` — accepts,
+  or a normal settle carrying such residue). CNCL-4 unchanged on the
+  forwarded arm (the recorded source reason is what is forwarded); the
+  one-shot guard and the bidirectional (bug 0319) clause unchanged.
+- `conversation-drive.md`: new anchor <a id="pic-78"></a> **PIC-78.
+  Prompt-mode host-recovery ride-through** — the attempt loop, the
+  classifier, the ride bound + fixed continuation text, the shared governor
+  budget, the loud transport `Err` on bound exhaustion, the typed-query
+  captured-respond precedence, and the recorded consumption postures: an
+  extension-aborted run settles promptly; pi's in-run retry keeps the failed
+  assistant in session history (0.80.10 `_prepareRetry`); `_isRetryableError`
+  ≙ pi-ai `isRetryableAssistantError` — routed to the version-bump
+  editorial checklist as a new item.
+- `conversation-drive.md` PIC-70: scope the "cancellation short-circuit
+  takes precedence / each bounded wait MUST stop promptly on an observed
+  abort" sentences to an observed THETA abort (`thetaAbort`); a deferred
+  host abort instead accelerates through the aborted run's own prompt
+  settle, and PIC-78 owns its disposition.
+- `conversation-drive.md` PIC-53: the join excludes assistant entries with
+  `stopReason: "error"` (retry residue kept in session by the host).
+- `query/query-tool-loop.md` QRY-14 (`#qry-14`): one sentence — a valid
+  early respond capture survives a host-recovery abort of the free phase;
+  the query resolves on the captured payload (a genuine cancellation still
+  surfaces `cancelled`).
+
+### Witnesses (red before → green after)
+
+Unit (`tests/b0483-host-recovery-ride.test.ts`, fake pi/ctx/clock driver
+harness in the b0288/b0319 style):
+
+1. **Idle-recovery ride (≥ 0.87 shape):** mid-turn abort + tagged retryable
+   settle + idle → exactly ONE continuation send; clean settle → query
+   `Ok(<continuation text only>)`; `thetaAbort` never aborted; no cancel
+   note. Red before: `Err(cancelled)`.
+2. **In-run ride (≤ 0.86 shape):** abort + session stays non-idle; slice
+   gains tagged-error assistant then clean assistant; → `Ok(<retried text
+   only>)`, ZERO continuation sends. Red before: `Err(cancelled)`.
+3. **User ESC preserved:** abort + trailing `"aborted"` settle →
+   `Err(cancelled)`, `thetaAbort.signal.reason` === the recorded source
+   reason (CNCL-4); pre-first-token ESC (no assistant) cancels within the
+   grace. Green before and after (regression pin; b0319 cells stay green).
+4. **Ride bound:** tagged settle on every attempt → after 3 rides,
+   `Err(transport)` carrying the tagged errorMessage; never `cancelled`.
+   Red before: `Err(cancelled)`.
+5. **Answer in hand:** typed query, capture fires `ok: true`, then abort +
+   tagged settle → no continuation, `Ok(<captured payload>)` — the wave
+   qw20260928060032 shape. Red before: `Err(cancelled)`.
+6. **Clean-settle disambiguation:** recorded abort + clean settle with NO
+   retry residue → `Err(cancelled)` (ESC-raced-the-end keeps today's
+   semantics).
+7. **PIC-53 exclusion:** settled turn `[user, error-stop asst("partial"),
+   stop asst("full")]` → `Ok("full")`. Red before independently of the
+   abort path (reachable today via core retry).
+8. **`agent_end` gating:** post-settle `ctx.signal.aborted` + tagged settle
+   → no synthesised agent_end cancel.
+
+Live (H8a, `tests/live/b0483-host-recovery-live.test.ts`, per AGENTS.md live
+conventions — child pins, real observables, no verbatim-echo): the harness's
+`extraExtensionPaths` loads a watchdog-mimic extension that, on the driven
+turn's first `message_update`, calls `ctx.abort()` and rewrites
+`message_end` to the tagged retryable error — the full host mechanics (real
+run abort, real rewrite, real settle) with one tiny fixture turn. With
+`retry.enabled` off (injected `SettingsManager`) the idle-recovery arm runs:
+assert the drive settles `Ok` with the fixture-pinned arithmetic sentinel
+and the settled `SessionManager` carries NO `theta /<name> cancelled`
+system note (absence of SLSH-3/SLSH-4 notes IS the success observable).
+Red-before proven by running the cell at HEAD (cancelled note present), then
+green after — both directions per AGENTS.md. Optional second cell with
+`retry.enabled` on witnesses the in-run arm on the 0.80.10 dev host.
+
+`tests/committed-fixture-parse-gate.test.ts` discharges the no-shipped-
+source-moves claim; no `.theta` fixtures change shape.
+
+### Version / CHANGELOG
+
+One minor bump at landing with a `### Fixed` entry naming bug 0483. The
+bug-number↔version correspondence is already past 0.483 (0.493.0 shipped
+2026-09-28), so the next free minor is used (e.g. 0.494.0); the CHANGELOG
+entry, not the version number, carries the bug id.
+
+### Out of scope (owned elsewhere / follow-ups, not blocking)
+
+- **pi host (upstream report):** distinguish "extension aborted this
+  provider call" from "user aborted the run" so ≥ 0.87 core retry survives
+  a watchdog abort (the a0e1419 regression). This fix makes theta
+  self-sufficient either way.
+- **pi-config (separate follow-ups there):** none required — the fork's
+  re-kick is already deferential (stands down at its +1 s check when theta's
+  continuation has the session non-idle/pending; the sub-second double-send
+  race is an accepted residual). The finite-re-kick-budget and
+  schedule-time-marker-read items stay on bug 0493's list.
+- **Retryable error-stops with NO observed abort:** core retry owns them
+  in-run on both pins when enabled; theta adds no re-kick for that shape
+  (the PIC-53 exclusion improves it as a side effect).
+- **`fix-cluster-tree.theta`'s one-retry mitigation (`6af8650c`):** retire
+  after this ships (follow-up; harmless meanwhile).
+- **Bug 0482** (auto-compaction seam) and **bug 0485** stay on their own
+  records.
 
 ## Related
 
