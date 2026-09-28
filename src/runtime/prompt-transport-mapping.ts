@@ -74,9 +74,11 @@ export const PROMPT_MODE_TRANSPORT_FALLBACK_MESSAGE = "provider transport failur
  * `OFF_SESSION_NORMAL_STOP_REASONS` (pi-ai's `"stop"`/`"toolUse"` plus the
  * spec's `"end_turn"`/`"tool_use"` spellings) — duplicated rather than
  * imported because this runtime module sits below the extension layer that
- * const lives in.
+ * const lives in. Exported for the host-recovery settle classifier
+ * (`classifyHostRecoverySettle`), whose `"recovered"` arm keys on the same
+ * normal boundary.
  */
-const PROMPT_MODE_NORMAL_STOP_REASONS: ReadonlySet<string> = new Set([
+export const PROMPT_MODE_NORMAL_STOP_REASONS: ReadonlySet<string> = new Set([
   "stop",
   "end_turn",
   "toolUse",

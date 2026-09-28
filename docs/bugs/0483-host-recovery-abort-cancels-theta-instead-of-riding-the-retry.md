@@ -1,7 +1,8 @@
 # Bug 0483 — a host-recovery abort (pi-retry's stall watchdog `ctx.abort()` + retryable rewrite) cancels the whole theta invocation instead of riding through the host's retry of the driven turn
 
-- **Status:** open — `## Fix` settled 2026-09-28 (measurements resolved,
-  operator-approved next after 0493); implementation pending. Observed live
+- **Status:** fixed (unreleased — version assigned at the release step;
+  see `## Fix (unreleased)`). `## Fix` settled 2026-09-28 (measurements
+  resolved, operator-approved next after 0493). Observed live
   twice: once at the most benign possible site (below), once at the most
   expensive (a review-fix child whose typed respond had ALREADY captured
   `ok: true` — see §Fix, *Second observation*).
@@ -368,3 +369,98 @@ entry, not the version number, carries the bug id.
 - Bug 0482 (the other host-mechanism-vs-drive seam: auto-compaction).
 - `@narumitw/pi-retry` `src/retry.ts` (`armStallWatchdog`, the
   `message_end` rewrite, `DEFAULT_STALL_TIMEOUT_MS = 90_000`).
+
+## Fix (unreleased)
+
+The version bump and CHANGELOG entry land at the separate release step; the
+`### Version / CHANGELOG` plan above still applies there.
+
+- What shipped (keyed to §Fix *Per-component changes*):
+  - `src/extension/host-recovery.ts` (new, item 1) —
+    `classifyHostRecoverySettle` (`recovering` / `recovered` / `cancel`)
+    over pi-ai `isRetryableAssistantError`; `recovered` requires a
+    normal-boundary final assistant (`PROMPT_MODE_NORMAL_STOP_REASONS`, now
+    exported from `src/runtime/prompt-transport-mapping.ts`);
+    `PROMPT_MODE_HOST_RECOVERY_RIDE_BOUND = 3`,
+    `PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT`.
+  - `src/extension/live-prompt-query-driver.ts` (item 2) — the per-turn
+    `ctx.signal` forward is a deferred recorder; the send + polls run as a
+    bounded attempt loop inside one active-set window and one governor
+    budget; settle classification drives recovered (fall through) /
+    recovering (captured respond wins, else ride with the informational
+    note and the continuation send, else loud `Err(transport)` at the
+    bound) / cancel (forward the recorded reason, CNCL-4). The pre-first-
+    token grace, and every lifecycle-bound expiry with a recorded abort
+    (end-poll, `waitForIdle` race, settle grace), resolve `cancel` through
+    `#recordLifecycleExpiry`. The post-settle `agent_end` synthesis is gated
+    by the same classification. The captured-respond precedence is a
+    per-drive flag set only on the recovering-with-capture exit, read by
+    both `nextFreePhaseTurn` and `#driveRestartedRepairPhase`.
+  - `src/runtime/conversation-drive.ts` (item 3) — `extractTrailingTurnText`
+    skips `stopReason: "error"` assistant entries.
+  - `src/extension/sdk-inventory.ts` — `isRetryableAssistantError`
+    peer-named-import row (inventory-closure gate).
+  - Comment-only: `src/extension/production-theta-producer.ts`,
+    `src/extension/production-producer-deps.ts` (per-turn forward is now
+    deferred), `tests/b0288-…`, `tests/b0413-…` (citations),
+    `tests/live/harness.ts` (second user of `extraExtensionPaths` /
+    `settingsManager`).
+  - Spec: `cancellation.md` slash-command forwarding bullet
+    (settle-classified); `conversation-drive.md` new PIC-78, PIC-70 scoped to
+    an observed `thetaAbort`, PIC-53 join exclusion, typed-query bullet
+    exception for the bounded ride continuation; `version-bump-step2.md`
+    item (av) + preamble ranges to (av); `query/query-tool-loop.md` QRY-14
+    sentence; `runtime-event-channel.md` informational-note list (ten notes,
+    ride note added); `docs/plan_topics/coverage-matrix.md` PIC-78 row.
+- Tests that lock it:
+  - `tests/b0483-host-recovery-ride.test.ts` — 16 cells: the eight §Witness
+    cells (3 and 7 split a/b) plus (9)/(10) captured respond does not pre-empt
+    a non-abort error-stop / `length` probe, (11) respond-repair restarted
+    phase keeps a captured payload across a recovery abort, (12)/(13)
+    recorded-abort lifecycle expiries resolve `cancel`, (14) `length` retry
+    is not `recovered`. At HEAD: 8 red (1, 2, 4, 5, 7a, 7b, 8, 11) with the
+    bug symptom (`Err(cancelled)` / `"partial\nfull"`), 8 green regression
+    pins; fixed tree 16/16.
+  - `tests/live/b0483-host-recovery-live.test.ts` +
+    `tests/live/fixtures/b0483-watchdog-mimic-extension.ts` — H8a, cell A
+    (`retry.enabled` off, idle-recovery arm: one continuation, one `ride 1/3`
+    note) and cell B (`retry.enabled` on, 0.80.10 in-run arm: zero
+    continuations, zero ride notes; fails loudly on a ≥ 0.87 host). At HEAD
+    both red with `systemNotes=["theta /b0483rideidle cancelled"]` /
+    `["theta /b0483rideinrun cancelled"]`; fixed tree 2/2 green.
+- Gates: parse gate `Tests 58 passed (58)`; `npm run typecheck` exit 0;
+  `npm run lint` exit 0; `npm test` `Test Files 713 passed (713)`,
+  `Tests 11988 passed (11988)`; live b0483 2/2, plus regression live runs
+  green (`live-production-acceptance` prompt-mode turn / schema-typed
+  @-query / subagent-mode theta / typed invoke; `typed-query-wire-shapes`,
+  `live-session-control`, `b0480live-…`, `b0481live-…`,
+  `off-session-overflow-classification`).
+- Review: 2 rounds. Round 1 (deep): 13 findings — captured-respond
+  precedence unscoped (fidelity), repair-phase capture discarded
+  (correctness), recorded-abort lifecycle expiries minted transport `Err`
+  (fidelity), `recovered` accepted non-normal stop reasons (fidelity), spec
+  structure/accuracy (PIC-53 bullet split, informational-note list, (av)
+  ranges, retry-predicate wording, PIC-78 vs code), comment and witness
+  gaps, a `globalThis` record in the live fixture. All fixed. Round 2
+  (fast): clean.
+- Verification: VERIFIED — witnesses red on a HEAD scratch copy and green
+  on the fixed tree (unit and live); full suite green; live end-to-end and
+  regression live runs green; lint, typecheck, parse gate green.
+- Residuals:
+  1. pi ≤ 0.86: an ESC landing during pi's own in-run retry run is not
+     observed (the recorder listens on the first run's signal; HEAD has the
+     same gap); after a recorded watchdog abort, a later ESC forwards the
+     watchdog's reason.
+  2. pi ≤ 0.86: an ESC during the retry backoff after a watchdog abort
+     settles on the tagged error-stop and rides — a direct consequence of
+     classifying by settle shape.
+  3. Continuation sends do not pass the bug-0288 pre-send idle gate (the
+     §Fix-accepted sub-second double-send race with an external re-kicker).
+  4. Real-child-process default-suite tests intermittently fail with
+     `subagent model pre-flight mismatch … (unresolved: no matching model)`
+     under full-suite load (reviewer and verifier runs; each file green in
+     isolation); unrelated to this change.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the §Fix *Out of scope* list stands
+  (upstream pi abort distinction, `fix-cluster-tree.theta` one-retry
+  mitigation retirement, bugs 0482/0485).

@@ -978,7 +978,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       readonly ctx: ExtensionCommandContext;
       readonly theta: ConversationBindInput["theta"];
       readonly signal: AbortSignal;
-      /** CANCEL-2: the per-invocation controller the live turn driver re-forwards `ctx.signal` into. */
+      /** CANCEL-2: the per-invocation controller the live turn driver forwards a driven turn's `ctx.signal` abort into, at that turn's settle once PIC-78 classifies it `cancel`. */
       readonly thetaAbort: AbortController;
       readonly readMessages: () => readonly Message[];
       /** Bug 0482: the chronological leaf path, for `thisTurnSettled`'s trailing-compaction check. */

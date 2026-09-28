@@ -404,6 +404,11 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     { id: "Model", kind: "peer-named-import" },
     { id: "Message", kind: "peer-named-import" },
     { id: "AssistantMessage", kind: "peer-named-import" },
+    // Bug 0483 (Fix item 1): the host-recovery settle classifier delegates to
+    // pi-ai's retryable-error classifier, the predicate the host's own
+    // `AgentSession._isRetryableError` delegates to after a context-overflow
+    // exclusion (retry.enabled / maxRetries gate the host's retry besides).
+    { id: "isRetryableAssistantError", kind: "peer-named-import" },
     { id: "UserMessage", kind: "peer-named-import" },
     { id: "ToolResultMessage", kind: "peer-named-import" },
     { id: "TextContent", kind: "peer-named-import" },

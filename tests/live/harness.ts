@@ -215,21 +215,25 @@ export async function bootShippedExtension(options: {
    * appended after `SHIPPED_EXTENSION_ENTRY` in `additionalExtensionPaths`.
    * Optional and additive: when absent the list is byte-identical to the
    * single-entry list every existing caller has always got, so no existing
-   * H8a cell changes behaviour. Its one use is the input class that is
-   * reachable only through a THIRD-PARTY extension's `pi.registerTool` —
-   * a host registry name that is not lowercase-first, which no built-in and
-   * no shipped theta tool can publish (bug 0108's live leg).
+   * H8a cell changes behaviour. Two callers use it: bug 0108's live leg, for
+   * the input class reachable only through a THIRD-PARTY extension's
+   * `pi.registerTool` — a host registry name that is not lowercase-first,
+   * which no built-in and no shipped theta tool can publish — and
+   * tests/live/b0483-host-recovery-live.test.ts, which loads a stall-watchdog
+   * mimic that aborts and rewrites a driven turn the way pi-retry does.
    */
   readonly extraExtensionPaths?: readonly string[];
   /**
    * A `SettingsManager` to pass through to `createAgentSession` in place of
    * the SDK's on-disk default (`SettingsManager.create(cwd, agentDir)`).
    * Optional and additive: absent leaves the call byte-identical to every
-   * existing caller (the `extraExtensionPaths` precedent above). Its one use
-   * is RFC 0011's `compact` live cell, which needs
+   * existing caller (the `extraExtensionPaths` precedent above). Two callers
+   * use it: RFC 0011's `compact` live cell, which needs
    * `SettingsManager.inMemory({ compaction: { keepRecentTokens: 1 } })` to
    * force a live compaction to have something to summarise (seam sheet §0
-   * C2(g), §9 "Harness change (exact)").
+   * C2(g), §9 "Harness change (exact)"), and
+   * tests/live/b0483-host-recovery-live.test.ts, which toggles
+   * `retry.enabled` to select the idle-recovery or in-run retry arm.
    */
   readonly settingsManager?: SettingsManager;
 }): Promise<LiveExtensionHandle> {

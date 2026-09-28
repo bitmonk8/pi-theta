@@ -1,0 +1,1022 @@
+// Bug 0483 — a host-recovery abort (pi-retry's stall watchdog `ctx.abort()` +
+// the retryable `message_end` rewrite) cancels the whole theta invocation
+// instead of riding through the host's retry of the driven turn.
+//
+// docs/bugs/0483-host-recovery-abort-cancels-theta-instead-of-riding-the-retry.md
+// (§Fix, settled 2026-09-28; §"Witnesses (red before → green after)" is this
+// file's specification, cells 1–8).
+//
+// Spec: pi-integration-contract/conversation-drive.md PIC-78 (Prompt-mode
+// host-recovery ride-through) — the attempt loop, the classifier, the ride
+// bound, and the typed-query captured-respond precedence this file witnesses.
+//
+// THE DEFECT. `LivePromptQueryModel.#driveUserVisibleTurn`
+// (src/extension/live-prompt-query-driver.ts) forwards the per-run
+// `ctx.signal` into `thetaAbort` the moment it aborts
+// (`forwardSlashCommandCancel`, src/runtime/cancellation-core.ts) and, after
+// the settle poll, synthesises a cancel whenever `ctx.signal.aborted` is still
+// observable (`abortForAgentEnd`). Both fire before — or regardless of — the
+// one observable that distinguishes a host recovery from a user ESC: the
+// settled trailing assistant. A recovery settles `stopReason: "error"` with an
+// errorMessage pi-ai's `isRetryableAssistantError` accepts; a cancel settles
+// `"aborted"` (or with no assistant at all). The §Fix defers the decision to
+// turn-settle time and rides a recovery settle instead of cancelling.
+// Independently, `extractTrailingTurnText` (src/runtime/conversation-drive.ts)
+// joins EVERY assistant message of the trailing turn, so the error-stop residue
+// pi's in-run retry keeps in session history contaminates the PIC-53 value.
+//
+// CELLS (verdict at HEAD a2b75277 in brackets):
+//   1. idle-recovery ride (pi ≥ 0.87 shape) → one continuation send,
+//      Ok(<continuation text only>)                                  [RED]
+//   2. in-run ride (pi ≤ 0.86 shape) → Ok(<retried text only>), zero
+//      continuation sends                                            [RED]
+//   3. user ESC preserved (aborted settle; pre-first-token)          [GREEN, pin]
+//   4. ride bound 3 → Err(transport) carrying the tagged errorMessage [RED]
+//   5. answer in hand: typed query, captured respond payload survives
+//      a host-recovery abort → Ok(<captured payload>)                [RED]
+//   6. clean settle with NO retry residue → Err(cancelled)           [GREEN, pin]
+//   7. PIC-53 exclusion `[user, error asst("partial"), stop asst("full")]`
+//      → Ok("full")                                                  [RED]
+//   8. agent_end gating: post-settle aborted ctx.signal + tagged settle
+//      → no synthesised agent_end cancel                             [RED]
+//   9. captured respond + non-retryable error-stop, no abort →
+//      Err(transport) (the capture pre-empts the probe only on a
+//      host-recovery settle)                                    [GREEN, pin]
+//  10. captured respond + "length", no abort → Err(context_overflow) [GREEN, pin]
+//  11. respond-repair restarted phase: capture, then host-recovery
+//      abort → Ok(<captured payload>), no continuation            [RED]
+//  12. ESC + a run that never goes idle → the end-poll expiry
+//      resolves Err(cancelled), recorded reason                  [GREEN, pin]
+//  13. ESC + aborted settle, waitForIdle() never resolves → the
+//      race expiry resolves Err(cancelled), recorded reason      [GREEN, pin]
+//  14. recorded abort + tagged residue + retried "length" →
+//      Err(cancelled) ("recovered" needs a normal boundary)      [GREEN, pin]
+//
+// Cells 9, 10, 12, 13 and 14 are green at HEAD only because HEAD forwards
+// the abort at signal time or has no ride path; they pin the deferred
+// path's dispositions for these shapes.
+//
+// HARNESS. The bug-0288/0319/0482 scripted-session pattern: drive the REAL
+// producer (`createProductionProducerDeps` → `bindPromptConversation` →
+// `executeBody`) so the REAL `LivePromptQueryModel` is constructed. The
+// injected `Clock`'s `setTimeout` advances the session double by exactly one
+// step and fires synchronously (b0482's clock), so one drive poll == one
+// scripted host step. The double models the host facts the §Fix measured:
+//   - `ctx.signal` is the ACTIVE run's per-run signal (pi-agent-core
+//     `Agent.signal` → `activeRun?.abortController.signal`), `undefined` once
+//     the run has settled;
+//   - an `abort` step aborts that per-run signal the way both a
+//     stall-watchdog `ctx.abort()` and user ESC do (no marker distinguishes
+//     them at signal time);
+//   - a `retryRun` step is pi ≤ 0.86's in-run core retry (`_prepareRetry` →
+//     `agent.continue()`): a FRESH run controller, the session never reading
+//     idle, the failed assistant kept in session history;
+//   - an `idle` step settles the run (pi ≥ 0.87 bails its post-run retry after
+//     an extension abort, so the tagged error-stop settles idle);
+//   - a `hang` step keeps the run active on every later poll (a host that
+//     never settles the run); the `waitForIdle: "never"` drive option
+//     models a `waitForIdle()` that never resolves.
+// `ctx.abort()` (the bug-0319 reverse bridge target) is spied.
+//
+// TIER: unit, offline, deterministic, provider-free. The seams under test are
+// the driver's cancellation forwarding and the PIC-53 extraction; both are
+// reachable with a scripted `SessionManager` double, so no integration or live
+// tier is needed here (the live twin is tests/live/b0483-host-recovery-live.test.ts).
+
+// The complete() queue mock must be imported before any production module
+// (cell 5 pins ZERO off-session respond dispatches; an empty queue throws).
+import { scripted } from "./helpers/scripted-complete-queue-mock";
+import { describe, expect, it } from "vitest";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+  ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
+import { isRetryableAssistantError, type AssistantMessage, type Message } from "@earendil-works/pi-ai";
+import {
+  PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT,
+  PROMPT_MODE_HOST_RECOVERY_RIDE_BOUND,
+} from "../src/extension/host-recovery";
+import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
+import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
+import { TURN_SETTLE_POLL_BOUND } from "../src/extension/turn-settlement";
+import { extractTrailingTurnText } from "../src/runtime/conversation-drive";
+import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
+import type { RuntimeRoot } from "../src/runtime-root";
+import {
+  ajv,
+  ANTHROPIC_MODEL,
+  appendAssistantEntry,
+  assistantReply,
+  appendMessageEntry,
+  appendUserEntry,
+  executeResultText,
+  expectErrOfKind,
+  parse,
+  registryDouble,
+  type SessionEntryDouble,
+  sessionBranch,
+} from "./helpers/scripted-live-session-harness";
+
+// --- The host-recovery settle shape -----------------------------------------
+
+/**
+ * The errorMessage the pi-retry fork writes on the aborted turn's
+ * `message_end` (bug 0483 §Observed / §Second observation). pi's own retry
+ * classifier (`isRetryableAssistantError`, pi-ai) accepts it via
+ * "provider returned error" — asserted as a premise below so a pi-ai
+ * classifier change reds loudly here instead of silently turning every
+ * recovery cell into a cancel cell.
+ */
+const TAGGED_RETRYABLE_ERROR =
+  "Request aborted\n\n[stall-watchdog-retry] provider returned error; " +
+  "treating stalled provider stream as retryable.";
+
+/** The reason a stall-watchdog `ctx.abort()` leaves on the per-run signal. */
+function watchdogAbortReason(): Error {
+  return new Error("stall watchdog aborted the provider stream");
+}
+
+/** The reason a user ESC leaves on the per-run signal (CNCL-4 identity subject). */
+function escAbortReason(): Error {
+  return new Error("user pressed ESC");
+}
+
+// --- The scripted host ------------------------------------------------------
+
+/** One host step, applied on one drive poll (one `Clock.setTimeout`). */
+type HostStep =
+  /** Abort the ACTIVE run's per-run signal (watchdog `ctx.abort()` or user ESC). */
+  | { readonly kind: "abort"; readonly reason: Error }
+  /** Commit an assistant message entry (the post-extension `message_end` shape). */
+  | {
+      readonly kind: "assistant";
+      readonly text?: string;
+      readonly stopReason: string;
+      readonly errorMessage?: string;
+    }
+  /** The model calls the typed query's respond tool: execute + toolUse/toolResult entries. */
+  | { readonly kind: "respond"; readonly payload: unknown }
+  /** pi ≤ 0.86 in-run core retry: a fresh run controller; the session stays non-idle. */
+  | { readonly kind: "retryRun" }
+  /** The run settles: the session reads idle. */
+  | { readonly kind: "idle" }
+  /** The run never settles: every later poll finds it still active (this step is never consumed). */
+  | { readonly kind: "hang" };
+
+/** One driven turn's host script, consumed by one `pi.sendUserMessage`. */
+interface TurnScript {
+  readonly steps: readonly HostStep[];
+  /**
+   * How `ctx.signal` exposes this turn's per-run signal. `"live"` (default) is
+   * pi-faithful: the active run's signal while it runs, `undefined` once it
+   * settles. `"post-settle"` isolates the driver's post-settle `agent_end`
+   * synthesis site (cell 8): the signal is `undefined` while the run is active
+   * — so the per-turn forward has nothing to attach to — and the settled
+   * run's (aborted) signal stays observable after it goes idle, until the
+   * next send.
+   */
+  readonly signalExposure?: "live" | "post-settle";
+}
+
+interface ActiveRun {
+  controller: AbortController;
+  readonly script: TurnScript;
+  index: number;
+}
+
+class HostRecoverySession {
+  readonly entries: SessionEntryDouble[] = [];
+  /** Every `pi.sendUserMessage` text, in order — the continuation-send observable. */
+  readonly sends: string[] = [];
+  /** Total scripted host steps advanced (one per drive poll). */
+  ticks = 0;
+  /** `ticks` at the moment the (last) `abort` step fired. */
+  abortTick: number | undefined = undefined;
+  /** Calls to the unwrapped `ctx.abort()` (the bug-0319 reverse bridge). */
+  hostAbortCalls = 0;
+  /** Sends issued while the host was streaming (rejected, no entry). */
+  rejectedSends = 0;
+  /** Executes the registered respond tool (wired by the harness once `pi` exists). */
+  respondExecutor: ((payload: unknown) => Promise<unknown>) | undefined = undefined;
+  /** Every respond-tool `execute` result promise, in order. */
+  readonly respondResults: Promise<unknown>[] = [];
+
+  readonly #scripts: TurnScript[];
+  #run: ActiveRun | undefined = undefined;
+  #postSettleSignal: AbortSignal | undefined = undefined;
+
+  constructor(scripts: readonly TurnScript[]) {
+    this.#scripts = [...scripts];
+  }
+
+  sendUserMessage(text: string): void {
+    this.sends.push(text);
+    if (this.#run !== undefined) {
+      // The host rejects a send while streaming (asynchronously, into its
+      // extension-error channel): no entry, no run.
+      this.rejectedSends += 1;
+      return;
+    }
+    const script = this.#scripts.shift();
+    if (script === undefined) {
+      // No silent skipping: a drive that issues more turns than the cell
+      // scripted fails loudly naming the unmet precondition.
+      throw new Error(
+        `b0483 scripted host: send #${this.sends.length} (${JSON.stringify(text)}) had NO scripted turn`,
+      );
+    }
+    appendUserEntry(this.entries, text);
+    this.#postSettleSignal = undefined;
+    this.#run = { controller: new AbortController(), script, index: 0 };
+  }
+
+  isIdle(): boolean {
+    return this.#run === undefined;
+  }
+
+  /** `ctx.signal` — the per-run signal (pi-agent-core `Agent.signal`). */
+  get signal(): AbortSignal | undefined {
+    const run = this.#run;
+    if (run !== undefined) {
+      return (run.script.signalExposure ?? "live") === "live" ? run.controller.signal : undefined;
+    }
+    return this.#postSettleSignal;
+  }
+
+  /** The unwrapped, Pi-supplied `ctx.abort()`: aborts the active run's signal. */
+  hostAbort(): void {
+    this.hostAbortCalls += 1;
+    this.#run?.controller.abort();
+  }
+
+  /** Advance the active run by exactly one scripted host step (one drive poll). */
+  tick(): void {
+    this.ticks += 1;
+    const run = this.#run;
+    if (run === undefined) {
+      return;
+    }
+    const step = run.script.steps[run.index];
+    if (step === undefined) {
+      throw new Error(
+        "b0483 scripted host: a turn script ran out of steps without an `idle` step (fixture defect)",
+      );
+    }
+    if (step.kind === "hang") {
+      return;
+    }
+    run.index += 1;
+    switch (step.kind) {
+      case "abort":
+        this.abortTick = this.ticks;
+        run.controller.abort(step.reason);
+        return;
+      case "assistant":
+        appendAssistantEntry(this.entries, step.text, step.stopReason, step.errorMessage);
+        return;
+      case "respond": {
+        const executor = this.respondExecutor;
+        if (executor === undefined) {
+          throw new Error("b0483 scripted host: a `respond` step ran with no respond executor wired");
+        }
+        // The respond tool's execute captures synchronously (the producer's
+        // `#executeRespondTool` has no await before the capture); the entries
+        // mirror what pi commits around a tool round.
+        this.respondResults.push(executor(step.payload));
+        appendMessageEntry(this.entries, {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "tc-respond", name: "respond", arguments: step.payload }],
+          api: "anthropic-messages",
+          provider: "anthropic",
+          model: "m1",
+          stopReason: "toolUse",
+          timestamp: 0,
+        });
+        appendMessageEntry(this.entries, {
+          role: "toolResult",
+          toolCallId: "tc-respond",
+          toolName: "respond",
+          content: [{ type: "text", text: "final answer recorded" }],
+          isError: false,
+          timestamp: 0,
+        });
+        return;
+      }
+      case "retryRun":
+        run.controller = new AbortController();
+        return;
+      case "idle":
+        if ((run.script.signalExposure ?? "live") === "post-settle") {
+          this.#postSettleSignal = run.controller.signal;
+        }
+        this.#run = undefined;
+        return;
+    }
+  }
+}
+
+// --- Harness ------------------------------------------------------------------
+
+function rootDouble(session: HostRecoverySession): RuntimeRoot {
+  return {
+    checkpoint: { before: (): Promise<void> => Promise.resolve() },
+    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
+    clock: {
+      now: (): number => 0,
+      wallNow: (): number => 0,
+      setTimeout: (fn: () => void): unknown => {
+        session.tick();
+        fn();
+        return 0;
+      },
+      clearTimeout: (): void => {},
+    },
+    schemaValidator: ajv(),
+  } as unknown as RuntimeRoot;
+}
+
+interface PiRecord {
+  readonly api: ExtensionAPI;
+  readonly registeredTools: ToolDefinition[];
+  /** Every `theta-system-note` message object as sent, in emission order. */
+  readonly notes: Record<string, unknown>[];
+}
+
+function piDouble(session: HostRecoverySession): PiRecord {
+  const registeredTools: ToolDefinition[] = [];
+  const notes: Record<string, unknown>[] = [];
+  const api = {
+    sendUserMessage: (content: string): void => session.sendUserMessage(content),
+    getActiveTools: (): string[] => [],
+    setActiveTools: (): void => {},
+    registerTool: (tool: ToolDefinition): void => {
+      registeredTools.push(tool);
+    },
+    on: (): void => {},
+    sendMessage: (message: Record<string, unknown>): void => {
+      if (message["customType"] === "theta-system-note") {
+        notes.push({ ...message });
+      }
+    },
+  } as unknown as ExtensionAPI;
+  return { api, registeredTools, notes };
+}
+
+/** How the ctx double's `waitForIdle()` behaves: resolved at once (pi-faithful for a settled run) or never. */
+type WaitForIdleShape = "resolved" | "never";
+
+function ctxDouble(session: HostRecoverySession, waitForIdle: WaitForIdleShape): ExtensionCommandContext {
+  return {
+    model: ANTHROPIC_MODEL,
+    get signal(): AbortSignal | undefined {
+      return session.signal;
+    },
+    abort: (): void => session.hostAbort(),
+    isIdle: (): boolean => session.isIdle(),
+    waitForIdle: (): Promise<void> =>
+      waitForIdle === "resolved" ? Promise.resolve() : new Promise<void>(() => {}),
+    sessionManager: {
+      getEntries: (): readonly SessionEntryDouble[] => [...session.entries],
+      getLeafId: (): undefined => undefined,
+      getBranch: (): readonly SessionEntryDouble[] => sessionBranch(session.entries),
+    },
+  } as unknown as ExtensionCommandContext;
+}
+
+interface DriveOutput {
+  readonly execution: BodyExecution;
+  readonly session: HostRecoverySession;
+  readonly pi: PiRecord;
+  readonly thetaAbort: AbortController;
+}
+
+interface DriveOptions {
+  readonly waitForIdle?: WaitForIdleShape;
+  /** Off-session forced respond replies (the mocked `complete()` queue); empty = none expected. */
+  readonly completeQueue?: (typeof scripted)["queue"];
+}
+
+async function driveLiveTheta(
+  source: string,
+  scripts: readonly TurnScript[],
+  options: DriveOptions = {},
+): Promise<DriveOutput> {
+  scripted.calls = [];
+  scripted.queue = [...(options.completeQueue ?? [])];
+  const doc = parse(source);
+  const theta: ThetaCompositionInput = {
+    slashName: "probe",
+    sourcePath: "/theta/probe.theta",
+    frontmatter: doc.frontmatter!,
+    body: doc.body,
+  };
+  const session = new HostRecoverySession(scripts);
+  const pi = piDouble(session);
+  session.respondExecutor = (payload: unknown): Promise<unknown> => {
+    const tool = pi.registeredTools.find((t) => t.name.startsWith("__theta_respond_"));
+    if (tool === undefined) {
+      throw new Error("b0483 harness: no respond tool was registered before the scripted respond call");
+    }
+    return (
+      tool.execute as unknown as (id: string, params: unknown, signal: AbortSignal | undefined) => Promise<unknown>
+    )("tc-respond", payload, new AbortController().signal);
+  };
+  const deps = createProductionProducerDeps({
+    pi: pi.api,
+    root: rootDouble(session),
+    modelRegistry: registryDouble(),
+  });
+  const thetaAbort = new AbortController();
+  const binding = deps.bindPromptConversation({
+    theta,
+    args: "",
+    ctx: ctxDouble(session, options.waitForIdle ?? "resolved"),
+    thetaAbort,
+  });
+  // PIC-58: the subagent-root child drives this same prompt-user-session seam,
+  // so these cells cover the child twin (bug 0483 §Fix (c)).
+  expect(
+    binding.drivenAgainst,
+    "the harness must bind the LIVE prompt-mode drive (the user session)",
+  ).toBe("prompt-user-session");
+  const execution = await executeBody(theta.body, binding.executeDeps);
+  return { execution, session, pi, thetaAbort };
+}
+
+/** A one-line rendering of a drive's disposition for assertion messages. */
+function disposition(out: DriveOutput): string {
+  const reason: unknown = out.thetaAbort.signal.reason;
+  return (
+    `outcome=${out.execution.outcome}, value=${JSON.stringify(out.execution.result.value)}, ` +
+    `error=${JSON.stringify(out.execution.error)}, thetaAbort.aborted=${out.thetaAbort.signal.aborted}` +
+    (out.thetaAbort.signal.aborted
+      ? ` (reason: ${reason instanceof Error ? reason.message : String(reason)})`
+      : "") +
+    `, sends=${JSON.stringify(out.session.sends)}`
+  );
+}
+
+// --- The driven thetas ------------------------------------------------------
+
+const QUERY_TEXT = "Ping";
+
+const ONE_QUERY_THETA = ["---", "mode: prompt", "---", `let v = @\`${QUERY_TEXT}\`?`, "v", ""].join("\n");
+
+const REPAIR_TYPED_QUERY_THETA = [
+  "---",
+  "mode: prompt",
+  "respond_repair:",
+  "  attempts: 1",
+  "---",
+  "schema Verdict {",
+  "  score: number",
+  "}",
+  `let v: Verdict = @\`${QUERY_TEXT}\`?`,
+  "v",
+  "",
+].join("\n");
+
+const TYPED_QUERY_THETA = [
+  "---",
+  "mode: prompt",
+  "---",
+  "schema Verdict {",
+  "  score: number",
+  "}",
+  `let v: Verdict = @\`${QUERY_TEXT}\`?`,
+  "v",
+  "",
+].join("\n");
+
+// --- Scripted turn shapes ---------------------------------------------------
+
+/** pi ≥ 0.87: watchdog abort, rewritten tagged error-stop, the run settles idle. */
+function idleRecoveryTurn(partial = "partial reply before the stall"): TurnScript {
+  return {
+    steps: [
+      { kind: "abort", reason: watchdogAbortReason() },
+      { kind: "assistant", stopReason: "error", text: partial, errorMessage: TAGGED_RETRYABLE_ERROR },
+      { kind: "idle" },
+    ],
+  };
+}
+
+/** A normal turn: the reply commits on a normal boundary and the run settles. */
+function cleanTurn(text: string): TurnScript {
+  return { steps: [{ kind: "assistant", stopReason: "stop", text }, { kind: "idle" }] };
+}
+
+/** The PIC-78 ride note content for ride `n` of the `/probe` harness theta, byte-exact. */
+function rideNoteContent(n: number): string {
+  return (
+    "theta /probe: driven turn aborted by a host stall recovery and marked retryable; " +
+    `continuing the turn (ride ${n}/${PROMPT_MODE_HOST_RECOVERY_RIDE_BOUND})`
+  );
+}
+
+/**
+ * Assert the note channel carried exactly `count` ride notes (rides 1..count,
+ * in order) and nothing else: each the exact template, `display: true`, and
+ * NO `details` key (bug 0401: an informational note omits it).
+ */
+function expectRideNotes(notes: readonly Record<string, unknown>[], count: number): void {
+  const expected = Array.from({ length: count }, (_unused, i) => ({
+    customType: "theta-system-note",
+    content: rideNoteContent(i + 1),
+    display: true,
+  }));
+  expect(notes, `exactly ${count} ride note(s), in ride order; observed ${JSON.stringify(notes)}`).toEqual(expected);
+  for (const note of notes) {
+    expect("details" in note, `bug 0401: the ride note carries NO details key; observed ${JSON.stringify(note)}`).toBe(
+      false,
+    );
+  }
+}
+
+/** An errorMessage the host's retry classifier rejects (no retryable pattern). */
+const NON_RETRYABLE_ERROR = "invalid_request_error: messages.0.content: field required";
+
+/** The mocked `complete()` reply: the forced respond turn calls the respond tool with `payload`. */
+function forcedRespondReply(payload: unknown): (typeof scripted)["queue"][number] {
+  return (call) => {
+    const tools = (call.context as { readonly tools?: ReadonlyArray<{ readonly name: string }> }).tools ?? [];
+    const respond = tools.find((tool) => tool.name.startsWith("__theta_respond_"));
+    if (respond === undefined) {
+      throw new Error("b0483 harness: the forced respond dispatch carried no respond tool");
+    }
+    return assistantReply({
+      stopReason: "toolUse",
+      toolCalls: [{ id: "tc-forced", name: respond.name, arguments: payload }],
+    });
+  };
+}
+
+/** Assert the premise that the fixture errorMessage is one the host would retry. */
+function expectTaggedMessageIsHostRetryable(): void {
+  const probe = {
+    role: "assistant",
+    content: [],
+    api: "anthropic-messages",
+    provider: "anthropic",
+    model: "m1",
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "error",
+    errorMessage: TAGGED_RETRYABLE_ERROR,
+    timestamp: 0,
+  } as unknown as AssistantMessage;
+  expect(
+    isRetryableAssistantError(probe),
+    "fixture premise: pi-ai's isRetryableAssistantError (the host's own retry classifier) must " +
+      "accept the tagged watchdog errorMessage — otherwise the recovery cells are not recovery shapes",
+  ).toBe(true);
+}
+
+// ===========================================================================
+
+describe("bug 0483 — a host-recovery abort must ride the host's retry, not cancel the theta", () => {
+  it("(1) idle-recovery ride (pi ≥ 0.87 shape): exactly ONE continuation send, Ok(<continuation text only>), thetaAbort never aborted — RED at HEAD: Err(cancelled)", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(ONE_QUERY_THETA, [
+      idleRecoveryTurn(),
+      cleanTurn("continued answer after recovery"),
+    ]);
+
+    expect(out.session.abortTick, "cell premise: the watchdog abort fired mid-turn").toBeDefined();
+    expect(
+      out.thetaAbort.signal.aborted,
+      `bug 0483: a mid-turn abort whose turn settles as a host-retryable error-stop is a HOST ` +
+        `RECOVERY — thetaAbort must never be aborted; observed ${disposition(out)}`,
+    ).toBe(false);
+    expect(
+      out.execution.outcome,
+      `bug 0483 §Fix: the idle-recovery arm re-drives the turn and the query settles Ok; ` +
+        `observed ${disposition(out)}`,
+    ).toBe("success");
+    expect(
+      out.session.sends.length,
+      `exactly ONE continuation send follows the original query send; sends=${JSON.stringify(out.session.sends)}`,
+    ).toBe(2);
+    expect(out.session.sends[0], "the first send is the rendered query").toBe(QUERY_TEXT);
+    expect(
+      out.session.sends[1],
+      "the second send is theta's fixed continuation prompt, not a re-send of the query",
+    ).toBe(PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT);
+    expect(out.session.rejectedSends, "no send landed on a streaming session").toBe(0);
+    expect(
+      out.execution.result.value,
+      "PIC-53: the value is the continuation turn's text only (the new user message re-anchors the trailing turn)",
+    ).toBe("continued answer after recovery");
+    expect(out.session.hostAbortCalls, "no theta cancellation → the reverse bridge never fires").toBe(0);
+    // The cancel / Err notes (SLSH-3/SLSH-4) are emitted by the composition
+    // root's top-level wrapper (`emitTopLevelErrNote`, reached through
+    // `composeThetaFixture.run`), which this harness bypasses by calling
+    // `executeBody` directly, so their absence here would prove nothing. The
+    // cancellation observables are `thetaAbort` and the outcome above; the note
+    // channel is asserted for what the driver itself emits: the ride note
+    // alone.
+    expectRideNotes(out.pi.notes, 1);
+  });
+
+  it("(2) in-run ride (pi ≤ 0.86 shape): the session stays non-idle through core retry → Ok(<retried text only>), ZERO continuation sends — RED at HEAD: Err(cancelled)", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(ONE_QUERY_THETA, [
+      {
+        steps: [
+          { kind: "abort", reason: watchdogAbortReason() },
+          {
+            kind: "assistant",
+            stopReason: "error",
+            text: "partial reply before the stall",
+            errorMessage: TAGGED_RETRYABLE_ERROR,
+          },
+          // `_prepareRetry` → `agent.continue()`: fresh run, never idle between.
+          { kind: "retryRun" },
+          { kind: "assistant", stopReason: "stop", text: "retried answer" },
+          { kind: "idle" },
+        ],
+      },
+    ]);
+
+    expect(out.session.abortTick, "cell premise: the watchdog abort fired mid-turn").toBeDefined();
+    expect(
+      out.thetaAbort.signal.aborted,
+      `bug 0483: the in-run core retry recovered the turn — thetaAbort must never be aborted; ` +
+        `observed ${disposition(out)}`,
+    ).toBe(false);
+    expect(
+      out.execution.outcome,
+      `bug 0483 §Fix ("recovered" arm): the settled turn carries retry residue and a normal final ` +
+        `assistant — the query settles Ok; observed ${disposition(out)}`,
+    ).toBe("success");
+    expect(
+      out.session.sends,
+      "ZERO continuation sends: pi's own in-run retry already re-ran the turn",
+    ).toEqual([QUERY_TEXT]);
+    expectRideNotes(out.pi.notes, 0);
+    expect(
+      out.execution.result.value,
+      "PIC-53 (amended): the retried assistant's text only — the error-stop residue is excluded",
+    ).toBe("retried answer");
+    expect(out.session.hostAbortCalls, "no theta cancellation → the reverse bridge never fires").toBe(0);
+  });
+
+  it("(3a) user ESC preserved: abort + trailing \"aborted\" settle → Err(cancelled), thetaAbort.reason IS the source reason (CNCL-4) — GREEN before and after", async () => {
+    const esc = escAbortReason();
+    const out = await driveLiveTheta(ONE_QUERY_THETA, [
+      {
+        steps: [
+          { kind: "abort", reason: esc },
+          { kind: "assistant", stopReason: "aborted", text: "partial" },
+          { kind: "idle" },
+        ],
+      },
+    ]);
+
+    expect(out.execution.outcome, `a user ESC cancels the theta; observed ${disposition(out)}`).toBe("cancel");
+    expect(out.thetaAbort.signal.aborted, "thetaAbort carries the cancellation").toBe(true);
+    expect(
+      out.thetaAbort.signal.reason,
+      "CNCL-4: the forwarded reason is the recorded source reason, by identity",
+    ).toBe(esc);
+    expect(out.session.sends, "a cancelled turn is never continued").toEqual([QUERY_TEXT]);
+  });
+
+  it("(3b) user ESC before the first token (no assistant at all) cancels within the grace, not after the full settle bound — GREEN before and after", async () => {
+    const esc = escAbortReason();
+    const out = await driveLiveTheta(ONE_QUERY_THETA, [
+      { steps: [{ kind: "abort", reason: esc }, { kind: "idle" }] },
+    ]);
+
+    expect(out.execution.outcome, `a pre-first-token ESC cancels; observed ${disposition(out)}`).toBe("cancel");
+    expect(out.thetaAbort.signal.reason, "CNCL-4: reason identity").toBe(esc);
+    expect(out.session.sends, "a cancelled turn is never continued").toEqual([QUERY_TEXT]);
+    expect(out.session.abortTick, "cell premise: the ESC abort fired").toBeDefined();
+    const ticksAfterAbort = out.session.ticks - out.session.abortTick!;
+    expect(
+      ticksAfterAbort,
+      `bug 0483 §Fix: with a recorded abort and an idle session whose slice never grows an ` +
+        `assistant, a short grace classifies cancel — the drive must not sit out the ` +
+        `${TURN_SETTLE_POLL_BOUND}-poll settle bound; observed ${ticksAfterAbort} polls after the abort`,
+    ).toBeLessThan(TURN_SETTLE_POLL_BOUND / 2);
+  });
+
+  it("(4) ride bound: a tagged settle on EVERY attempt → after 3 continuation rides, Err(transport) carrying the tagged errorMessage, never cancelled — RED at HEAD: Err(cancelled)", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(ONE_QUERY_THETA, [
+      idleRecoveryTurn("attempt 1 partial"),
+      idleRecoveryTurn("attempt 2 partial"),
+      idleRecoveryTurn("attempt 3 partial"),
+      idleRecoveryTurn("attempt 4 partial"),
+    ]);
+
+    expect(
+      out.thetaAbort.signal.aborted,
+      `bug 0483: a spent ride bound is a loud transport failure, never a cancellation; ` +
+        `observed ${disposition(out)}`,
+    ).toBe(false);
+    expect(
+      out.session.sends.length,
+      `the original send plus exactly PROMPT_MODE_HOST_RECOVERY_RIDE_BOUND (3) continuation sends; ` +
+        `sends=${JSON.stringify(out.session.sends)}`,
+    ).toBe(4);
+    const leaf = expectErrOfKind(out.execution, "transport");
+    expect(
+      leaf.message,
+      "PIC-51 maps the final tagged error-stop to Err(transport) carrying its errorMessage verbatim",
+    ).toBe(TAGGED_RETRYABLE_ERROR);
+    expect(
+      out.session.sends.slice(1),
+      "every ride sends the fixed continuation prompt",
+    ).toEqual(Array.from({ length: PROMPT_MODE_HOST_RECOVERY_RIDE_BOUND }, () => PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT));
+    expectRideNotes(out.pi.notes, PROMPT_MODE_HOST_RECOVERY_RIDE_BOUND);
+  });
+
+  it("(5) answer in hand: a typed query whose respond tool already captured a valid payload settles Ok(<payload>) on a host-recovery abort — no continuation, no off-session dispatch — RED at HEAD: Err(cancelled)", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(TYPED_QUERY_THETA, [
+      {
+        steps: [
+          { kind: "respond", payload: { score: 3 } },
+          // The post-tool-result continuation request stalls; the watchdog aborts.
+          { kind: "abort", reason: watchdogAbortReason() },
+          { kind: "assistant", stopReason: "error", errorMessage: TAGGED_RETRYABLE_ERROR },
+          { kind: "idle" },
+        ],
+      },
+    ]);
+
+    expect(out.session.respondResults.length, "cell premise: the model called the respond tool").toBe(1);
+    const respondResult = await out.session.respondResults[0]!;
+    expect(
+      executeResultText(respondResult),
+      `cell premise: the early respond call was VALID and captured (QRY-14); observed ${JSON.stringify(respondResult)}`,
+    ).toMatch(/recorded/i);
+    expect(
+      out.thetaAbort.signal.aborted,
+      `bug 0483 §"Decided sub-case": a host-recovery abort after a captured respond is not a ` +
+        `cancellation; observed ${disposition(out)}`,
+    ).toBe(false);
+    expect(
+      out.execution.outcome,
+      `bug 0483 §"Decided sub-case": the query settles on the captured payload; observed ${disposition(out)}`,
+    ).toBe("success");
+    expect(out.execution.result.value, "the captured respond payload is the typed value").toEqual({ score: 3 });
+    expect(out.session.sends, "no continuation: the answer is already in hand").toEqual([QUERY_TEXT]);
+    expect(scripted.calls.length, "zero off-session forced respond dispatches (QRY-14 early respond)").toBe(0);
+  });
+
+  it("(6) clean-settle disambiguation: a recorded abort whose turn settles on a normal boundary with NO retry residue → Err(cancelled) (ESC raced the natural end) — GREEN before and after", async () => {
+    const esc = escAbortReason();
+    const out = await driveLiveTheta(ONE_QUERY_THETA, [
+      {
+        steps: [
+          { kind: "abort", reason: esc },
+          { kind: "assistant", stopReason: "stop", text: "complete answer" },
+          { kind: "idle" },
+        ],
+      },
+    ]);
+
+    expect(
+      out.execution.outcome,
+      `a clean settle with no retry residue keeps today's cancellation; observed ${disposition(out)}`,
+    ).toBe("cancel");
+    expect(out.thetaAbort.signal.reason, "CNCL-4: reason identity").toBe(esc);
+    expect(out.session.sends, "a cancelled turn is never continued").toEqual([QUERY_TEXT]);
+  });
+
+  it("(7a) PIC-53 exclusion (extraction): `[user, error-stop asst(\"partial\"), stop asst(\"full\")]` → \"full\" — RED at HEAD: \"partial\\nfull\"", () => {
+    const messages = [
+      { role: "user", content: [{ type: "text", text: QUERY_TEXT }], timestamp: 0 },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "partial" }],
+        stopReason: "error",
+        errorMessage: TAGGED_RETRYABLE_ERROR,
+        timestamp: 0,
+      },
+      { role: "assistant", content: [{ type: "text", text: "full" }], stopReason: "stop", timestamp: 0 },
+    ] as unknown as readonly Message[];
+
+    expect(
+      extractTrailingTurnText(messages),
+      "bug 0483 §Fix item 3: extractTrailingTurnText skips `stopReason: \"error\"` assistant entries " +
+        "(retry residue pi keeps in session history is not answer text)",
+    ).toBe("full");
+  });
+
+  it("(7b) PIC-53 exclusion (driven, no abort — reachable today via core retry): the settled turn's value is the retried text only — RED at HEAD: Ok(\"partial\\nfull\")", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(ONE_QUERY_THETA, [
+      {
+        steps: [
+          { kind: "assistant", stopReason: "error", text: "partial", errorMessage: TAGGED_RETRYABLE_ERROR },
+          { kind: "retryRun" },
+          { kind: "assistant", stopReason: "stop", text: "full" },
+          { kind: "idle" },
+        ],
+      },
+    ]);
+
+    expect(out.session.abortTick, "cell premise: no abort is involved").toBeUndefined();
+    expect(out.execution.outcome, `the retried turn settles Ok; observed ${disposition(out)}`).toBe("success");
+    expect(
+      out.execution.result.value,
+      "bug 0483 §Fix item 3: the error-stop residue is excluded from the PIC-53 join",
+    ).toBe("full");
+    expect(out.session.sends, "core retry needs no theta continuation").toEqual([QUERY_TEXT]);
+  });
+
+  it("(8) agent_end gating: a post-settle aborted ctx.signal over a tagged host-retryable settle does NOT synthesise the agent_end cancel — RED at HEAD: Err(cancelled) with the synthesised reason", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(ONE_QUERY_THETA, [
+      {
+        // The per-turn forward sees no signal; only the post-settle
+        // `agent_end` synthesis site observes the aborted one.
+        signalExposure: "post-settle",
+        steps: [
+          { kind: "abort", reason: watchdogAbortReason() },
+          {
+            kind: "assistant",
+            stopReason: "error",
+            text: "partial reply before the stall",
+            errorMessage: TAGGED_RETRYABLE_ERROR,
+          },
+          { kind: "idle" },
+        ],
+      },
+      // Scripted in case the fixed driver rides this settle (a recovering
+      // classification); unconsumed otherwise.
+      cleanTurn("continued answer after recovery"),
+    ]);
+
+    expect(out.session.abortTick, "cell premise: the watchdog abort fired mid-turn").toBeDefined();
+    expect(
+      out.thetaAbort.signal.aborted,
+      `bug 0483 §Fix: the abortForAgentEnd synthesis is gated by the settle classification — ` +
+        `skipped for a "recovering" settle; observed ${disposition(out)}`,
+    ).toBe(false);
+    // The §Fix leaves one choice open for a settle whose abort only the
+    // post-settle site observed: ride it (Ok(<continuation text>)) or let
+    // PIC-51 map the tagged error-stop (Err(transport)). Either is a host
+    // recovery disposition; `cancelled` is not.
+    const e = out.execution;
+    const rode =
+      e.outcome === "success" &&
+      e.result.value === "continued answer after recovery" &&
+      out.session.sends.length === 2;
+    const transported =
+      e.outcome === "fail" &&
+      (e.error as { readonly kind?: unknown } | undefined)?.kind === "transport" &&
+      (e.error as { readonly message?: unknown } | undefined)?.message === TAGGED_RETRYABLE_ERROR &&
+      out.session.sends.length === 1;
+    expect(
+      rode || transported,
+      `a gated host-recovery settle resolves Ok(<continuation text>) after one ride or ` +
+        `Err(transport, <tagged errorMessage>) — never cancelled; observed ${disposition(out)}`,
+    ).toBe(true);
+  });
+  it("(9) captured respond + a NON-retryable error-stop, no abort: the PIC-51 probe still answers Err(transport) (the captured payload pre-empts the probe only on a host-recovery settle)", async () => {
+    const probe = { role: "assistant", stopReason: "error", errorMessage: NON_RETRYABLE_ERROR } as unknown as AssistantMessage;
+    expect(isRetryableAssistantError(probe), "fixture premise: the host would NOT retry this errorMessage").toBe(false);
+    const out = await driveLiveTheta(TYPED_QUERY_THETA, [
+      {
+        steps: [
+          { kind: "respond", payload: { score: 3 } },
+          { kind: "assistant", stopReason: "error", errorMessage: NON_RETRYABLE_ERROR },
+          { kind: "idle" },
+        ],
+      },
+    ]);
+
+    expect(out.session.respondResults.length, "cell premise: the model called the respond tool").toBe(1);
+    expect(out.session.abortTick, "cell premise: no abort is involved").toBeUndefined();
+    const leaf = expectErrOfKind(out.execution, "transport");
+    expect(leaf.message, "PIC-51 carries the trailing errorMessage verbatim").toBe(NON_RETRYABLE_ERROR);
+    expect(out.thetaAbort.signal.aborted, "a transport failure is not a cancellation").toBe(false);
+    expect(out.session.sends, "no continuation for a non-recovery settle").toEqual([QUERY_TEXT]);
+    expect(scripted.calls.length, "no off-session respond dispatch after a transport failure").toBe(0);
+    expectRideNotes(out.pi.notes, 0);
+  });
+
+  it("(10) captured respond + a \"length\" terminator, no abort: the PIC-51b probe still answers Err(context_overflow)", async () => {
+    const out = await driveLiveTheta(TYPED_QUERY_THETA, [
+      {
+        steps: [
+          { kind: "respond", payload: { score: 3 } },
+          { kind: "assistant", stopReason: "length", text: "truncated narration" },
+          { kind: "idle" },
+        ],
+      },
+    ]);
+
+    expect(out.session.respondResults.length, "cell premise: the model called the respond tool").toBe(1);
+    expect(out.session.abortTick, "cell premise: no abort is involved").toBeUndefined();
+    expectErrOfKind(out.execution, "context_overflow");
+    expect(out.thetaAbort.signal.aborted, "an overflow is not a cancellation").toBe(false);
+    expect(out.session.sends, "no continuation for a non-recovery settle").toEqual([QUERY_TEXT]);
+    expect(scripted.calls.length, "no off-session respond dispatch after a context overflow").toBe(0);
+  });
+
+  it("(11) respond-repair restarted phase: the restarted free phase captures a valid payload, then a host-recovery abort settles it tagged -> Ok(<captured payload>), no continuation, no fresh dispatch", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(
+      REPAIR_TYPED_QUERY_THETA,
+      [
+        cleanTurn("thinking done"),
+        {
+          steps: [
+            { kind: "respond", payload: { score: 3 } },
+            { kind: "abort", reason: watchdogAbortReason() },
+            { kind: "assistant", stopReason: "error", errorMessage: TAGGED_RETRYABLE_ERROR },
+            { kind: "idle" },
+          ],
+        },
+      ],
+      // The INITIAL forced respond turn returns an AJV-invalid payload, which
+      // opens respond-repair; the repair's restarted free phase is turn 2.
+      { completeQueue: [forcedRespondReply({ score: "not a number" })] },
+    );
+
+    expect(scripted.calls.length, "cell premise: exactly the initial forced respond dispatch ran").toBe(1);
+    expect(out.session.sends.length, `cell premise: the original send plus the repair opener; sends=${JSON.stringify(out.session.sends)}`).toBe(2);
+    expect(out.session.sends[0], "the first send is the rendered query").toBe(QUERY_TEXT);
+    expect(
+      out.session.sends[1],
+      "the second send is the repair follow-up, never the host-recovery continuation",
+    ).not.toBe(PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT);
+    expect(out.session.respondResults.length, "cell premise: the restarted phase called the respond tool").toBe(1);
+    expect(out.thetaAbort.signal.aborted, `a host recovery is not a cancellation; observed ${disposition(out)}`).toBe(false);
+    expect(
+      out.execution.outcome,
+      `bug 0483 (Decided sub-case) on the repair path: the captured payload resolves the attempt; observed ${disposition(out)}`,
+    ).toBe("success");
+    expect(out.execution.result.value, "the restarted phase's captured payload is the typed value").toEqual({ score: 3 });
+    expectRideNotes(out.pi.notes, 0);
+  });
+
+  it("(12) ESC over a run that never goes idle: the end-poll expiry resolves Err(cancelled) with the recorded reason, never a transport Err", async () => {
+    const esc = escAbortReason();
+    const out = await driveLiveTheta(ONE_QUERY_THETA, [{ steps: [{ kind: "abort", reason: esc }, { kind: "hang" }] }]);
+
+    expect(out.session.abortTick, "cell premise: the ESC abort fired").toBeDefined();
+    expect(out.execution.outcome, `a genuine ESC cancels; observed ${disposition(out)}`).toBe("cancel");
+    expect(out.thetaAbort.signal.reason, "CNCL-4: the recorded source reason, by identity").toBe(esc);
+    expect(out.session.sends, "a cancelled turn is never continued").toEqual([QUERY_TEXT]);
+    expect(out.session.hostAbortCalls, "the bug-0319 reverse bridge tears the stuck run down once").toBe(1);
+  });
+
+  it("(13) ESC + aborted settle whose waitForIdle() never resolves: the waitForIdle-race expiry resolves Err(cancelled) with the recorded reason, never a transport Err", async () => {
+    const esc = escAbortReason();
+    const out = await driveLiveTheta(
+      ONE_QUERY_THETA,
+      [
+        {
+          steps: [
+            { kind: "abort", reason: esc },
+            { kind: "assistant", stopReason: "aborted", text: "partial" },
+            { kind: "idle" },
+          ],
+        },
+      ],
+      { waitForIdle: "never" },
+    );
+
+    expect(out.execution.outcome, `a genuine ESC cancels; observed ${disposition(out)}`).toBe("cancel");
+    expect(out.thetaAbort.signal.reason, "CNCL-4: the recorded source reason, by identity").toBe(esc);
+    expect(out.session.sends, "a cancelled turn is never continued").toEqual([QUERY_TEXT]);
+  });
+
+  it("(14) recorded abort + tagged retry residue + a retried \"length\" terminator: not a normal-boundary settle, so not recovered -> Err(cancelled) with the recorded reason", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const abortReason = watchdogAbortReason();
+    const out = await driveLiveTheta(ONE_QUERY_THETA, [
+      {
+        steps: [
+          { kind: "abort", reason: abortReason },
+          { kind: "assistant", stopReason: "error", text: "partial", errorMessage: TAGGED_RETRYABLE_ERROR },
+          { kind: "retryRun" },
+          { kind: "assistant", stopReason: "length", text: "truncated retry" },
+          { kind: "idle" },
+        ],
+      },
+    ]);
+
+    expect(
+      out.execution.outcome,
+      `bug 0483: "recovered" requires a normal-boundary final assistant; a "length" terminator ` +
+        `with a recorded abort cancels; observed ${disposition(out)}`,
+    ).toBe("cancel");
+    expect(out.thetaAbort.signal.reason, "CNCL-4: the recorded source reason, by identity").toBe(abortReason);
+    expect(out.session.sends, "a cancelled turn is never continued").toEqual([QUERY_TEXT]);
+    expectRideNotes(out.pi.notes, 0);
+  });
+});
