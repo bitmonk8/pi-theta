@@ -278,62 +278,7 @@ function scanStringLiteral(cursor: ScannerCursor, sinks: ScannerSinks, file: str
         value += "\r";
         advance();
       } else if (e === "u") {
-        advance(); // the `u`
-        // `\u{XXXX}` — 1–6 hex digits between braces, a Unicode scalar
-        // value (lexical.md §"String literals"). Consume the whole
-        // bracketed (or braceless) digit run before judging the form, so
-        // no unconsumed digit ever re-enters the loop as string content.
-        let hex = "";
-        let braced = false;
-        let braceClosed = false;
-        if (text[cursor.i] === "{") {
-          braced = true;
-          advance(); // `{`
-          while (cursor.i < n && isHexDigit(text[cursor.i] ?? "")) {
-            hex += advance();
-          }
-          if (text[cursor.i] === "}") {
-            advance(); // `}`
-            braceClosed = true;
-          }
-        } else {
-          // Braceless `\uXXXX` has no in-form value to judge either, but
-          // the digit run still must not leak into `value` as content.
-          while (cursor.i < n && isHexDigit(text[cursor.i] ?? "")) {
-            hex += advance();
-          }
-        }
-        // A malformed FORM (missing `{`, `}`, zero digits, or more than
-        // six) has no in-form value to judge, so it draws
-        // `illegal-escape`, not `invalid-unicode-escape` — that code
-        // stays exactly on its registered out-of-range/surrogate value
-        // trigger and is computed only once the form itself is
-        // well-formed (bug 0412 §Fix).
-        const wellFormed =
-          braced && braceClosed && hex.length >= 1 && hex.length <= 6;
-        const cp = wellFormed ? parseInt(hex, 16) : NaN;
-        const isScalar =
-          wellFormed && cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff);
-        if (isScalar) {
-          value += String.fromCodePoint(cp);
-        } else if (wellFormed) {
-          diagnostics.push({
-            severity: "error",
-            code: "theta/parse/invalid-unicode-escape",
-            file,
-            range: { start: escStart, end: pos() },
-            message:
-              "invalid Unicode escape: value is not a Unicode scalar value",
-          });
-        } else {
-          diagnostics.push({
-            severity: "error",
-            code: "theta/parse/illegal-escape",
-            file,
-            range: { start: escStart, end: pos() },
-            message: "illegal escape sequence: \\u",
-          });
-        }
+        value += scanUnicodeEscape(cursor, sinks, file, escStart) ?? "";
       } else {
         diagnostics.push({
           severity: "error",
@@ -377,6 +322,80 @@ function scanStringLiteral(cursor: ScannerCursor, sinks: ScannerSinks, file: str
     value,
     range: { start, end: pos() },
   });
+}
+
+/**
+ * The `\u{XXXX}` arm of `scanStringLiteral`, entered with the cursor on the
+ * `u` of an escape whose backslash began at `escStart`. Returns the decoded
+ * scalar for the caller to append to the literal's `value`, or `undefined`
+ * after pushing `theta/parse/invalid-unicode-escape` (well-formed but not a
+ * Unicode scalar value) or `theta/parse/illegal-escape` (malformed form).
+ */
+function scanUnicodeEscape(
+  cursor: ScannerCursor,
+  sinks: ScannerSinks,
+  file: string,
+  escStart: Pos,
+): string | undefined {
+  const { text, n, pos, advance } = cursor;
+  const { diagnostics } = sinks;
+  advance(); // the `u`
+  // `\u{XXXX}` — 1–6 hex digits between braces, a Unicode scalar
+  // value (lexical.md §"String literals"). Consume the whole
+  // bracketed (or braceless) digit run before judging the form, so
+  // no unconsumed digit ever re-enters the loop as string content.
+  let hex = "";
+  let braced = false;
+  let braceClosed = false;
+  if (text[cursor.i] === "{") {
+    braced = true;
+    advance(); // `{`
+    while (cursor.i < n && isHexDigit(text[cursor.i] ?? "")) {
+      hex += advance();
+    }
+    if (text[cursor.i] === "}") {
+      advance(); // `}`
+      braceClosed = true;
+    }
+  } else {
+    // Braceless `\uXXXX` has no in-form value to judge either, but
+    // the digit run still must not leak into `value` as content.
+    while (cursor.i < n && isHexDigit(text[cursor.i] ?? "")) {
+      hex += advance();
+    }
+  }
+  // A malformed FORM (missing `{`, `}`, zero digits, or more than
+  // six) has no in-form value to judge, so it draws
+  // `illegal-escape`, not `invalid-unicode-escape` — that code
+  // stays exactly on its registered out-of-range/surrogate value
+  // trigger and is computed only once the form itself is
+  // well-formed (bug 0412 §Fix).
+  const wellFormed =
+    braced && braceClosed && hex.length >= 1 && hex.length <= 6;
+  const cp = wellFormed ? parseInt(hex, 16) : NaN;
+  const isScalar =
+    wellFormed && cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff);
+  if (isScalar) {
+    return String.fromCodePoint(cp);
+  } else if (wellFormed) {
+    diagnostics.push({
+      severity: "error",
+      code: "theta/parse/invalid-unicode-escape",
+      file,
+      range: { start: escStart, end: pos() },
+      message:
+        "invalid Unicode escape: value is not a Unicode scalar value",
+    });
+  } else {
+    diagnostics.push({
+      severity: "error",
+      code: "theta/parse/illegal-escape",
+      file,
+      range: { start: escStart, end: pos() },
+      message: "illegal escape sequence: \\u",
+    });
+  }
+  return undefined;
 }
 
 /** Scan a decimal literal, rejecting unsupported tails and out-of-range values. */
