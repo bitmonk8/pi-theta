@@ -727,3 +727,7 @@ string is unchanged.
 
 **Measured.** `npx vitest run tests/fn-param-alias-unfolded-at-gates.test.ts`
 at the current tree: 36 of 36 cells pass. Status unchanged (**fixed (0.72.0)**).
+
+### Discharge note — 2026-09-28 (GOV-15 sweep)
+
+The corpus-wide clause in §Fix (0.72.0) Gates above (no shipped `.theta` fixture disposition moved; the two `.thetalib` files declare no type-alias schema and neither `for`-iterates nor joins an aliased parameter) rested for its `.thetalib` half on a hand read: the committed-fixture gate of that day was blind to `.thetalib` (bug 0132). The standing discharge is tests/committed-fixture-parse-gate.test.ts (default suite; corpus = git ls-files *.theta *.thetalib since d13320b4, 0.95.0; cell: parses cleanly through lexTheta -> parseThetaDocument), pinned by AGENTS.md as the instrument for corpus-wide claims.

@@ -980,3 +980,7 @@ head upstream at the position it is written; it moves neither this report's
 
 **Measured.** `npx vitest run tests/inline-empty-object-type.test.ts` at the
 current tree: 46 of 46 cells pass. Status unchanged (**fixed (0.57.0)**).
+
+### Discharge note — 2026-09-28 (GOV-15 sweep)
+
+The corpus-wide clause in §Fix (0.57.0) above (no committed `.theta` / `.thetalib` and no file under docs/examples/ carries the shape, so the shipped-fixture parse gate never witnesses it) rested on a working-tree rg census, a one-off instrument predating the .thetalib widening of the committed-fixture gate. The standing discharge is tests/committed-fixture-parse-gate.test.ts (default suite; corpus = git ls-files *.theta *.thetalib since d13320b4, 0.95.0; cell: parses cleanly through lexTheta -> parseThetaDocument), pinned by AGENTS.md as the instrument for corpus-wide claims.

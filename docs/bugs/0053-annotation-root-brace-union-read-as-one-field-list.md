@@ -919,3 +919,7 @@ array-nesting canonical form and sharpens it — that array's two elements are
 distinct `$ref`s, so schema-subset.md `:104`'s lowering-order rule is
 distinguishable from a sorted recipe where the old symmetric `{anyOf:[{},{}]}`
 could not distinguish it.
+
+### Discharge note — 2026-09-28 (GOV-15 sweep)
+
+The corpus-wide clause in §Fix (0.58.0) above (no committed `.theta` / `.thetalib` fixture carries a brace-rooted union of object arms — verified by grep and by the green tests/committed-fixture-parse-gate.test.ts) was carried for its `.thetalib` half by the grep alone: the gate of that day was blind to `.thetalib` (bug 0132), so the one-off grep predates the widening. The standing discharge is tests/committed-fixture-parse-gate.test.ts (default suite; corpus = git ls-files *.theta *.thetalib since d13320b4, 0.95.0; cell: parses cleanly through lexTheta -> parseThetaDocument), pinned by AGENTS.md as the instrument for corpus-wide claims.

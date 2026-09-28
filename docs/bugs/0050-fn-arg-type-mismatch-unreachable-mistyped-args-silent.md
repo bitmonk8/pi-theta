@@ -752,3 +752,7 @@ report's to fix". **That clause is discharged for the FIELD half** by bug
   byte-unchanged. Argument arity (bug 0131, cell a1) and the imported-callee
   route (bug 0138, cell i1) are unmoved and keep their own reports and their own
   cells.
+
+### Discharge note — 2026-09-28 (GOV-15 sweep)
+
+The corpus-wide claim in §Fix (0.77.0) Gates above (committed-corpus sweep clean) rested on an unnamed one-off instrument predating the .thetalib widening of the committed-fixture gate. The standing discharge is tests/committed-fixture-parse-gate.test.ts (default suite; corpus = git ls-files *.theta *.thetalib since d13320b4, 0.95.0; cell: parses cleanly through lexTheta -> parseThetaDocument), pinned by AGENTS.md as the instrument for corpus-wide claims.

@@ -1041,3 +1041,7 @@ determined inside one parse.
   (`theta-document.ts` lines ≥2185, +19) is bug 0134's adjudicated do-not-fix
   class: disclosed, not chased, including in this document's own §Affected and
   §Provenance citations.
+
+### Discharge note — 2026-09-28 (GOV-15 sweep)
+
+The corpus-wide GOV-15 claim in §Fix (0.79.0) above ((c) GOV-15 — re-measured at this HEAD: git ls-files -> 34 files walked explicitly because open bug 0132 left tests/committed-fixture-parse-gate.test.ts blind to `.thetalib`; zero uppercase-first `fn` parameters; committed-corpus sweep clean) was a hand walk whose justification has since been retired: bug 0132 was fixed at d13320b4 (0.95.0), widening the gate to git ls-files *.theta *.thetalib. The standing discharge is tests/committed-fixture-parse-gate.test.ts (default suite; cell: parses cleanly through lexTheta -> parseThetaDocument), pinned by AGENTS.md as the instrument for corpus-wide claims.

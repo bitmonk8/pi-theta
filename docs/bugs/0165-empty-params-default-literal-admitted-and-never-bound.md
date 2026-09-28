@@ -1203,3 +1203,7 @@ unshifted by it; the file grew 741 → 767 lines.
   (`integer = -1x`) is bug 0175's, already filed. That an unbound declared param
   reads `null` in body scope is unchanged as a general rule — this fix removes
   the declaration that reached it, not the rule.
+
+### Discharge note — 2026-09-28 (GOV-15 sweep)
+
+The corpus-wide census claims in §Fix (0.92.0) above (corpus census re-run at this HEAD: 34 committed `.theta` / `.thetalib`, 17 declaring `params:`, exactly one committed default, no committed fixture in the affected class; plus the repo-wide sweep for the trigger shape) were hand instruments predating the .thetalib widening of the committed-fixture gate. The standing discharge is tests/committed-fixture-parse-gate.test.ts (default suite; corpus = git ls-files *.theta *.thetalib since d13320b4, 0.95.0; cell: parses cleanly through lexTheta -> parseThetaDocument), pinned by AGENTS.md as the instrument for corpus-wide claims.

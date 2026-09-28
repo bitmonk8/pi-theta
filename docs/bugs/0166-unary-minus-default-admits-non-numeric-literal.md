@@ -1300,3 +1300,7 @@ observable stated as an assertion rather than as a silence. Its
 error-severity `params:` diagnostic withholds the whole frontmatter object,
 the disposition this file's own `expectRefusedAsNonLiteral` helper already
 asserts for its own refusals. Groups A–D and F of that file are untouched.
+
+### Discharge note — 2026-09-28 (GOV-15 sweep)
+
+The corpus-wide census in §Fix (0.91.0) above (census re-run at HEAD `d2cc1fca` as the standing GOV-15 obligation: 34 committed `.theta` / `.thetalib` files, 17 declaring `params:`, exactly one committed default, zero `= -` defaults anywhere, no committed fixture in the newly-refused set) was a hand census predating the .thetalib widening of the committed-fixture gate. The standing discharge is tests/committed-fixture-parse-gate.test.ts (default suite; corpus = git ls-files *.theta *.thetalib since d13320b4, 0.95.0; cell: parses cleanly through lexTheta -> parseThetaDocument), pinned by AGENTS.md as the instrument for corpus-wide claims.

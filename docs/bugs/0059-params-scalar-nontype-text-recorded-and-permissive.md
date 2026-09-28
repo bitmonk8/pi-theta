@@ -1059,3 +1059,7 @@ witness re-pins that row independently in its group D, and states inline that
 those cells are what red if a default-side rule is ever placed ahead of this
 guard rather than behind it. This file was re-read, not moved: its
 `git hash-object` is unchanged from HEAD across the whole 0165 fix.
+
+### Discharge note — 2026-09-28 (GOV-15 sweep)
+
+The corpus-wide census claim in §Fix (0.86.0) above (34 committed `.theta` / `.thetalib` files, 17 with `params:`, zero in the refused class) was a hand census walked through the real load path, predating the .thetalib widening of the committed-fixture gate. The standing discharge is tests/committed-fixture-parse-gate.test.ts (default suite; corpus = git ls-files *.theta *.thetalib since d13320b4, 0.95.0; cell: parses cleanly through lexTheta -> parseThetaDocument), pinned by AGENTS.md as the instrument for corpus-wide claims.

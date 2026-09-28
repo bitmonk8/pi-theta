@@ -1301,3 +1301,7 @@ positions are immune because its recogniser declines a source carrying a
 bracket, or carrying both a brace and an angle bracket, before consulting the
 shared sink; repairing this row would move landed behaviour and belongs to
 whoever files it.
+
+### Discharge note — 2026-09-28 (GOV-15 sweep)
+
+The committed-corpus census in §Fix (0.87.0) above (re-derived at the fix baseline: 34 committed `.theta` / `.thetalib` files, zero alias/union declarations, every field type a well-formed `Type`, no committed fixture in either sub-class) was a hand census predating the .thetalib widening of the committed-fixture gate. The standing discharge is tests/committed-fixture-parse-gate.test.ts (default suite; corpus = git ls-files *.theta *.thetalib since d13320b4, 0.95.0; cell: parses cleanly through lexTheta -> parseThetaDocument), pinned by AGENTS.md as the instrument for corpus-wide claims.

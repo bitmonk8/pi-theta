@@ -987,3 +987,7 @@ the rendered prompt. This report's subject — the render transform keeping
 structural line — stays witnessed by the same cells; the header's probe table
 marks the four substituted rows and keeps its recorded measurements as the
 labelled historical probe.
+
+### Discharge note — 2026-09-28 (GOV-15 sweep)
+
+The corpus-wide claims in §Fix (0.61.0) above (every committed-corpus `Parameters:` block byte-identical; the census re-derived independently through the real front end — 34 files, 17 declaring `params:`, zero carrying an embedded break) were a hand census predating the .thetalib widening of the committed-fixture gate. The standing discharge is tests/committed-fixture-parse-gate.test.ts (default suite; corpus = git ls-files *.theta *.thetalib since d13320b4, 0.95.0; cell: parses cleanly through lexTheta -> parseThetaDocument), pinned by AGENTS.md as the instrument for corpus-wide claims.

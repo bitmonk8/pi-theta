@@ -1016,3 +1016,7 @@ byte-preserved and green. Bug 0274 wires the `reservedKeywords` sink at the
 captures, entirely outside this report's own sink; it does not touch this
 report's own emission sites or *Message* bytes. Every other assertion in
 `tests/reserved-keyword-type-position.test.ts` is byte-unmodified.
+
+### Discharge note — 2026-09-28 (GOV-15 sweep)
+
+The corpus-wide clause in §Fix (0.54.0) above (no committed `.theta` / `.thetalib` fixture writes a reserved keyword in a `Type` position — verified by an acceptance run, not inferred) rested on an H9a acceptance run, but the H9a harness loads only its own fixtures directory and never loads docs/examples, so that run could not range over the shipped corpus, and it predates the .thetalib widening of the committed-fixture gate. The standing discharge is tests/committed-fixture-parse-gate.test.ts (default suite; corpus = git ls-files *.theta *.thetalib since d13320b4, 0.95.0; cell: parses cleanly through lexTheta -> parseThetaDocument), pinned by AGENTS.md as the instrument for corpus-wide claims.

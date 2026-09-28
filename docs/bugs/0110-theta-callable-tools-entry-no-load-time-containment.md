@@ -1322,3 +1322,7 @@ report — the three escaping spellings, the decisive-cell construction, the
 on the `tools:` resolution path, the synchronous-`resolveCallableSet` constraint,
 the `parseCalleeTheta`-discards-diagnostics constraint, the registry-*Trigger*
 reading and the census — reproduced exactly at the fix baseline.
+
+### Discharge note — 2026-09-28 (GOV-15 sweep)
+
+The corpus-wide census in §Fix (0.66.0) above ((e) The census, re-measured at the fix baseline: git ls-files -> 34 committed files, zero `tools:` entries resolving outside their active roots, blast radius zero committed files) was a hand census predating the .thetalib widening of the committed-fixture gate. The standing discharge is tests/committed-fixture-parse-gate.test.ts (default suite; corpus = git ls-files *.theta *.thetalib since d13320b4, 0.95.0; cell: parses cleanly through lexTheta -> parseThetaDocument), pinned by AGENTS.md as the instrument for corpus-wide claims.
