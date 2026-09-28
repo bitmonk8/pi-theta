@@ -81,12 +81,17 @@ Judge, in order:
    spelling greps to zero live consumers (bug-doc history quoting the old
    text is fine); tests updated only as the issue or ruling names, none
    weakened; no file outside the cited sites touched.
-   For issues whose lens: is D10 the bar is: the re-pointed citation
-   resolves (open the target; the symbol/test exists and asserts the claimed
-   observable); the claim's wording is byte-identical unless the ruling
-   quoted new wording (then exactly it); no code or test file changed; the
-   citation-form gates still pass on the edited file; no other record
-   touched.
+   For issues whose lens: is D10 the bar is: for a decayed-pointer, the
+   re-pointed citation resolves (open the target; the symbol/test exists
+   and asserts the claimed observable) and the claim's wording is
+   byte-identical; for a confirmed unwitnessed-claim, the diff ADDS a
+   witness section/line naming exactly the witnesses the ## Triage ruling
+   verified — no more, no fewer (open each: the file exists and carries
+   the named describe/test title) — while every pre-existing record line
+   is byte-identical; for a ruled reword, exactly the quoted wording landed
+   and nothing else; in every shape no code or test file changed, the
+   citation-form gates still pass on the edited file, and no other record
+   was touched.
    For issues whose lens: is D1 the bar is: exactly the ratified shape
    landed and nothing else; behaviour identical at every former site; any
    new/changed helper module satisfies the D4 import-edge and home-band

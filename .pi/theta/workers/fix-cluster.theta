@@ -140,14 +140,22 @@ Per-lens rules — apply per issue, by its lens: frontmatter:
   re-point every consumer in the same change. An issue naming no right side
   and carrying no ruling → SKIP with a note (never pick a posture silently).
 - lens: D10 (verification posture in docs/bugs/ and the coverage matrix):
-  decayed-pointer only, unless the ## Triage ruling quotes replacement
-  wording. DECAYED-POINTER: re-point the citation to the verified equivalent
-  witness named in the issue/ruling — the claim's wording stays byte-
-  identical; the repaired citation must satisfy the citation-form gates
-  (file + symbol, never path:line into a converted file). RULED REWORD:
-  apply exactly the quoted wording, nothing else. Never touch code or tests
-  for a D10 issue; never delete or rename a bug doc; never edit any record
-  line the issue does not cite.
+  three authorised shapes, selected by d10_class and the ## Triage ruling —
+  anything else (memory-evidence, overstated-strength, any unruled reword)
+  is SKIP with a note. DECAYED-POINTER: re-point the citation to the
+  verified equivalent witness named in the issue/ruling — the claim's
+  wording stays byte-identical; the repaired citation must satisfy the
+  citation-form gates (file + symbol, never path:line into a converted
+  file). CONFIRMED UNWITNESSED-CLAIM: ADD a "## Fix" witness section (or a
+  witness line where the record already carries one) naming ONLY the
+  witness tests/cells the ## Triage ruling verified — each as file +
+  describe/test title (citation-form-gate compliant, never path:line); the
+  claim's own wording stays untouched and no existing record line is
+  edited; a confirmed unwitnessed-claim whose ruling names no verified
+  witnesses → SKIP with a note (never hunt witnesses yourself). RULED
+  REWORD: apply exactly the quoted wording, nothing else. Never touch code
+  or tests for a D10 issue; never delete or rename a bug doc; never edit
+  any record line the issue does not cite.
 - lens: D1 (design consistency in src/): implement EXACTLY the ratified
   unification or narrowing under ## Triage — nothing beyond it. Behaviour
   identical at every call site; if the ruling creates or grows a shared

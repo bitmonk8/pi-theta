@@ -160,7 +160,14 @@ Method — run every step:
    coverage-matrix rows, AGENTS.md gate names) — an absence claim that searched
    the wrong representation is false-positive naming the found witness; a
    filing against an honesty marker (pending/open/wontfix wording) is
-   false-positive. decayed-pointer: confirm the pointer does not resolve as
+   false-positive. unwitnessed-claim where the claimed observable's witnesses
+   DO exist in the tree (the record just points at nothing): confirmed — and
+   your verdict note MUST name each verified witness explicitly (test file +
+   describe/test title, or coverage-matrix row) so the fixer can add the
+   record's witness section from the ruling alone; witnesses genuinely absent
+   (the claim has nothing to point at), or a repair that needs rewording or
+   retracting the claim → questionable — the record's wording is a human's
+   to change. decayed-pointer: confirm the pointer does not resolve as
    stated AND check whether the named equivalent exists — unambiguous
    equivalent named and verified → confirmed (the fix is a mechanical
    re-point, wording untouched); no equivalent or ambiguous → questionable —

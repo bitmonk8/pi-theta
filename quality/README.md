@@ -412,7 +412,11 @@ and pointer/witness DECAY.
 
 **Split fix contract**: a `decayed-pointer` with an unambiguous verified
 equivalent triages `confirmed` — the fix is a mechanical re-point, the
-claim's wording byte-identical; anything that would reword a Status/Witness/
+claim's wording byte-identical; an `unwitnessed-claim` whose witnesses DO
+exist in the tree also triages `confirmed` — the triage note names each
+verified witness (test file + describe/test title, or coverage-matrix row)
+and the fix ADDS a `## Fix` witness section/line naming exactly those,
+claim wording untouched; anything that would reword a Status/Witness/
 claim is capped at `questionable` and intake-ratified (`accept --note
 "RATIFIED: …"` quoting the replacement wording) — the human owns the record's
 wording. Fix lanes never touch code or tests, never delete or rename a bug
