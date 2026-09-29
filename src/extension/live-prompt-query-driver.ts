@@ -49,6 +49,21 @@ import { dispatchForcedRespondTurn } from "./off-session-respond-dispatch";
 const HOST_RECOVERY_ABORT_SETTLE_GRACE_POLL_BOUND = 50;
 
 /**
+ * The index of the last compaction summary in a built session message list,
+ * `-1` when it carries none. The summary is pi's `compactionSummary` context
+ * message, a role outside pi-ai's `Message` union, hence the widened read.
+ */
+function lastCompactionSummaryIndex(messages: readonly Message[]): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const role: string | undefined = messages[i]?.role;
+    if (role === "compactionSummary") {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
  * Bug 0483 §Fix item 2: one attempt's deferred `ctx.signal` abort — the
  * listener records the source reason here instead of forwarding it into
  * `thetaAbort` at signal time.
@@ -950,9 +965,16 @@ class LivePromptQueryModel implements QueryModelDriver {
             const messagesBeforeSend = this.#readMessages();
             const turnStart = messagesBeforeSend.length;
             // The trailing `user` message before this attempt's send, by identity:
-            // the settle-grace expiry below must never take it for this attempt's
-            // own anchor.
+            // the relocated trailing-turn read below must never take it for this
+            // attempt's own anchor.
             const userBeforeSend = messagesBeforeSend[trailingTurnUserIndex(messagesBeforeSend)];
+            // The leaf-path entry ids before this attempt's send: a `compaction`
+            // entry absent from them was appended during this attempt, the only
+            // compaction that can explain this attempt's own user message missing
+            // from the rebuilt list (`#ownTrailingTurnSlice`).
+            const pathIdsBeforeSend: ReadonlySet<string> = new Set(
+              this.#readContextPath().map((entry) => entry.id),
+            );
             // PIC-50: `pi.sendUserMessage` is the only failure the call surface itself
             // can signal synchronously. Map such a throw to a `TransportError` (never
             // `theta/runtime/internal-error`, never a swallowed `Ok("")`) and return
@@ -1085,12 +1107,28 @@ class LivePromptQueryModel implements QueryModelDriver {
             const settleBound = recorder.recorded
               ? HOST_RECOVERY_ABORT_SETTLE_GRACE_POLL_BOUND
               : TURN_SETTLE_POLL_BOUND;
-            const settleCleared = await this.#pollWhile(
-              () => !thisTurnSettled(this.#readMessages(), turnStart, this.#readContextPath()),
+            // A mid-turn compaction can leave this attempt's slice unopenable at
+            // `turnStart`: an overflow compaction rebuilds the list shorter, so the
+            // attempt's own user message sits BEFORE `turnStart`, and a split-turn
+            // compaction (the cut falls inside the turn once its own content
+            // outgrows the kept-recent budget) summarises that user message away
+            // entirely. With a recorded abort the poll therefore also clears the
+            // moment the trailing turn `#ownTrailingTurnSlice` locates reads
+            // settled, rather than at the grace's end: a retry extension re-kicks
+            // the session about a second after its abort, and that re-kick's user
+            // message would otherwise become the trailing turn's anchor first.
+            const trailingSettledSlice = (): readonly Message[] | undefined =>
+              recorder.recorded && !this.#thetaAbort.signal.aborted
+                ? this.#ownTrailingTurnSlice(userBeforeSend, pathIdsBeforeSend)
+                : undefined;
+            await this.#pollWhile(
+              () =>
+                !thisTurnSettled(this.#readMessages(), turnStart, this.#readContextPath()) &&
+                trailingSettledSlice() === undefined,
               settleBound,
             );
             let turnSlice: readonly Message[];
-            if (settleCleared) {
+            if (thisTurnSettled(this.#readMessages(), turnStart, this.#readContextPath())) {
               // Bug 0483 §Fix item 2: which site observed the abort. The mid-turn
               // recorder above (CNCL-4 identity: its RECORDED reason is what a
               // `cancel` classification forwards), or, only when the recorder never
@@ -1109,18 +1147,13 @@ class LivePromptQueryModel implements QueryModelDriver {
               }
               turnSlice = this.#readMessages().slice(turnStart);
             } else {
-              // The grace expired with a recorded abort. An overflow compaction
-              // mid-turn rebuilds the message list shorter, so this attempt's own
-              // user entry can sit BEFORE `turnStart` and `thisTurnSettled` never
-              // holds even though the post-compaction run settled on a trailing
-              // assistant. Classify the trailing turn PIC-51 reads instead, so a
-              // host recovery of the post-compaction run rides rather than cancels;
-              // no such trailing turn is the pre-first-token shape and cancels
+              // The slice at `turnStart` never opened. Classify the compaction-
+              // relocated trailing turn instead, so a host recovery of the
+              // post-compaction run rides rather than cancels. No such turn (the
+              // pre-first-token ESC, a send that never landed, or a missing anchor
+              // no compaction of this attempt explains) is an expiry that cancels
               // with the recorded reason.
-              const trailingSlice =
-                recorder.recorded && !this.#thetaAbort.signal.aborted
-                  ? this.#ownTrailingTurnSlice(userBeforeSend)
-                  : undefined;
+              const trailingSlice = trailingSettledSlice();
               if (trailingSlice === undefined) {
                 this.#recordLifecycleExpiry("settle", settleBound * POLL_INTERVAL_MS, recorder);
                 return;
@@ -1231,23 +1264,46 @@ class LivePromptQueryModel implements QueryModelDriver {
   }
 
   /**
-   * The session's trailing turn — PIC-51's last-user anchor through the end of
-   * the message list — when it is this attempt's own turn and has settled on
-   * an assistant; `undefined` otherwise. A trailing `user` message identical to
-   * the one that trailed before this attempt's send belongs to an earlier
-   * turn (this attempt's own entry never landed), and an unanswered trailing
-   * compaction means the post-compaction run produced nothing.
+   * The session's trailing turn when it is this attempt's own turn and has
+   * settled on an assistant; `undefined` otherwise. The turn opens at PIC-51's
+   * last-user anchor; a trailing `user` message identical to the one that
+   * trailed before this attempt's send belongs to an earlier turn (this
+   * attempt's own entry never landed). A list with no `user` message at all is
+   * pi's split-turn compaction layout — the summary, then the turn's kept
+   * recent tool rounds, then the post-compaction run — so the turn is the list
+   * after the compaction summary, the same span PIC-51/PIC-53 read when no
+   * `user` message anchors them; only a compaction appended during this
+   * attempt (absent from `pathIdsBeforeSend`) explains the missing anchor. An
+   * unanswered trailing compaction means the post-compaction run produced
+   * nothing.
    */
-  #ownTrailingTurnSlice(userBeforeSend: Message | undefined): readonly Message[] | undefined {
+  #ownTrailingTurnSlice(
+    userBeforeSend: Message | undefined,
+    pathIdsBeforeSend: ReadonlySet<string>,
+  ): readonly Message[] | undefined {
+    const path = this.#readContextPath();
+    if (trailingCompactionUnanswered(path)) {
+      return undefined;
+    }
     const messages = this.#readMessages();
     const anchor = trailingTurnUserIndex(messages);
-    if (anchor === -1 || messages[anchor] === userBeforeSend) {
-      return undefined;
+    let turnOpen: number;
+    if (anchor !== -1) {
+      if (messages[anchor] === userBeforeSend) {
+        return undefined;
+      }
+      turnOpen = anchor;
+    } else {
+      const compactedThisAttempt = path.some(
+        (entry) => entry.type === "compaction" && !pathIdsBeforeSend.has(entry.id),
+      );
+      const summary = compactedThisAttempt ? lastCompactionSummaryIndex(messages) : -1;
+      if (summary === -1) {
+        return undefined;
+      }
+      turnOpen = summary + 1;
     }
-    if (trailingCompactionUnanswered(this.#readContextPath())) {
-      return undefined;
-    }
-    const slice = messages.slice(anchor);
+    const slice = messages.slice(turnOpen);
     return slice.some((message) => message.role === "assistant") ? slice : undefined;
   }
 

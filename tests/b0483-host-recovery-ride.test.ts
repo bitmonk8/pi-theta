@@ -98,6 +98,27 @@
 //  27. every run signal's listener is detached: at the re-arm onto the
 //      next run and at the drive's end                          [GREEN, pin]
 //
+// SPLIT-TURN AND RIDE-DETACH CELLS (verdict at a4d8865d, the review round 2
+// commit, in brackets). pi's split-turn compaction cuts inside the turn and
+// summarises the driven user message away, so no `user` message anchors the
+// trailing turn; the list after the summary is that turn when a compaction
+// appended during this attempt is on the leaf path:
+//  27b. across a ride, attempt 1's recorder — still watching an
+//      unaborted run signal — is detached before the continuation
+//      attempt's first host step                              [GREEN, pin]
+//  28. split turn (pi ≥ 0.87 layout), watchdog abort of the post-compaction
+//      run, tagged settle → exactly one ride, classified on the first
+//      settled read                                                  [RED]
+//      (cell 23 now asserts the same latency: RED at a4d8865d, the
+//      continuation 51 host steps after the idle, at the grace's end)
+//  29. split turn (0.80.10 layout, overflow error-stop kept), watchdog
+//      abort, core retry re-runs in-run → "recovered"                [RED]
+//  30. split turn, ESC of the post-compaction run → Err(cancelled),
+//      the ESC reason by identity                              [GREEN, pin]
+//  31. no user anchor and no compaction from this attempt (the send's
+//      entry never landed over an earlier split-turn compaction) →
+//      Err(cancelled) with the recorded reason, no ride        [GREEN, pin]
+//
 // HARNESS. The bug-0288/0319/0482 scripted-session pattern: drive the REAL
 // producer (`createProductionProducerDeps` → `bindPromptConversation` →
 // `executeBody`) so the REAL `LivePromptQueryModel` is constructed. The
@@ -224,11 +245,15 @@ type HostStep =
    */
   | { readonly kind: "retryBackoff" }
   /**
-   * Overflow auto-compaction: a `compaction` entry whose `firstKeptEntryId` is
-   * this turn's own user entry — `buildSessionContext` then hoists the summary
-   * to the head and drops every earlier exchange from the built message list.
+   * Overflow auto-compaction. `keep: "userEntry"` (default): the
+   * `firstKeptEntryId` is this turn's own user entry — `buildSessionContext`
+   * then hoists the summary to the head and drops every earlier exchange from
+   * the built message list. `keep: "splitTurn"`: pi's split-turn cut — the
+   * `firstKeptEntryId` is this turn's last `toolUse` assistant, so the turn's
+   * own user message is summarised away and the built list carries no `user`
+   * message at all.
    */
-  | { readonly kind: "compaction" }
+  | { readonly kind: "compaction"; readonly keep?: "userEntry" | "splitTurn" }
   /** The run settles: the session reads idle. */
   | { readonly kind: "idle" }
   /** The run never settles: every later poll finds it still active (this step is never consumed). */
@@ -247,6 +272,11 @@ interface TurnScript {
    * next send.
    */
   readonly signalExposure?: "live" | "post-settle";
+  /**
+   * Whether the send commits its `user` entry. `"dropped"` models a send whose
+   * entry never lands while the run still starts.
+   */
+  readonly userEntry?: "appended" | "dropped";
 }
 
 /** The `PromptToolLoopGovernor` handlers the pi double captures from `pi.on(...)`. */
@@ -261,8 +291,8 @@ interface ActiveRun {
   index: number;
   /** True inside a `retryBackoff`: no active run handle, `ctx.signal` is `undefined`. */
   inBackoff: boolean;
-  /** This turn's own user entry id (the compaction's `firstKeptEntryId`). */
-  readonly userEntryId: string;
+  /** This turn's own user entry id (the compaction's `firstKeptEntryId`); `undefined` when dropped. */
+  readonly userEntryId: string | undefined;
 }
 
 /** A run signal the host created, with its live `abort` listener count. */
@@ -315,6 +345,10 @@ class HostRecoverySession {
   readonly toolCallDecisions: unknown[] = [];
   /** A copy of `entries` at each `idle` step, in order (the drift premise's observable). */
   readonly entriesAtIdle: SessionEntryDouble[][] = [];
+  /** `ticks` at each `idle` step, in order. */
+  readonly idleTicks: number[] = [];
+  /** `ticks` at each `pi.sendUserMessage`, in order (the classification-latency observable). */
+  readonly sendTicks: number[] = [];
   /** `ctx.signal` reads that returned `undefined` while the session was non-idle. */
   undefinedSignalReadsWhileActive = 0;
   /** Every run signal, instrumented for listener accounting (cell 27). */
@@ -326,12 +360,29 @@ class HostRecoverySession {
   #run: ActiveRun | undefined = undefined;
   #postSettleSignal: AbortSignal | undefined = undefined;
 
-  constructor(scripts: readonly TurnScript[], priorExchanges = 0) {
+  constructor(
+    scripts: readonly TurnScript[],
+    priorExchanges = 0,
+    seed: ((entries: SessionEntryDouble[]) => void) | undefined = undefined,
+  ) {
     this.#scripts = [...scripts];
     for (let i = 1; i <= priorExchanges; i += 1) {
       appendUserEntry(this.entries, `prior question ${i}`);
       appendAssistantEntry(this.entries, `prior answer ${i}`, "stop");
     }
+    seed?.(this.entries);
+  }
+
+  /** The split-turn cut: this turn's last `toolUse` assistant entry. */
+  #splitTurnCut(run: ActiveRun): string {
+    const opened = this.entries.findIndex((entry) => entry.id === run.userEntryId);
+    for (let i = this.entries.length - 1; i > opened; i -= 1) {
+      const entry = this.entries[i]!;
+      if (entry.type === "message" && entry.message["role"] === "assistant" && entry.message["stopReason"] === "toolUse") {
+        return entry.id;
+      }
+    }
+    throw new Error("b0483 scripted host: a split-turn `compaction` step found no toolUse assistant in its turn (fixture defect)");
   }
 
   /** A fresh run controller whose signal's `abort` listeners are counted. */
@@ -362,6 +413,7 @@ class HostRecoverySession {
 
   sendUserMessage(text: string): void {
     this.sends.push(text);
+    this.sendTicks.push(this.ticks);
     if (this.#run !== undefined) {
       // The host rejects a send while streaming (asynchronously, into its
       // extension-error channel): no entry, no run.
@@ -376,8 +428,11 @@ class HostRecoverySession {
         `b0483 scripted host: send #${this.sends.length} (${JSON.stringify(text)}) had NO scripted turn`,
       );
     }
-    appendUserEntry(this.entries, text);
-    const userEntryId = this.entries[this.entries.length - 1]!.id;
+    let userEntryId: string | undefined;
+    if ((script.userEntry ?? "appended") === "appended") {
+      appendUserEntry(this.entries, text);
+      userEntryId = this.entries[this.entries.length - 1]!.id;
+    }
     this.#postSettleSignal = undefined;
     this.#run = { controller: this.#newRunController(), script, index: 0, inBackoff: false, userEntryId };
   }
@@ -499,11 +554,17 @@ class HostRecoverySession {
       case "retryBackoff":
         run.inBackoff = true;
         return;
-      case "compaction":
-        appendCompactionEntry(this.entries, run.userEntryId);
+      case "compaction": {
+        const firstKept = (step.keep ?? "userEntry") === "splitTurn" ? this.#splitTurnCut(run) : run.userEntryId;
+        if (firstKept === undefined) {
+          throw new Error("b0483 scripted host: a `compaction` step kept a user entry the send never committed (fixture defect)");
+        }
+        appendCompactionEntry(this.entries, firstKept);
         return;
+      }
       case "idle":
         this.entriesAtIdle.push([...this.entries]);
+        this.idleTicks.push(this.ticks);
         if ((run.script.signalExposure ?? "live") === "post-settle") {
           this.#postSettleSignal = run.controller.signal;
         }
@@ -622,6 +683,8 @@ interface DriveOptions {
   readonly completeQueue?: (typeof scripted)["queue"];
   /** Settled user/assistant exchanges already on the session before the drive (default none). */
   readonly priorExchanges?: number;
+  /** Further entries appended after the prior exchanges, before the drive. */
+  readonly seed?: (entries: SessionEntryDouble[]) => void;
 }
 
 async function driveLiveTheta(
@@ -638,7 +701,7 @@ async function driveLiveTheta(
     frontmatter: doc.frontmatter!,
     body: doc.body,
   };
-  const session = new HostRecoverySession(scripts, options.priorExchanges ?? 0);
+  const session = new HostRecoverySession(scripts, options.priorExchanges ?? 0, options.seed);
   const pi = piDouble(session);
   session.respondExecutor = (payload: unknown): Promise<unknown> => {
     const tool = pi.registeredTools.find((t) => t.name.startsWith("__theta_respond_"));
@@ -877,6 +940,78 @@ function expectAnchorDrifted(session: HostRecoverySession): void {
     thisTurnSettled(built, turnStart, sessionBranch(atIdle) as never),
     "drift premise: the attempt's own slice never opens at turnStart",
   ).toBe(false);
+}
+
+/**
+ * Assert the split-turn premise: at the first attempt's idle, the rebuilt
+ * message list has exactly `roles` — a compaction summary and no `user`
+ * message — so neither `thisTurnSettled` nor a last-user anchor can locate the
+ * attempt's turn.
+ */
+function expectSplitTurnLayout(session: HostRecoverySession, roles: readonly string[]): void {
+  const atIdle = session.entriesAtIdle[0];
+  if (atIdle === undefined) {
+    throw new Error("b0483 precondition unmet: the split-turn attempt never reached its idle step");
+  }
+  const built = buildSessionContext(atIdle as never).messages as unknown as readonly Message[];
+  expect(
+    built.map((m) => m.role),
+    "split-turn premise: the rebuilt list is the summary, the turn's kept tool rounds and the post-compaction run",
+  ).toEqual(roles);
+  expect(
+    thisTurnSettled(built, DRIFT_PRIOR_EXCHANGES * 2, sessionBranch(atIdle) as never),
+    "split-turn premise: the attempt's own slice never opens",
+  ).toBe(false);
+}
+
+/**
+ * The most scripted host steps allowed between the first attempt's idle and
+ * the continuation send: the settle poll classifies on its first settled read,
+ * far inside the 50-poll grace.
+ */
+const PROMPT_CLASSIFICATION_TICKS = 3;
+
+/** Assert the continuation send followed the first attempt's idle within `PROMPT_CLASSIFICATION_TICKS`. */
+function expectClassifiedPromptly(session: HostRecoverySession): void {
+  const idle = session.idleTicks[0];
+  const continuation = session.sendTicks[1];
+  if (idle === undefined || continuation === undefined) {
+    throw new Error("b0483 precondition unmet: no first-attempt idle or no continuation send was recorded");
+  }
+  expect(
+    continuation - idle,
+    `the relocated trailing turn is classified on its first settled read, not at the grace's end ` +
+      `(idle at tick ${idle}, continuation at tick ${continuation})`,
+  ).toBeLessThanOrEqual(PROMPT_CLASSIFICATION_TICKS);
+}
+
+/**
+ * Seed an earlier turn compacted by a split-turn cut, ending in a tagged
+ * error-stop: the built list then carries no `user` message before the drive's
+ * own send (cell 31).
+ */
+function seedSplitTurnCompactedHistory(entries: SessionEntryDouble[]): void {
+  appendUserEntry(entries, "earlier theta question");
+  appendMessageEntry(entries, {
+    role: "assistant",
+    content: [{ type: "toolCall", id: "tc-earlier", name: "probe_tool", arguments: {} }],
+    api: "anthropic-messages",
+    provider: "anthropic",
+    model: "m1",
+    stopReason: "toolUse",
+    timestamp: 0,
+  });
+  const kept = entries[entries.length - 1]!.id;
+  appendMessageEntry(entries, {
+    role: "toolResult",
+    toolCallId: "tc-earlier",
+    toolName: "probe_tool",
+    content: [{ type: "text", text: "tool output" }],
+    isError: false,
+    timestamp: 0,
+  });
+  appendCompactionEntry(entries, kept);
+  appendAssistantEntry(entries, "earlier partial", "error", TAGGED_RETRYABLE_ERROR);
 }
 
 /** Assert the premise that the fixture errorMessage is one the host would retry. */
@@ -1632,6 +1767,7 @@ describe("bug 0483 — a host-recovery abort must ride the host's retry, not can
       "continued answer after recovery",
     );
     expectRideNotes(out.pi.notes, 1);
+    expectClassifiedPromptly(out.session);
   });
 
   it("(24) drifted anchor control: an ESC of the post-compaction run whose turn settles \"aborted\" → Err(cancelled) with the ESC reason by identity", async () => {
@@ -1759,5 +1895,213 @@ describe("bug 0483 — a host-recovery abort must ride the host's retry, not can
         `run ${run + 1}'s listener is detached once the drive ends; counts=${JSON.stringify(counts)}`,
       ).toBe(0);
     }
+  });
+
+  it("(27b) the recorder detaches across a ride: attempt 1's recorder, still watching its last (unaborted) run signal, is detached before the continuation attempt's first host step", async () => {
+    expectTaggedMessageIsHostRetryable();
+    expectHostRetryable(OVERLOADED_ERROR);
+    const out = await driveLiveTheta(ONE_QUERY_THETA, [
+      {
+        steps: [
+          { kind: "abort", reason: watchdogAbortReason() },
+          { kind: "assistant", stopReason: "error", text: "run 1 partial", errorMessage: TAGGED_RETRYABLE_ERROR },
+          // Core retry starts run 2, which ends on a retryable error-stop with
+          // the retries spent: its signal is never aborted.
+          { kind: "retryRun" },
+          { kind: "assistant", stopReason: "error", text: "run 2 partial", errorMessage: OVERLOADED_ERROR },
+          { kind: "idle" },
+        ],
+      },
+      cleanTurn("continued answer after recovery"),
+    ]);
+
+    expect(out.execution.outcome, `cell premise: the recovering settle rides; observed ${disposition(out)}`).toBe(
+      "success",
+    );
+    expect(out.session.sends, "cell premise: the original send plus one continuation").toEqual([
+      QUERY_TEXT,
+      PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT,
+    ]);
+    const counts = out.session.runSignals.map((tracked) => ({
+      added: tracked.added,
+      removed: tracked.removed,
+      aborted: tracked.signal.aborted,
+    }));
+    expect(counts.length, "cell premise: two runs in attempt 1, one in the continuation attempt").toBe(3);
+    expect(
+      out.session.runSignals[1]?.signal.aborted,
+      `cell premise: attempt 1's last run signal is never aborted, so only a detach removes its listener; counts=${JSON.stringify(counts)}`,
+    ).toBe(false);
+    for (const [run, tracked] of out.session.runSignals.entries()) {
+      expect(
+        tracked.added,
+        `cell premise: a recorder watched run ${run + 1}'s signal; counts=${JSON.stringify(counts)}`,
+      ).toBe(1);
+    }
+    expect(
+      out.session.maxStaleListeners,
+      `attempt 1's listener is detached when the continuation attempt starts; counts=${JSON.stringify(counts)}`,
+    ).toBe(0);
+    for (const [run, tracked] of out.session.runSignals.entries()) {
+      expect(
+        liveListeners(tracked),
+        `run ${run + 1}'s listener is detached once the drive ends; counts=${JSON.stringify(counts)}`,
+      ).toBe(0);
+    }
+  });
+
+  // --- Split-turn compaction (cells 28–31) -----------------------------------
+  // pi's split-turn cut: the turn's own content outgrows the kept-recent
+  // budget, so the compaction cut falls inside the turn and summarises the
+  // driven user message away. The rebuilt list carries no `user` message;
+  // the trailing turn is the list after the compaction summary.
+
+  it("(28) split turn (pi ≥ 0.87 layout): a watchdog abort of the post-compaction run whose tagged error-stop settles idle → exactly ONE ride, Ok(<continuation text>), classified on the first settled read — RED at a4d8865d: Err(cancelled) with the watchdog reason", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(
+      ONE_QUERY_THETA,
+      [
+        {
+          steps: [
+            { kind: "toolRound", toolName: "probe_tool" },
+            { kind: "compaction", keep: "splitTurn" },
+            { kind: "retryRun" },
+            { kind: "abort", reason: watchdogAbortReason() },
+            {
+              kind: "assistant",
+              stopReason: "error",
+              text: "post-compaction partial",
+              errorMessage: TAGGED_RETRYABLE_ERROR,
+            },
+            { kind: "idle" },
+          ],
+        },
+        cleanTurn("continued answer after recovery"),
+      ],
+      { priorExchanges: DRIFT_PRIOR_EXCHANGES },
+    );
+
+    expectSplitTurnLayout(out.session, ["compactionSummary", "assistant", "toolResult", "assistant"]);
+    expect(
+      out.thetaAbort.signal.aborted,
+      `PIC-78: with no user anchor and a compaction from this attempt, the list after the summary is the ` +
+        `trailing turn; a recovering settle is not a cancellation; observed ${disposition(out)}`,
+    ).toBe(false);
+    expect(out.execution.outcome, `the split-turn recovering settle rides; observed ${disposition(out)}`).toBe("success");
+    expect(out.session.sends, "exactly one continuation send follows the original query send").toEqual([
+      QUERY_TEXT,
+      PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT,
+    ]);
+    expect(out.execution.result.value, "PIC-53: the continuation turn's text only").toBe(
+      "continued answer after recovery",
+    );
+    expectRideNotes(out.pi.notes, 1);
+    expectClassifiedPromptly(out.session);
+  });
+
+  it("(29) split turn (pi 0.80.10 layout, overflow error-stop kept): a watchdog abort of the post-compaction run, then core retry re-runs in-run → Ok(<retried text>), ZERO rides (\"recovered\") — RED at a4d8865d: Err(cancelled) with the watchdog reason", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(
+      ONE_QUERY_THETA,
+      [
+        {
+          steps: [
+            { kind: "toolRound", toolName: "probe_tool" },
+            { kind: "assistant", stopReason: "error", errorMessage: CONTEXT_OVERFLOW_ERROR },
+            { kind: "compaction", keep: "splitTurn" },
+            { kind: "retryRun" },
+            { kind: "abort", reason: watchdogAbortReason() },
+            {
+              kind: "assistant",
+              stopReason: "error",
+              text: "post-compaction partial",
+              errorMessage: TAGGED_RETRYABLE_ERROR,
+            },
+            { kind: "retryRun" },
+            { kind: "assistant", stopReason: "stop", text: "retried answer" },
+            { kind: "idle" },
+          ],
+        },
+      ],
+      { priorExchanges: DRIFT_PRIOR_EXCHANGES },
+    );
+
+    expectSplitTurnLayout(out.session, [
+      "compactionSummary",
+      "assistant",
+      "toolResult",
+      "assistant",
+      "assistant",
+      "assistant",
+    ]);
+    expect(out.thetaAbort.signal.aborted, `core retry recovered the turn; observed ${disposition(out)}`).toBe(false);
+    expect(out.execution.outcome, `"recovered" falls through to the extraction; observed ${disposition(out)}`).toBe(
+      "success",
+    );
+    // PIC-53 with no user anchor reads the whole list: the kept toolUse
+    // assistant contributes its empty text, every error-stop is excluded.
+    expect(out.execution.result.value, "PIC-53: the retried text, every error-stop excluded").toBe(
+      "\nretried answer",
+    );
+    expect(out.session.sends, "zero continuation sends: core retry already re-ran the turn").toEqual([QUERY_TEXT]);
+    expectRideNotes(out.pi.notes, 0);
+  });
+
+  it("(30) split turn control: an ESC of the post-compaction run whose turn settles \"aborted\" → Err(cancelled) with the ESC reason by identity", async () => {
+    const esc = escAbortReason();
+    const out = await driveLiveTheta(
+      ONE_QUERY_THETA,
+      [
+        {
+          steps: [
+            { kind: "toolRound", toolName: "probe_tool" },
+            { kind: "compaction", keep: "splitTurn" },
+            { kind: "retryRun" },
+            { kind: "abort", reason: esc },
+            { kind: "assistant", stopReason: "aborted", text: "post-compaction partial" },
+            { kind: "idle" },
+          ],
+        },
+        // Scripted in case a ride is issued; unconsumed on the fixed tree.
+        cleanTurn("continued answer after recovery"),
+      ],
+      { priorExchanges: DRIFT_PRIOR_EXCHANGES },
+    );
+
+    expectSplitTurnLayout(out.session, ["compactionSummary", "assistant", "toolResult", "assistant"]);
+    expect(out.execution.outcome, `a genuine ESC cancels; observed ${disposition(out)}`).toBe("cancel");
+    expect(out.thetaAbort.signal.reason, "CNCL-4: the recorded source reason, by identity").toBe(esc);
+    expect(out.session.sends, "a cancelled turn is never continued").toEqual([QUERY_TEXT]);
+    expectRideNotes(out.pi.notes, 0);
+  });
+
+  it("(31) a missing anchor no compaction of this attempt explains: the send's user entry never lands over an earlier split-turn compaction ending in a tagged error-stop → Err(cancelled) with the watchdog reason, no ride", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const watchdog = watchdogAbortReason();
+    const out = await driveLiveTheta(
+      ONE_QUERY_THETA,
+      [
+        { userEntry: "dropped", steps: [{ kind: "abort", reason: watchdog }, { kind: "idle" }] },
+        // Scripted in case a ride is issued; unconsumed on the fixed tree.
+        cleanTurn("continued answer after recovery"),
+      ],
+      { seed: seedSplitTurnCompactedHistory },
+    );
+
+    const atIdle = out.session.entriesAtIdle[0];
+    if (atIdle === undefined) {
+      throw new Error("b0483 precondition unmet: the attempt never reached its idle step");
+    }
+    expect(
+      (buildSessionContext(atIdle as never).messages as unknown as readonly Message[]).map((m) => m.role),
+      "cell premise: no user message anchors any turn; the earlier compaction's kept turn ends in a tagged error-stop",
+    ).toEqual(["compactionSummary", "assistant", "toolResult", "assistant"]);
+    expect(
+      out.execution.outcome,
+      `only a compaction from this attempt explains the missing anchor; observed ${disposition(out)}`,
+    ).toBe("cancel");
+    expect(out.thetaAbort.signal.reason, "CNCL-4: the recorded source reason, by identity").toBe(watchdog);
+    expect(out.session.sends, "an earlier turn's settle is never ridden").toEqual([QUERY_TEXT]);
+    expectRideNotes(out.pi.notes, 0);
   });
 });
