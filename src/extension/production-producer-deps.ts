@@ -371,10 +371,11 @@ export interface ProductionProducerInput {
    * listener) and splices+detaches them in `finishInvocation`, so only a
    * still-in-flight-at-shutdown invocation leaves entries for sub-step 5. Absent
    * on non-production harnesses, in which case the choke points push nothing
-   * (the `?.` no-ops). PER-TURN forwards (the query-loop `ctx.signal` re-forward)
-   * are deliberately NOT collected — their `{once:true}` listeners sit on
-   * per-turn-transient `ctx.signal` objects that self-clean, so collecting them
-   * would only add per-turn push/splice churn for no lifetime benefit.
+   * (the `?.` no-ops). PER-TURN listeners (the query loop's deferred `ctx.signal`
+   * abort recorder, PIC-78) are deliberately NOT collected — their `{once:true}`
+   * listeners sit on per-run-transient `ctx.signal` objects and the recorder detaches
+   * each one when the attempt loop moves past it, so collecting them would only add
+   * per-turn push/splice churn for no lifetime benefit.
    */
   readonly forwardingSignals?: ForwardingSignalSource[];
   /**

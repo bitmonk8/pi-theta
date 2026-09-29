@@ -22,7 +22,7 @@
 //   - the untyped / free-phase round 0 then takes
 //     `extractTrailingTurnText(this.#readMessages())` at
 //     production-theta-producer.ts:4520 unconditionally (P2).
-//     `extractTrailingTurnText` (src/runtime/conversation-drive.ts:202)
+//     `extractTrailingTurnText` (src/runtime/conversation-drive.ts)
 //     anchors the trailing turn on the LAST `user` message, so the two silent
 //     failure shapes are `Ok("")` and `Ok(<the PREVIOUS query's answer>)`.
 //   - only a SYNCHRONOUS `pi.sendUserMessage` throw is representable
@@ -580,7 +580,7 @@ describe("bug 0288 (RED) — bound expiry on an on-session prompt-mode turn must
     // the user entry ALSO absent — kept separate because the extraction
     // surface differs: production-theta-producer.ts:4520 reads a transcript
     // with no `user` anchor at all, so `extractTrailingTurnText`
-    // (conversation-drive.ts:202) falls back to the whole (empty) list.
+    // (src/runtime/conversation-drive.ts) falls back to the whole (empty) list.
     const { execution, session } = await driveLiveTheta(ONE_QUERY_THETA, [
       {
         inertSend: true,

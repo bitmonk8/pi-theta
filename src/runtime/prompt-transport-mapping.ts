@@ -74,9 +74,11 @@ export const PROMPT_MODE_TRANSPORT_FALLBACK_MESSAGE = "provider transport failur
  * `OFF_SESSION_NORMAL_STOP_REASONS` (pi-ai's `"stop"`/`"toolUse"` plus the
  * spec's `"end_turn"`/`"tool_use"` spellings) — duplicated rather than
  * imported because this runtime module sits below the extension layer that
- * const lives in.
+ * const lives in. Exported for the host-recovery settle classifier
+ * (`classifyHostRecoverySettle`), whose `"recovered"` arm keys on the same
+ * normal boundary.
  */
-const PROMPT_MODE_NORMAL_STOP_REASONS: ReadonlySet<string> = new Set([
+export const PROMPT_MODE_NORMAL_STOP_REASONS: ReadonlySet<string> = new Set([
   "stop",
   "end_turn",
   "toolUse",
@@ -303,13 +305,7 @@ export function probePostTurnFailure(
 function trailingTurnFinalAssistant(
   messages: readonly Message[],
 ): AssistantMessage | undefined {
-  let turnStart = -1;
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    if (messages[i]?.role === "user") {
-      turnStart = i;
-      break;
-    }
-  }
+  const turnStart = trailingTurnUserIndex(messages);
   const turn = turnStart === -1 ? messages : messages.slice(turnStart);
   for (let i = turn.length - 1; i >= 0; i -= 1) {
     const message = turn[i];
@@ -318,6 +314,21 @@ function trailingTurnFinalAssistant(
     }
   }
   return undefined;
+}
+
+/**
+ * PIC-51's last-user anchor: the index of the trailing turn's `user` message
+ * in `messages`, `-1` when the list carries none. Independent of any recorded
+ * message-list length, so it still locates the trailing turn after a host
+ * compaction rebuilt the list shorter than it was at the turn's send.
+ */
+export function trailingTurnUserIndex(messages: readonly Message[]): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === "user") {
+      return i;
+    }
+  }
+  return -1;
 }
 
 /**

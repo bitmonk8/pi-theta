@@ -192,6 +192,17 @@ export function extractTrailingTurnText(messages: readonly Message[]): string {
     if (message.role !== "assistant") {
       continue;
     }
+    // Bug 0483 §Fix item 3 (PIC-53 residue exclusion): an `error`-stop
+    // assistant is failure narration/retry residue pi deliberately keeps in
+    // session history (0.80.10 `_prepareRetry`, "keep in session for
+    // history"), not answer text. It lands in the trailing turn when pi's
+    // in-run core retry re-ran the turn: after a recorded abort PIC-78
+    // classifies `recovered`, or with no abort at all. A PIC-78 continuation
+    // ride's user message opens a new trailing turn, so the aborted attempt's
+    // residue already falls outside it.
+    if (message.stopReason === "error") {
+      continue;
+    }
     const text = message.content
       .filter((part): part is Extract<typeof part, { type: "text" }> => part.type === "text")
       .map((part) => part.text)

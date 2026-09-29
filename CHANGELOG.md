@@ -4,6 +4,47 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.494.0]
+
+### Fixed
+- **Bug 0483 — a host-recovery abort (pi-retry's stall watchdog / halfhour
+  rescue) no longer cancels a theta drive.** A recovery extension aborts the
+  driven turn's run and rewrites its settle to a retryable error-stop; theta's
+  prompt-mode forwarding read that abort as the invocation's cancellation
+  (`theta /<name> cancelled` with no ESC pressed).
+  - A mid-turn `ctx.signal` abort is now recorded (per agent run) and the
+    cancel decision is deferred to the driven turn's settle, classified with
+    the host's own retry classifier — pi-ai's `isRetryableAssistantError`
+    after the `isContextOverflow` exclusion, composed exactly as
+    `AgentSession._isRetryableError` composes it.
+  - A host-recovery settle rides instead of cancelling: pi ≤ 0.86 rides
+    core's in-run retry (waited out on the same turn); pi ≥ 0.87 (which
+    bails its post-run retry after an extension abort) rides with up to 3
+    fixed continuation sends, one informational ride note each; at the bound
+    the tagged error-stop surfaces as a loud `Err(transport)`, never
+    `cancelled`.
+  - A typed query whose respond tool already captured a valid payload
+    settles on that payload — no ride, no dispatch. A genuine ESC still
+    cancels exactly as before (abort-shaped settle, CNCL-4 reason identity),
+    one settle-wait later.
+  - A turn a mid-turn compaction relocated (anchor drift; pi's split-turn
+    cut) is classified via the last-user / newest-compaction-summary read,
+    and a typed query whose window was relocated fails loud `Err(transport)`
+    (retryable, naming the relocation) instead of dispatching the forced
+    respond turn — or a repair attempt's fresh dispatch — over a stale
+    window. PIC-53's untyped extraction drops `stopReason: "error"` retry
+    residue from the trailing-turn join.
+  - Spec: `conversation-drive.md` PIC-78 (new anchor), `cancellation.md`
+    forwarding bullet, PIC-70 scoping, PIC-53 join exclusion,
+    `query/query-tool-loop.md` QRY-14, version-bump item (av).
+
+Known follow-ups: bug 0497 (real-child test flake — a shared auth-store lock
+window empties a child's available models), bug 0498 (spec names five `pi.on`
+cancel-forwarding handlers that are never registered), bug 0499 (pi ≥ 0.87
+host-omitted error-stop can bind a silent partial answer), bug 0500 (a
+post-reply threshold compaction is misread as unanswered), and bug 0501
+(no-abort anchor drift — being filed).
+
 ## [0.493.0]
 
 ### Fixed
