@@ -1,6 +1,12 @@
 # Bug 0500 — bug 0482's `trailingCompactionUnanswered` misreads a post-run threshold compaction appended AFTER this turn's final reply: the answered turn reads unsettled forever, the settle poll burns its 10 s bound, and a completed answer is discarded as `Err(transport)` "on-session turn did not settle"
 
-- **Status:** open
+- **Status:** open — fix FOLDED into bug 0501 (settled there 2026-09-29):
+  one release (0.495.0) fixes both settle-read conjuncts; see
+  `0501-no-abort-compaction-anchor-drift-expires-settle-bound.md` §Fix
+  for the settled predicate (answered-compaction arm), the decision
+  table, witnesses (0500's core shape is witness 3; the combined fold
+  witness is 4; the predicate cells are 10), spec amendments (PIC-70's
+  answered rule), and the fold rationale.
 - **Owning repo:** pi-theta
 - **Sev/Diff estimate:** S3/D1 — S3: no silent corruption (the failure is
   loud), but it is FALSE — the turn completed and its reply is sitting in
@@ -96,6 +102,21 @@ compaction vetoes settlement forever, the drive expires the 10 s settle
 bound, and the completed answer is thrown away as a transport error.
 
 ## Fix direction
+
+**Superseded by the settled design in bug 0501 §Fix item 1** (this bug's
+fix is folded there). The settled predicate refines item (1) below in two
+ways: "answered" keys on the NEAREST preceding `message` entry before the
+trailing compaction (skipping non-message entries, stopping unanswered at
+another `compaction`) rather than on any assistant between the turn
+anchor and the compaction — so no turn-anchor threading is needed and
+the walk stays raw-path-local — and the accepting stop set is the
+TERMINAL pair `{"stop", "end_turn"}` (new
+`PROMPT_MODE_TERMINAL_STOP_REASONS`), NOT the full
+`PROMPT_MODE_NORMAL_STOP_REASONS`: a `toolUse` member would re-bind bug
+0482's mid-turn wait-through partials (a multi-round turn's earlier
+`toolUse` assistants precede the recovery compaction on the path).
+
+As filed:
 
 Teach the predicate what "answered" means, using the anchors both callers
 already hold:
