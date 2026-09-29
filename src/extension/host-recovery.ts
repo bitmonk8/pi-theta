@@ -79,7 +79,12 @@ function isHostRetryableErrorStop(message: AssistantMessage, contextWindow: numb
  *
  * `turnSlice` is this turn's own message slice (from the turn's `turnStart`
  * anchor through the end of the session's message list — the same span
- * `extractTrailingTurnText`/PIC-53 reads). `finalAssistant` is the slice's
+ * `extractTrailingTurnText`/PIC-53 reads) — or, when a mid-turn compaction
+ * rebuilt the list so that slice never opens, the compaction-relocated
+ * trailing turn the settle-grace expiry classifies instead (PIC-78's
+ * relocated read: the slice at PIC-51's last-user anchor, or, with no `user`
+ * message in the rebuilt list, the list after the newest compaction
+ * summary). `finalAssistant` is the slice's
  * LAST `assistant`-role message, or `undefined` when the slice carries none.
  * `contextWindow` is the session model's context window (`ctx.model`), `0`
  * when no model is selected.

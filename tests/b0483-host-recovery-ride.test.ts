@@ -134,6 +134,20 @@
 //      relocated read → no fresh dispatch, Err(transport)            [RED]
 //  39. two projected compaction summaries: the newest (first) one opens
 //      the trailing turn → "recovered"                               [RED]
+//  40. (release prep, round-5 residual) the sticky per-query
+//      #windowRelocated carries past an ANCHORED settle inside a repair
+//      attempt: attempt 1's phase relocates ("recovering"), rides once,
+//      the continuation settles at its OWN anchor, and the fresh dispatch
+//      is still refused → Err(transport), one dispatch (the initial)
+//      [GREEN, pin: reds when the flag is treated as per-settle state —
+//      e.g. cleared at the ride's continuation send. The round-5 reviewer
+//      route (a captured depth-6 payload reaching settleDepthViolation,
+//      so the flag is true at driveRepairAttempt ENTRY) is unreachable:
+//      #executeRespondTool depth-gates the capture
+//      (enforceModelToolArgDepth, since 0.20.0), so no reachable flow
+//      enters driveRepairAttempt with the flag set and an entry-reset
+//      mutation is a production no-op — measured at release prep, whole
+//      file green under it.]
 //
 // HARNESS. The bug-0288/0319/0482 scripted-session pattern: drive the REAL
 // producer (`createProductionProducerDeps` → `bindPromptConversation` →
@@ -2337,6 +2351,83 @@ describe("bug 0483 — a host-recovery abort must ride the host's retry, not can
     );
     expect(out.session.sends, "zero continuation sends").toEqual([QUERY_TEXT]);
     expectRideNotes(out.pi.notes, 0);
+  });
+
+  it("(40) respond repair: #windowRelocated carries past an ANCHORED settle inside the repair attempt — the restarted phase relocates (\"recovering\"), rides once, the continuation settles at its OWN anchor, and the fresh dispatch is still refused → Err(transport, retryable), only the initial dispatch — GREEN at the release tree (pin); reds when the flag is treated as per-settle state (cleared at the continuation send)", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(
+      REPAIR_TYPED_QUERY_THETA,
+      [
+        cleanTurn("free-phase answer"),
+        // Attempt 1's restarted phase, first turn: drifted-anchor relocation,
+        // watchdog abort, tagged settle → relocated read → "recovering" → ride.
+        driftedTurn(watchdogAbortReason(), [
+          { kind: "assistant", stopReason: "error", text: "post-compaction partial", errorMessage: TAGGED_RETRYABLE_ERROR },
+        ]),
+        // The ride's continuation turn settles at its OWN anchor — the repair
+        // attempt's FINAL settle is anchored, unlike cell 38's (which settles
+        // at the relocated read itself). Only the sticky per-query flag — not
+        // anything about this settle — can refuse the dispatch that follows.
+        cleanTurn("continued repair answer"),
+      ],
+      {
+        priorExchanges: DRIFT_PRIOR_EXCHANGES,
+        // The initial dispatch's AJV-failing reply opens repair; the second
+        // entry is consumed only if a mutation lets the fresh dispatch run
+        // (it would bind Ok({score: 9}) — the red driver's shape).
+        completeQueue: [forcedRespondReply({ score: "not a number" }), forcedRespondReply({ score: 9 })],
+      },
+    );
+
+    // Premise: the repair restart was driven, rode exactly once, and the ride
+    // is the attempt's — the continuation text is PIC-78's fixed prompt.
+    expect(out.session.sends.length, `cell premise: query + follow-up + continuation; observed ${disposition(out)}`).toBe(3);
+    expect(out.session.sends[0], "send 1 is the query").toBe(QUERY_TEXT);
+    expect(out.session.sends[2], "send 3 is the ride continuation").toBe(PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT);
+    expectRideNotes(out.pi.notes, 1);
+    const atFreeIdle = out.session.entriesAtIdle[0];
+    const atRelocatedIdle = out.session.entriesAtIdle[1];
+    const atContinuationIdle = out.session.entriesAtIdle[2];
+    if (atFreeIdle === undefined || atRelocatedIdle === undefined || atContinuationIdle === undefined) {
+      throw new Error("b0483 precondition unmet: the free phase, the relocated settle and the continuation settle must all reach their idle steps");
+    }
+    // Premise: the follow-up's own slice never opened (the compaction rebuilt
+    // the list below its recorded turnStart), so the relocated read — the
+    // flag's only production writer — is what classified it.
+    const followUpTurnStart = (buildSessionContext(atFreeIdle as never).messages as unknown as readonly Message[]).length;
+    expect(
+      thisTurnSettled(
+        buildSessionContext(atRelocatedIdle as never).messages as unknown as readonly Message[],
+        followUpTurnStart,
+        sessionBranch(atRelocatedIdle) as never,
+      ),
+      "cell premise: the follow-up's own slice never opens at its turnStart (drifted anchor)",
+    ).toBe(false);
+    // Premise: the continuation — the attempt's FINAL settle — IS anchored:
+    // its own slice settles at its own turnStart on the rebuilt list.
+    const continuationTurnStart = (buildSessionContext(atRelocatedIdle as never).messages as unknown as readonly Message[])
+      .length;
+    expect(
+      thisTurnSettled(
+        buildSessionContext(atContinuationIdle as never).messages as unknown as readonly Message[],
+        continuationTurnStart,
+        sessionBranch(atContinuationIdle) as never,
+      ),
+      "cell premise: the ride continuation settles at its OWN anchor (the attempt's final settle is anchored)",
+    ).toBe(true);
+    // The pin: the fresh dispatch is STILL refused — the flag is per-query
+    // state, not per-settle state, so the anchored final settle does not
+    // reopen the stale window. Only the initial dispatch ever ran.
+    expect(
+      scripted.calls.length,
+      `PIC-78: the repair's fresh dispatch is refused over the query's relocated window; observed ${JSON.stringify(
+        scripted.calls.map((call) => (call.context as { readonly messages: readonly Message[] }).messages.map((m) => m.role)),
+      )}`,
+    ).toBe(1);
+    const leaf = expectErrOfKind(out.execution, "transport");
+    expect(leaf.retryable, `the relocation Err is retryable; observed ${JSON.stringify(leaf)}`).toBe(true);
+    expect(String(leaf.message), "the Err names the compaction relocation").toMatch(/compaction relocated the driven turn/);
+    expect(out.thetaAbort.signal.aborted, `not a cancellation; observed ${disposition(out)}`).toBe(false);
   });
 });
 

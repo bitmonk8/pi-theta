@@ -1,7 +1,10 @@
 # Bug 0483 — a host-recovery abort (pi-retry's stall watchdog `ctx.abort()` + retryable rewrite) cancels the whole theta invocation instead of riding through the host's retry of the driven turn
 
-- **Status:** fixed (unreleased — version assigned at the release step;
-  see `## Fix (unreleased)`). `## Fix` settled 2026-09-28 (measurements
+- **Status:** fixed (0.494.0) — the settle-time classification, the
+  bounded continuation ride, the captured-respond precedence and the
+  relocated-window refusal landed with the PIC-78 / cancellation.md /
+  PIC-70 / PIC-53 / QRY-14 amendments; record in `## Fix (0.494.0)`.
+  `## Fix` settled 2026-09-28 (measurements
   resolved, operator-approved next after 0493). Observed live
   twice: once at the most benign possible site (below), once at the most
   expensive (a review-fix child whose typed respond had ALREADY captured
@@ -370,10 +373,10 @@ entry, not the version number, carries the bug id.
 - `@narumitw/pi-retry` `src/retry.ts` (`armStallWatchdog`, the
   `message_end` rewrite, `DEFAULT_STALL_TIMEOUT_MS = 90_000`).
 
-## Fix (unreleased)
+## Fix (0.494.0)
 
-The version bump and CHANGELOG entry land at the separate release step; the
-`### Version / CHANGELOG` plan above still applies there.
+The version bump and CHANGELOG entry landed at the release step (0.493.0
+→ 0.494.0) per the `### Version / CHANGELOG` plan above.
 
 - What shipped (keyed to §Fix *Per-component changes*):
   - `src/extension/host-recovery.ts` (new, item 1) —
@@ -469,7 +472,7 @@ The version bump and CHANGELOG entry land at the separate release step; the
     QRY-14 sentences (captured respond; the relocated-window `Err`); `runtime-event-channel.md` informational-note list (ten notes,
     ride note added); `docs/plan_topics/coverage-matrix.md` PIC-78 row.
 - Tests that lock it:
-  - `tests/b0483-host-recovery-ride.test.ts` — 34 cells: the eight §Witness
+  - `tests/b0483-host-recovery-ride.test.ts` — 42 cells: the eight §Witness
     cells (3 and 7 split a/b) plus (9)/(10) captured respond does not pre-empt
     a non-abort error-stop / `length` probe, (11) respond-repair restarted
     phase keeps a captured payload across a recovery abort, (12)/(13)
@@ -528,7 +531,17 @@ The version bump and CHANGELOG entry land at the separate release step; the
     two projected compaction summaries → the newest opens the turn,
     `"recovered"`. At `41f2fe88`: 32–35 red (one dispatch over `["user"]`,
     the template alone), 38 red (a second dispatch), 39 red (`cancel` with
-    the watchdog reason); 36, 37 green pins. Fixed tree 42/42.
+    the watchdog reason); 36, 37 green pins. Fixed tree 42/42. Release
+    review round 5 (release prep) added (40): the sticky
+    `#windowRelocated` survives the ride's ANCHORED continuation settle
+    inside a repair attempt and still refuses the fresh dispatch —
+    repair opened by an AJV-failing initial dispatch, attempt 1
+    relocated ("recovering", drifted anchor), one ride, the continuation
+    settled at its own anchor, `Err(transport)` naming the relocation,
+    exactly one dispatch (the initial). Green at the release tree (pin);
+    reds when the flag is cleared at the ride's continuation send (34
+    and 35 red under the same mutation; 38 stays green, so (40) alone
+    holds the repair-side line). Release tree 43/43.
   - `tests/live/b0483-host-recovery-live.test.ts` +
     `tests/live/fixtures/b0483-watchdog-mimic-extension.ts` — H8a, cell A
     (`retry.enabled` off, idle-recovery arm: one continuation, one `ride 1/3`
@@ -537,6 +550,15 @@ The version bump and CHANGELOG entry land at the separate release step; the
     or convert it when the dev pin crosses 0.87, item (av)). At HEAD
     both red with `systemNotes=["theta /b0483rideidle cancelled"]` /
     `["theta /b0483rideinrun cancelled"]`; fixed tree 2/2 green.
+- Gates (release 0.494.0 tree): parse gate `Tests 58 passed (58)`;
+  `npm run typecheck` exit 0; `npm run lint` exit 0; unit
+  `tests/b0483-host-recovery-ride.test.ts` 43/43; `npm test`
+  `Test Files 713 passed (713)`, `Tests 12015 passed (12015)` (single
+  run, no bug-0497 flake); live b0483 2/2. Mutation probes at the
+  release tree: the round-5-suggested `driveRepairAttempt` entry reset —
+  whole file green (production no-op, see the round-5 review entry); the
+  flag cleared at the ride's continuation send — cells 34, 35 and 40
+  red, 38 green; both probes reverted.
 - Gates (release review round 4 tree): parse gate `Tests 58 passed (58)`;
   `npm run typecheck` exit 0; `npm run lint` exit 0; targeted (b0483,
   b0288, b0319, b0413, b0414, b0464, b0482, typed/respond/QRY families,
@@ -571,7 +593,7 @@ The version bump and CHANGELOG entry land at the separate release step; the
   prompt-mode turn / schema-typed @-query / subagent-mode theta / typed
   invoke; `typed-query-wire-shapes`, `live-session-control`,
   `b0480live-…`, `b0481live-…`, `off-session-overflow-classification`).
-- Review: 2 rounds, then 4 release review rounds. Round 1 (deep): 13 findings — captured-respond
+- Review: 2 rounds, then 5 release review rounds (round 5 clean). Round 1 (deep): 13 findings — captured-respond
   precedence unscoped (fidelity), repair-phase capture discarded
   (correctness), recorded-abort lifecycle expiries minted transport `Err`
   (fidelity), `recovered` accepted non-normal stop reasons (fidelity), spec
@@ -610,6 +632,27 @@ The version bump and CHANGELOG entry land at the separate release step; the
   the older of two projected summaries; (av) did not name the compaction
   projection; PIC-70's scope clause did not name PIC-78 as the owner of the
   relocated fall-through. All fixed; two residuals recorded (5, 6).
+  Release review round 5 (release tree 23fe8af2): clean. Five residual
+  notes discharged at the release step: the test-list cell count
+  corrected (34 → 42); cell (40) added — `#windowRelocated` carries
+  past an ANCHORED settle inside a repair attempt to its refused fresh
+  dispatch. The reviewer's suggested route into that cell (a captured
+  depth-6 payload passing AJV but failing the CIO-3 walk at settle, so
+  `settleDepthViolation` opens repair with the flag already set and an
+  entry-reset at `driveRepairAttempt` reds it) is UNREACHABLE:
+  `#executeRespondTool` depth-gates the capture before AJV
+  (`enforceModelToolArgDepth`, shipped 0.20.0), so a deep payload is
+  fed back as a tool error and never captured, no reachable flow enters
+  `driveRepairAttempt` with the flag set, and the suggested entry-reset
+  mutation measured as a production no-op — whole file green under
+  it. The cell instead reds when the flag is treated as per-settle
+  state (cleared at the ride's continuation send); the QRY-14
+  relocated-read sentence scoped to a free phase "that reaches the
+  forced respond dispatch"; PIC-78's relocated-window "neither … MAY
+  be issued" strengthened to MUST NOT; the `classifyHostRecoverySettle`
+  doc comment names the compaction-relocated trailing turn as a
+  possible `turnSlice`; the compaction-projection posture added to
+  PIC-78's recorded-postures list (matching item (av)).
 - Verification: VERIFIED — witnesses red on a HEAD scratch copy and green
   on the fixed tree (unit and live); full suite green; live end-to-end and
   regression live runs green; lint, typecheck, parse gate green.
