@@ -9,7 +9,7 @@ import {
   type SystemNoteChannelDeps,
 } from "./system-note-channel";
 import { extractTrailingTurnText, computeActiveSetInstall, type CallableSetInstall } from "../runtime/conversation-drive";
-import { probePostTurnFailure, mapPromptModeSyncThrow, mapPromptModeTurnLifecycleExpiry, type PromptModeTurnLifecyclePhase } from "../runtime/prompt-transport-mapping";
+import { probePostTurnFailure, mapPromptModeSyncThrow, mapPromptModeTurnLifecycleExpiry, trailingTurnUserIndex, type PromptModeTurnLifecyclePhase } from "../runtime/prompt-transport-mapping";
 import type { ForcedRespondTurn, FreePhaseTurn, QueryModelDriver } from "../runtime/query-tool-loop";
 import type { CommittedSideEffect } from "../runtime/no-rollback";
 import type { ContextOverflowError, TransportError } from "../runtime/query-error";
@@ -31,7 +31,7 @@ import {
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import { PromptToolLoopGovernor, type PromptToolLoopExhaustion } from "./prompt-tool-loop-governor";
 import type { ActiveRespondCapture, RespondTurnContext } from "./respond-capture";
-import { macrotask, thisTurnSettled, POLL_INTERVAL_MS, PRE_SEND_GATE_POLL_BOUND, TURN_START_POLL_BOUND, TURN_END_POLL_BOUND, WAIT_FOR_IDLE_BOUND_MS, TURN_SETTLE_POLL_BOUND } from "./turn-settlement";
+import { macrotask, thisTurnSettled, trailingCompactionUnanswered, POLL_INTERVAL_MS, PRE_SEND_GATE_POLL_BOUND, TURN_START_POLL_BOUND, TURN_END_POLL_BOUND, WAIT_FOR_IDLE_BOUND_MS, TURN_SETTLE_POLL_BOUND } from "./turn-settlement";
 import { dispatchForcedRespondTurn } from "./off-session-respond-dispatch";
 
 /**
@@ -947,7 +947,12 @@ class LivePromptQueryModel implements QueryModelDriver {
             // one. Each continuation attempt records its own boundary, so the settle
             // polls and the classification read the RETRIED attempt's slice, never
             // the aborted one's.
-            const turnStart = this.#readMessages().length;
+            const messagesBeforeSend = this.#readMessages();
+            const turnStart = messagesBeforeSend.length;
+            // The trailing `user` message before this attempt's send, by identity:
+            // the settle-grace expiry below must never take it for this attempt's
+            // own anchor.
+            const userBeforeSend = messagesBeforeSend[trailingTurnUserIndex(messagesBeforeSend)];
             // PIC-50: `pi.sendUserMessage` is the only failure the call surface itself
             // can signal synchronously. Map such a throw to a `TransportError` (never
             // `theta/runtime/internal-error`, never a swallowed `Ok("")`) and return
@@ -1084,33 +1089,46 @@ class LivePromptQueryModel implements QueryModelDriver {
               () => !thisTurnSettled(this.#readMessages(), turnStart, this.#readContextPath()),
               settleBound,
             );
-            if (!settleCleared) {
-              // With a recorded abort the grace expired with no settled trailing
-              // assistant: `classifyHostRecoverySettle`'s no-assistant arm is
-              // `cancel`, so the recorded reason is forwarded (a pre-first-token ESC
-              // keeps today's cancellation) rather than minting a transport Err.
-              this.#recordLifecycleExpiry("settle", settleBound * POLL_INTERVAL_MS, recorder);
-              return;
-            }
-            // Bug 0483 §Fix item 2: which site observed the abort. The mid-turn
-            // recorder above (CNCL-4 identity: its RECORDED reason is what a
-            // `cancel` classification forwards), or, only when the recorder never
-            // fired, the post-settle CANCEL-2 `agent_end` trigger: `ctx.signal`
-            // observed aborted only AFTER this attempt settled, whose `cancel`
-            // classification forwards `abortForAgentEnd`'s synthesised reason.
-            const postSettleAbortObserved =
-              !recorder.recorded && this.#ctx.signal?.aborted === true && !this.#thetaAbort.signal.aborted;
-            if (!recorder.recorded && !postSettleAbortObserved) {
-              // No abort observed anywhere for this attempt: a normal settle.
-              // Fall through to the ordinary probe/extraction outside this loop
-              // (the ≤ 0.86 in-run-retry "recovered" residue, reachable with NO
-              // abort at all, is handled entirely by the PIC-53 extraction fix,
-              // item 3 — no classification needed here, per §Out of scope).
-              return;
+            let turnSlice: readonly Message[];
+            if (settleCleared) {
+              // Bug 0483 §Fix item 2: which site observed the abort. The mid-turn
+              // recorder above (CNCL-4 identity: its RECORDED reason is what a
+              // `cancel` classification forwards), or, only when the recorder never
+              // fired, the post-settle CANCEL-2 `agent_end` trigger: `ctx.signal`
+              // observed aborted only AFTER this attempt settled, whose `cancel`
+              // classification forwards `abortForAgentEnd`'s synthesised reason.
+              const postSettleAbortObserved =
+                !recorder.recorded && this.#ctx.signal?.aborted === true && !this.#thetaAbort.signal.aborted;
+              if (!recorder.recorded && !postSettleAbortObserved) {
+                // No abort observed anywhere for this attempt: a normal settle.
+                // Fall through to the ordinary probe/extraction outside this loop
+                // (the ≤ 0.86 in-run-retry "recovered" residue, reachable with NO
+                // abort at all, is handled entirely by the PIC-53 extraction fix,
+                // item 3 — no classification needed here, per §Out of scope).
+                return;
+              }
+              turnSlice = this.#readMessages().slice(turnStart);
+            } else {
+              // The grace expired with a recorded abort. An overflow compaction
+              // mid-turn rebuilds the message list shorter, so this attempt's own
+              // user entry can sit BEFORE `turnStart` and `thisTurnSettled` never
+              // holds even though the post-compaction run settled on a trailing
+              // assistant. Classify the trailing turn PIC-51 reads instead, so a
+              // host recovery of the post-compaction run rides rather than cancels;
+              // no such trailing turn is the pre-first-token shape and cancels
+              // with the recorded reason.
+              const trailingSlice =
+                recorder.recorded && !this.#thetaAbort.signal.aborted
+                  ? this.#ownTrailingTurnSlice(userBeforeSend)
+                  : undefined;
+              if (trailingSlice === undefined) {
+                this.#recordLifecycleExpiry("settle", settleBound * POLL_INTERVAL_MS, recorder);
+                return;
+              }
+              turnSlice = trailingSlice;
             }
             // Bug 0483 §Fix item 1: classify the settled turn against the host's
             // OWN retry classifier.
-            const turnSlice = this.#readMessages().slice(turnStart);
             let finalAssistant: AssistantMessage | undefined;
             for (let i = turnSlice.length - 1; i >= 0; i -= 1) {
               const candidate = turnSlice[i];
@@ -1210,6 +1228,27 @@ class LivePromptQueryModel implements QueryModelDriver {
         this.#exhaustion = this.#governor.end();
       }
     }
+  }
+
+  /**
+   * The session's trailing turn — PIC-51's last-user anchor through the end of
+   * the message list — when it is this attempt's own turn and has settled on
+   * an assistant; `undefined` otherwise. A trailing `user` message identical to
+   * the one that trailed before this attempt's send belongs to an earlier
+   * turn (this attempt's own entry never landed), and an unanswered trailing
+   * compaction means the post-compaction run produced nothing.
+   */
+  #ownTrailingTurnSlice(userBeforeSend: Message | undefined): readonly Message[] | undefined {
+    const messages = this.#readMessages();
+    const anchor = trailingTurnUserIndex(messages);
+    if (anchor === -1 || messages[anchor] === userBeforeSend) {
+      return undefined;
+    }
+    if (trailingCompactionUnanswered(this.#readContextPath())) {
+      return undefined;
+    }
+    const slice = messages.slice(anchor);
+    return slice.some((message) => message.role === "assistant") ? slice : undefined;
   }
 
   /**

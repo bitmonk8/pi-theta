@@ -162,4 +162,4 @@ function trailingCompactionUnanswered(path: readonly SessionEntry[]): boolean {
   return false;
 }
 
-export { POLL_INTERVAL_MS, PRE_SEND_GATE_POLL_BOUND, TURN_START_POLL_BOUND, TURN_END_POLL_BOUND, WAIT_FOR_IDLE_BOUND_MS, TURN_SETTLE_POLL_BOUND, macrotask, thisTurnSettled };
+export { POLL_INTERVAL_MS, PRE_SEND_GATE_POLL_BOUND, TURN_START_POLL_BOUND, TURN_END_POLL_BOUND, WAIT_FOR_IDLE_BOUND_MS, TURN_SETTLE_POLL_BOUND, macrotask, thisTurnSettled, trailingCompactionUnanswered };

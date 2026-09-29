@@ -398,10 +398,20 @@ The version bump and CHANGELOG entry land at the separate release step; the
     budget; settle classification drives recovered (fall through) /
     recovering (captured respond wins, else ride with the informational
     note and the continuation send, else loud `Err(transport)` at the
-    bound) / cancel (forward the recorded reason, CNCL-4). The pre-first-
-    token grace, and every lifecycle-bound expiry with a recorded abort
-    (end-poll, `waitForIdle` race, settle grace), resolve `cancel` through
-    `#recordLifecycleExpiry`. The post-settle `agent_end` synthesis is gated
+    bound) / cancel (forward the recorded reason, CNCL-4). The end-poll and
+    `waitForIdle`-race expiries with a recorded abort resolve `cancel`
+    through `#recordLifecycleExpiry`. The settle-grace expiry with a
+    recorded abort first classifies the session's trailing turn at PIC-51's
+    last-user anchor (`trailingTurnUserIndex`, exported from
+    `src/runtime/prompt-transport-mapping.ts`) instead of the attempt's
+    `turnStart`, which an overflow compaction mid-turn leaves pointing past
+    the rebuilt list (bug 0482 residual 1): `recovering` rides, `recovered`
+    falls through, and the recorded reason is forwarded only on `cancel` or
+    when no settled trailing turn of this attempt's own exists (the trailing
+    `user` message is the one that trailed before the send, the turn carries
+    no assistant, or the leaf path ends in an unanswered compaction —
+    `trailingCompactionUnanswered`, exported from
+    `src/extension/turn-settlement.ts`). The post-settle `agent_end` synthesis is gated
     by the same classification. The captured-respond precedence is a
     per-drive flag set only on the recovering-with-capture exit, read by
     both `nextFreePhaseTurn` and `#driveRestartedRepairPhase`.
@@ -416,18 +426,19 @@ The version bump and CHANGELOG entry land at the separate release step; the
     `tests/live/harness.ts` (second user of `extraExtensionPaths` /
     `settingsManager`).
   - Spec: `cancellation.md` slash-command forwarding bullet
-    (settle-classified, recorded on every agent run of the turn, retry
-    classifier after excluding context overflow); `conversation-drive.md`
+    (settle-classified, recorded per agent run by the end-poll's re-arm,
+    the two uncovered windows, retry classifier after excluding context
+    overflow); `conversation-drive.md`
     new PIC-78 (recorder re-arms per agent run, overflow exclusion,
     continuation sends skip the PIC-70 pre-send gate and why that race is
-    accepted), PIC-70 scoped to an observed `thetaAbort`, PIC-53 join
+    accepted, the settle-grace expiry classifies at the last-user anchor), PIC-70 scoped to an observed `thetaAbort`, PIC-53 join
     exclusion, typed-query bullet exception for the bounded ride
     continuation; `version-bump-step2.md` item (av) + preamble ranges to
     (av) + the live cell B retirement note; `query/query-tool-loop.md` QRY-14
     sentence; `runtime-event-channel.md` informational-note list (ten notes,
     ride note added); `docs/plan_topics/coverage-matrix.md` PIC-78 row.
 - Tests that lock it:
-  - `tests/b0483-host-recovery-ride.test.ts` — 24 cells: the eight §Witness
+  - `tests/b0483-host-recovery-ride.test.ts` — 29 cells: the eight §Witness
     cells (3 and 7 split a/b) plus (9)/(10) captured respond does not pre-empt
     a non-abort error-stop / `length` probe, (11) respond-repair restarted
     phase keeps a captured payload across a recovery abort, (12)/(13)
@@ -445,8 +456,19 @@ The version bump and CHANGELOG entry land at the separate release step; the
     At `a250d9a0`: 15, 17, 18, 19 red (`Err(transport, <tagged>)`,
     `Err(transport, "provider transport failure")`, the watchdog's reason,
     `"recovered"`); 16, 20, 21, 22 green pins (16 because an unrecorded
-    abort falls through to the same extraction `recovered` does); fixed
-    tree 24/24.
+    abort falls through to the same extraction `recovered` does). Review
+    round 2 added the drifted-anchor shape (three prior exchanges, an
+    overflow error-stop, a compaction keeping only the driven user entry,
+    the post-compaction run aborted): (23) watchdog abort + tagged settle →
+    exactly one ride, (24) ESC + aborted settle → cancel with the ESC reason
+    (control), (25) watchdog abort + in-run core retry → `recovered`; (26)
+    core-retry backoff with `ctx.signal` reading `undefined` while the
+    session is non-idle, then the next run's watchdog abort → one ride;
+    (27) every run signal's `abort` listener is detached at the re-arm and
+    at the drive's end (counted on instrumented run signals). At
+    `53e8c200`: 23 and 25 red (`cancel` with the watchdog reason); 24, 26,
+    27 green pins (27 reds when either `dispose` call is removed). Fixed
+    tree 29/29.
   - `tests/live/b0483-host-recovery-live.test.ts` +
     `tests/live/fixtures/b0483-watchdog-mimic-extension.ts` — H8a, cell A
     (`retry.enabled` off, idle-recovery arm: one continuation, one `ride 1/3`
@@ -455,6 +477,15 @@ The version bump and CHANGELOG entry land at the separate release step; the
     or convert it when the dev pin crosses 0.87, item (av)). At HEAD
     both red with `systemNotes=["theta /b0483rideidle cancelled"]` /
     `["theta /b0483rideinrun cancelled"]`; fixed tree 2/2 green.
+- Gates (release review round 2 tree): parse gate `Tests 58 passed (58)`;
+  `npm run typecheck` exit 0; `npm run lint` exit 0; targeted families
+  (b0483, b0288, b0319, b0413, b0482, drive/cancellation/typed/respond/
+  governor, sdk-inventory, inventory-closure, closing-gate, parse gate)
+  `Test Files 48 passed (48)`, `Tests 537 passed (537)`; `npm test`
+  `Test Files 713 passed (713)`, `Tests 12001 passed (12001)` (two earlier
+  full runs each failed real-child-process files with residual 4's
+  `subagent model pre-flight mismatch` — 3 files, then 1 — every one green
+  in isolation); live b0483 2/2.
 - Gates (release review round 1 tree): parse gate `Tests 58 passed (58)`;
   `npm run typecheck` exit 0; `npm run lint` exit 0; targeted families
   (b0483, drive/cancellation/typed/respond/governor, sdk-inventory,
@@ -479,7 +510,14 @@ The version bump and CHANGELOG entry land at the separate release step; the
   host's context-overflow exclusion; witness gaps (cell 8 accepted either
   disposition, no active-set / governor-across-attempts / spec-literal
   cells); line-number citations; live cell B retirement; the pre-send-gate
-  skip unstated in PIC-78. All fixed.
+  skip unstated in PIC-78. All fixed. Release review round 2: the per-run
+  re-arm recorded a watchdog abort of a post-compaction run whose settle
+  anchor had drifted, and the settle-grace expiry then forwarded it as a
+  whole-theta cancel (the pre-fix disposition was `Err(transport)`); no
+  witness for the between-runs `undefined` signal or for listener
+  detachment; the cancellation.md bullet overstated the recorder's
+  coverage; the five-handler spec wording (below). The first three fixed;
+  the last left as a pinned note.
 - Verification: VERIFIED — witnesses red on a HEAD scratch copy and green
   on the fixed tree (unit and live); full suite green; live end-to-end and
   regression live runs green; lint, typecheck, parse gate green.
@@ -491,7 +529,13 @@ The version bump and CHANGELOG entry land at the separate release step; the
      forwards the ESC's reason (cell 18).
   2. pi ≤ 0.86: an ESC during the retry backoff after a watchdog abort
      settles on the tagged error-stop and rides — a direct consequence of
-     classifying by settle shape.
+     classifying by settle shape. pi ≥ 0.87: an abort landing between two
+     runs of the turn — core-retry backoff (the active run handle is
+     cleared, so `ctx.signal` reads `undefined` while the session is
+     non-idle) or overflow compaction — aborts no watched signal, so
+     nothing is recorded and the turn settles on its trailing error-stop as
+     `Err(transport)`, not `cancelled` (cancellation.md slash-command
+     bullet).
   3. Continuation sends do not pass the bug-0288 pre-send idle gate (the
      §Fix-accepted sub-second double-send race with an external re-kicker;
      PIC-78 states the skip and why the race is accepted).
@@ -503,3 +547,19 @@ The version bump and CHANGELOG entry land at the separate release step; the
 - Pinned dispositions / non-goals: the §Fix *Out of scope* list stands
   (upstream pi abort distinction, `fix-cluster-tree.theta` one-retry
   mitigation retirement, bugs 0482/0485).
+- Spec note (release review round 2, R4): the slash-command lead sentence
+  of cancellation.md §"Forwarding into `thetaAbort`" and
+  conversation-drive.md PIC-18 describe cancellation forwarding through
+  five persistent `pi.on` handlers (`tool_call`, `tool_result`,
+  `message_update`, `turn_end`, `agent_end`). `src/` registers only the
+  governor's `before_provider_request` and `tool_call` handlers
+  (`src/extension/prompt-tool-loop-governor.ts`); the forwarding is the
+  driver-local per-turn recorder and the post-settle `agent_end` site
+  (§Measured host facts). The five-handler wording runs through six spec
+  files (`cancellation.md`, and under `pi-integration-contract/`:
+  `conversation-drive.md`, `active-invocation-registry.md`,
+  `host-interfaces-core.md`, `host-prerequisites.md`,
+  `version-bump-step2.md`) and the PIC-18 enumeration witness
+  `tests/b0416-pic18-governor-event-enumeration.test.ts`, so correcting it
+  is a spec question larger than this fix; it predates bug 0483 and is left
+  unchanged here.

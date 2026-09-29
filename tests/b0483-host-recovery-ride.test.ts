@@ -81,6 +81,23 @@
 //  22. PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT is the continuation text
 //      PIC-78 specifies verbatim                                [GREEN, pin]
 //
+// SETTLE-ANCHOR DRIFT AND RUN-GAP CELLS (verdict at 53e8c200, the review
+// round 1 commit, in brackets). An overflow compaction mid-turn rebuilds the
+// message list shorter, so the driven user entry sits before `turnStart` and
+// `thisTurnSettled` never holds; the settle-grace expiry classifies the
+// trailing turn at PIC-51's last-user anchor instead:
+//  23. drifted anchor, watchdog abort of the post-compaction run, tagged
+//      settle → exactly one ride, Ok(<continuation text>)            [RED]
+//  24. drifted anchor, ESC of the post-compaction run, aborted settle
+//      → Err(cancelled), the ESC reason by identity             [GREEN, pin]
+//  25. drifted anchor, watchdog abort, core retry re-runs in-run →
+//      Ok(<retried text>), zero rides ("recovered")                  [RED]
+//  26. core-retry backoff: `ctx.signal` reads `undefined` while the
+//      session is non-idle; the recorder keeps its state across the gap
+//      and records the next run's watchdog abort → one ride     [GREEN, pin]
+//  27. every run signal's listener is detached: at the re-arm onto the
+//      next run and at the drive's end                          [GREEN, pin]
+//
 // HARNESS. The bug-0288/0319/0482 scripted-session pattern: drive the REAL
 // producer (`createProductionProducerDeps` → `bindPromptConversation` →
 // `executeBody`) so the REAL `LivePromptQueryModel` is constructed. The
@@ -119,6 +136,7 @@ import type {
   ExtensionCommandContext,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { buildSessionContext } from "@earendil-works/pi-coding-agent";
 import {
   isContextOverflow,
   isRetryableAssistantError,
@@ -133,7 +151,7 @@ import {
 import { TOOL_LOOP_EXHAUSTED_REASON } from "../src/extension/prompt-tool-loop-governor";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import { TURN_SETTLE_POLL_BOUND } from "../src/extension/turn-settlement";
+import { thisTurnSettled, TURN_SETTLE_POLL_BOUND } from "../src/extension/turn-settlement";
 import { extractTrailingTurnText } from "../src/runtime/conversation-drive";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import type { RuntimeRoot } from "../src/runtime-root";
@@ -199,6 +217,18 @@ type HostStep =
   | { readonly kind: "toolRound"; readonly toolName: string }
   /** pi ≤ 0.86 in-run core retry: a fresh run controller; the session stays non-idle. */
   | { readonly kind: "retryRun" }
+  /**
+   * Core-retry backoff (`_prepareRetry`): the active run handle is cleared, so
+   * `ctx.signal` reads `undefined`, while the session stays non-idle; the next
+   * `retryRun` starts the fresh run.
+   */
+  | { readonly kind: "retryBackoff" }
+  /**
+   * Overflow auto-compaction: a `compaction` entry whose `firstKeptEntryId` is
+   * this turn's own user entry — `buildSessionContext` then hoists the summary
+   * to the head and drops every earlier exchange from the built message list.
+   */
+  | { readonly kind: "compaction" }
   /** The run settles: the session reads idle. */
   | { readonly kind: "idle" }
   /** The run never settles: every later poll finds it still active (this step is never consumed). */
@@ -229,6 +259,38 @@ interface ActiveRun {
   controller: AbortController;
   readonly script: TurnScript;
   index: number;
+  /** True inside a `retryBackoff`: no active run handle, `ctx.signal` is `undefined`. */
+  inBackoff: boolean;
+  /** This turn's own user entry id (the compaction's `firstKeptEntryId`). */
+  readonly userEntryId: string;
+}
+
+/** A run signal the host created, with its live `abort` listener count. */
+interface TrackedSignal {
+  readonly signal: AbortSignal;
+  added: number;
+  removed: number;
+  /** `ticks` when a later run replaced it; `undefined` while it is current. */
+  retiredAt: number | undefined;
+}
+
+/** Live `abort` listeners on `tracked` (a fired `once` listener is gone with the abort). */
+function liveListeners(tracked: TrackedSignal): number {
+  return tracked.signal.aborted ? 0 : tracked.added - tracked.removed;
+}
+
+/** Append a `compaction` entry chained like `appendMessageEntry` (the b0482 shape). */
+function appendCompactionEntry(entries: SessionEntryDouble[], firstKeptEntryId: string): void {
+  const id = `e${entries.length + 1}`;
+  const parentId = entries.length === 0 ? undefined : `e${entries.length}`;
+  entries.push({
+    type: "compaction",
+    id,
+    parentId,
+    summary: "auto-compaction: prior context summarised",
+    firstKeptEntryId,
+    tokensBefore: 130000,
+  } as unknown as SessionEntryDouble);
 }
 
 class HostRecoverySession {
@@ -251,13 +313,51 @@ class HostRecoverySession {
   readonly governor: GovernorHandlers = {};
   /** Every `toolRound` step's `tool_call` decision (`undefined` = allowed), in order. */
   readonly toolCallDecisions: unknown[] = [];
+  /** A copy of `entries` at each `idle` step, in order (the drift premise's observable). */
+  readonly entriesAtIdle: SessionEntryDouble[][] = [];
+  /** `ctx.signal` reads that returned `undefined` while the session was non-idle. */
+  undefinedSignalReadsWhileActive = 0;
+  /** Every run signal, instrumented for listener accounting (cell 27). */
+  readonly runSignals: TrackedSignal[] = [];
+  /** The most live listeners seen, at a step, on run signals a previous step retired. */
+  maxStaleListeners = 0;
 
   readonly #scripts: TurnScript[];
   #run: ActiveRun | undefined = undefined;
   #postSettleSignal: AbortSignal | undefined = undefined;
 
-  constructor(scripts: readonly TurnScript[]) {
+  constructor(scripts: readonly TurnScript[], priorExchanges = 0) {
     this.#scripts = [...scripts];
+    for (let i = 1; i <= priorExchanges; i += 1) {
+      appendUserEntry(this.entries, `prior question ${i}`);
+      appendAssistantEntry(this.entries, `prior answer ${i}`, "stop");
+    }
+  }
+
+  /** A fresh run controller whose signal's `abort` listeners are counted. */
+  #newRunController(): AbortController {
+    const controller = new AbortController();
+    const tracked: TrackedSignal = { signal: controller.signal, added: 0, removed: 0, retiredAt: undefined };
+    const signal = controller.signal;
+    const add = signal.addEventListener.bind(signal);
+    const remove = signal.removeEventListener.bind(signal);
+    signal.addEventListener = ((...args: Parameters<AbortSignal["addEventListener"]>): void => {
+      if (args[0] === "abort") {
+        tracked.added += 1;
+      }
+      add(...args);
+    }) as AbortSignal["addEventListener"];
+    signal.removeEventListener = ((...args: Parameters<AbortSignal["removeEventListener"]>): void => {
+      if (args[0] === "abort") {
+        tracked.removed += 1;
+      }
+      remove(...args);
+    }) as AbortSignal["removeEventListener"];
+    for (const previous of this.runSignals) {
+      previous.retiredAt ??= this.ticks;
+    }
+    this.runSignals.push(tracked);
+    return controller;
   }
 
   sendUserMessage(text: string): void {
@@ -277,8 +377,9 @@ class HostRecoverySession {
       );
     }
     appendUserEntry(this.entries, text);
+    const userEntryId = this.entries[this.entries.length - 1]!.id;
     this.#postSettleSignal = undefined;
-    this.#run = { controller: new AbortController(), script, index: 0 };
+    this.#run = { controller: this.#newRunController(), script, index: 0, inBackoff: false, userEntryId };
   }
 
   isIdle(): boolean {
@@ -289,6 +390,10 @@ class HostRecoverySession {
   get signal(): AbortSignal | undefined {
     const run = this.#run;
     if (run !== undefined) {
+      if (run.inBackoff) {
+        this.undefinedSignalReadsWhileActive += 1;
+        return undefined;
+      }
       return (run.script.signalExposure ?? "live") === "live" ? run.controller.signal : undefined;
     }
     return this.#postSettleSignal;
@@ -303,6 +408,10 @@ class HostRecoverySession {
   /** Advance the active run by exactly one scripted host step (one drive poll). */
   tick(): void {
     this.ticks += 1;
+    const stale = this.runSignals
+      .filter((tracked) => tracked.retiredAt !== undefined && tracked.retiredAt < this.ticks)
+      .reduce((sum, tracked) => sum + liveListeners(tracked), 0);
+    this.maxStaleListeners = Math.max(this.maxStaleListeners, stale);
     const run = this.#run;
     if (run === undefined) {
       return;
@@ -384,9 +493,17 @@ class HostRecoverySession {
         return;
       }
       case "retryRun":
-        run.controller = new AbortController();
+        run.inBackoff = false;
+        run.controller = this.#newRunController();
+        return;
+      case "retryBackoff":
+        run.inBackoff = true;
+        return;
+      case "compaction":
+        appendCompactionEntry(this.entries, run.userEntryId);
         return;
       case "idle":
+        this.entriesAtIdle.push([...this.entries]);
         if ((run.script.signalExposure ?? "live") === "post-settle") {
           this.#postSettleSignal = run.controller.signal;
         }
@@ -503,6 +620,8 @@ interface DriveOptions {
   readonly waitForIdle?: WaitForIdleShape;
   /** Off-session forced respond replies (the mocked `complete()` queue); empty = none expected. */
   readonly completeQueue?: (typeof scripted)["queue"];
+  /** Settled user/assistant exchanges already on the session before the drive (default none). */
+  readonly priorExchanges?: number;
 }
 
 async function driveLiveTheta(
@@ -519,7 +638,7 @@ async function driveLiveTheta(
     frontmatter: doc.frontmatter!,
     body: doc.body,
   };
-  const session = new HostRecoverySession(scripts);
+  const session = new HostRecoverySession(scripts, options.priorExchanges ?? 0);
   const pi = piDouble(session);
   session.respondExecutor = (payload: unknown): Promise<unknown> => {
     const tool = pi.registeredTools.find((t) => t.name.startsWith("__theta_respond_"));
@@ -715,6 +834,49 @@ function forcedRespondReply(payload: unknown): (typeof scripted)["queue"][number
       toolCalls: [{ id: "tc-forced", name: respond.name, arguments: payload }],
     });
   };
+}
+
+/** Settled exchanges ahead of a drifted-anchor drive (cells 23–25): the send's `turnStart` is twice this. */
+const DRIFT_PRIOR_EXCHANGES = 3;
+
+/**
+ * The drifted-anchor turn: an overflow error-stop, an auto-compaction keeping
+ * only the driven user entry, the post-compaction run, an abort of that run,
+ * then `tail`, then the run settles idle.
+ */
+function driftedTurn(abortReason: Error, tail: readonly HostStep[]): TurnScript {
+  return {
+    steps: [
+      { kind: "assistant", stopReason: "error", errorMessage: CONTEXT_OVERFLOW_ERROR },
+      { kind: "compaction" },
+      { kind: "retryRun" },
+      { kind: "abort", reason: abortReason },
+      ...tail,
+      { kind: "idle" },
+    ],
+  };
+}
+
+/**
+ * Assert the drift premise: at the first attempt's idle, the rebuilt message
+ * list places the driven user entry before `turnStart`, so `thisTurnSettled`
+ * over it cannot hold — the settle poll can only expire.
+ */
+function expectAnchorDrifted(session: HostRecoverySession): void {
+  const atIdle = session.entriesAtIdle[0];
+  if (atIdle === undefined) {
+    throw new Error("b0483 precondition unmet: the drifted attempt never reached its idle step");
+  }
+  const turnStart = DRIFT_PRIOR_EXCHANGES * 2;
+  const built = buildSessionContext(atIdle as never).messages as unknown as readonly Message[];
+  expect(
+    built.length,
+    `drift premise: the compaction-rebuilt list is no longer than turnStart (${turnStart}); roles=${JSON.stringify(built.map((m) => m.role))}`,
+  ).toBeLessThanOrEqual(turnStart);
+  expect(
+    thisTurnSettled(built, turnStart, sessionBranch(atIdle) as never),
+    "drift premise: the attempt's own slice never opens at turnStart",
+  ).toBe(false);
 }
 
 /** Assert the premise that the fixture errorMessage is one the host would retry. */
@@ -1429,5 +1591,173 @@ describe("bug 0483 — a host-recovery abort must ride the host's retry, not can
       ),
       "PIC-78 names the continuation constant and quotes its text byte-exact; code and spec must not drift",
     ).toBe(true);
+  });
+
+  // --- Settle-anchor drift (cells 23–25) -------------------------------------
+  // The reviewer's shape: three prior exchanges, then an overflow error-stop,
+  // an auto-compaction keeping only the driven user entry, the post-compaction
+  // run, and an abort of THAT run. The rebuilt list is shorter than
+  // `turnStart`, so the attempt's own slice never opens.
+
+  it("(23) drifted anchor: a watchdog abort of the post-compaction run whose tagged error-stop settles idle → exactly ONE ride, Ok(<continuation text>) — RED at 53e8c200: Err(cancelled) with the watchdog reason", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(
+      ONE_QUERY_THETA,
+      [
+        driftedTurn(watchdogAbortReason(), [
+          {
+            kind: "assistant",
+            stopReason: "error",
+            text: "post-compaction partial",
+            errorMessage: TAGGED_RETRYABLE_ERROR,
+          },
+        ]),
+        cleanTurn("continued answer after recovery"),
+      ],
+      { priorExchanges: DRIFT_PRIOR_EXCHANGES },
+    );
+
+    expectAnchorDrifted(out.session);
+    expect(
+      out.thetaAbort.signal.aborted,
+      `PIC-78: the settle-grace expiry classifies the trailing turn at PIC-51's last-user anchor; a ` +
+        `recovering settle is not a cancellation; observed ${disposition(out)}`,
+    ).toBe(false);
+    expect(out.execution.outcome, `the drifted recovering settle rides; observed ${disposition(out)}`).toBe("success");
+    expect(out.session.sends, "exactly one continuation send follows the original query send").toEqual([
+      QUERY_TEXT,
+      PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT,
+    ]);
+    expect(out.execution.result.value, "PIC-53: the continuation turn's text only").toBe(
+      "continued answer after recovery",
+    );
+    expectRideNotes(out.pi.notes, 1);
+  });
+
+  it("(24) drifted anchor control: an ESC of the post-compaction run whose turn settles \"aborted\" → Err(cancelled) with the ESC reason by identity", async () => {
+    const esc = escAbortReason();
+    const out = await driveLiveTheta(
+      ONE_QUERY_THETA,
+      [
+        driftedTurn(esc, [{ kind: "assistant", stopReason: "aborted", text: "post-compaction partial" }]),
+        // Scripted in case a ride is issued; unconsumed on the fixed tree.
+        cleanTurn("continued answer after recovery"),
+      ],
+      { priorExchanges: DRIFT_PRIOR_EXCHANGES },
+    );
+
+    expectAnchorDrifted(out.session);
+    expect(out.execution.outcome, `a genuine ESC cancels; observed ${disposition(out)}`).toBe("cancel");
+    expect(out.thetaAbort.signal.reason, "CNCL-4: the recorded source reason, by identity").toBe(esc);
+    expect(out.session.sends, "a cancelled turn is never continued").toEqual([QUERY_TEXT]);
+    expectRideNotes(out.pi.notes, 0);
+  });
+
+  it("(25) drifted anchor: a watchdog abort of the post-compaction run, then core retry re-runs in-run → Ok(<retried text>), ZERO rides (\"recovered\") — RED at 53e8c200: Err(cancelled) with the watchdog reason", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(
+      ONE_QUERY_THETA,
+      [
+        driftedTurn(watchdogAbortReason(), [
+          {
+            kind: "assistant",
+            stopReason: "error",
+            text: "post-compaction partial",
+            errorMessage: TAGGED_RETRYABLE_ERROR,
+          },
+          { kind: "retryRun" },
+          { kind: "assistant", stopReason: "stop", text: "retried answer" },
+        ]),
+      ],
+      { priorExchanges: DRIFT_PRIOR_EXCHANGES },
+    );
+
+    expectAnchorDrifted(out.session);
+    expect(out.thetaAbort.signal.aborted, `core retry recovered the turn; observed ${disposition(out)}`).toBe(false);
+    expect(out.execution.outcome, `"recovered" falls through to the extraction; observed ${disposition(out)}`).toBe(
+      "success",
+    );
+    expect(out.execution.result.value, "PIC-53: the retried text only, every error-stop excluded").toBe(
+      "retried answer",
+    );
+    expect(out.session.sends, "zero continuation sends: core retry already re-ran the turn").toEqual([QUERY_TEXT]);
+    expectRideNotes(out.pi.notes, 0);
+  });
+
+  it("(26) core-retry backoff: ctx.signal reads undefined while the session is non-idle, then the next run's watchdog abort is recorded → exactly ONE ride", async () => {
+    expectTaggedMessageIsHostRetryable();
+    expectHostRetryable(OVERLOADED_ERROR);
+    const out = await driveLiveTheta(ONE_QUERY_THETA, [
+      {
+        steps: [
+          { kind: "assistant", stopReason: "error", text: "run 1 partial", errorMessage: OVERLOADED_ERROR },
+          // `_prepareRetry`'s backoff: the run handle is cleared across several polls.
+          { kind: "retryBackoff" },
+          { kind: "retryBackoff" },
+          { kind: "retryBackoff" },
+          { kind: "retryRun" },
+          { kind: "abort", reason: watchdogAbortReason() },
+          { kind: "assistant", stopReason: "error", text: "run 2 partial", errorMessage: TAGGED_RETRYABLE_ERROR },
+          { kind: "idle" },
+        ],
+      },
+      cleanTurn("continued answer after recovery"),
+    ]);
+
+    expect(
+      out.session.undefinedSignalReadsWhileActive,
+      "cell premise: the end-poll read ctx.signal as undefined while the session was non-idle",
+    ).toBeGreaterThan(0);
+    expect(
+      out.execution.outcome,
+      `the recorder survives the undefined-signal gap and records run 2's abort; observed ${disposition(out)}`,
+    ).toBe("success");
+    expect(out.session.sends, "exactly one continuation send follows the original query send").toEqual([
+      QUERY_TEXT,
+      PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT,
+    ]);
+    expect(out.execution.result.value, "PIC-53: the continuation turn's text only").toBe(
+      "continued answer after recovery",
+    );
+    expectRideNotes(out.pi.notes, 1);
+  });
+
+  it("(27) the recorder detaches every run signal's listener: at the re-arm onto the next run and at the drive's end", async () => {
+    expectHostRetryable(OVERLOADED_ERROR);
+    const out = await driveLiveTheta(ONE_QUERY_THETA, [
+      {
+        steps: [
+          { kind: "assistant", stopReason: "error", text: "run 1 partial", errorMessage: OVERLOADED_ERROR },
+          { kind: "retryRun" },
+          { kind: "assistant", stopReason: "error", text: "run 2 partial", errorMessage: OVERLOADED_ERROR },
+          { kind: "retryRun" },
+          { kind: "assistant", stopReason: "stop", text: "run 3 answer" },
+          { kind: "idle" },
+        ],
+      },
+    ]);
+
+    expect(out.execution.outcome, `cell premise: the turn settles normally; observed ${disposition(out)}`).toBe(
+      "success",
+    );
+    expect(out.execution.result.value, "PIC-53: run 3's text only").toBe("run 3 answer");
+    const counts = out.session.runSignals.map((tracked) => ({ added: tracked.added, removed: tracked.removed }));
+    expect(counts.length, "cell premise: one driven turn spanning three agent runs").toBe(3);
+    for (const [run, tracked] of out.session.runSignals.entries()) {
+      expect(
+        tracked.added,
+        `cell premise: the recorder watched run ${run + 1}'s signal; counts=${JSON.stringify(counts)}`,
+      ).toBe(1);
+    }
+    expect(
+      out.session.maxStaleListeners,
+      `a replaced run's listener is detached before the next host step; counts=${JSON.stringify(counts)}`,
+    ).toBe(0);
+    for (const [run, tracked] of out.session.runSignals.entries()) {
+      expect(
+        liveListeners(tracked),
+        `run ${run + 1}'s listener is detached once the drive ends; counts=${JSON.stringify(counts)}`,
+      ).toBe(0);
+    }
   });
 });

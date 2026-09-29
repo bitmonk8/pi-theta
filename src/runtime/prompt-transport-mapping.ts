@@ -305,13 +305,7 @@ export function probePostTurnFailure(
 function trailingTurnFinalAssistant(
   messages: readonly Message[],
 ): AssistantMessage | undefined {
-  let turnStart = -1;
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    if (messages[i]?.role === "user") {
-      turnStart = i;
-      break;
-    }
-  }
+  const turnStart = trailingTurnUserIndex(messages);
   const turn = turnStart === -1 ? messages : messages.slice(turnStart);
   for (let i = turn.length - 1; i >= 0; i -= 1) {
     const message = turn[i];
@@ -320,6 +314,21 @@ function trailingTurnFinalAssistant(
     }
   }
   return undefined;
+}
+
+/**
+ * PIC-51's last-user anchor: the index of the trailing turn's `user` message
+ * in `messages`, `-1` when the list carries none. Independent of any recorded
+ * message-list length, so it still locates the trailing turn after a host
+ * compaction rebuilt the list shorter than it was at the turn's send.
+ */
+export function trailingTurnUserIndex(messages: readonly Message[]): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === "user") {
+      return i;
+    }
+  }
+  return -1;
 }
 
 /**
