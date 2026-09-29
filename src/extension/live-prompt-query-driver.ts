@@ -49,12 +49,16 @@ import { dispatchForcedRespondTurn } from "./off-session-respond-dispatch";
 const HOST_RECOVERY_ABORT_SETTLE_GRACE_POLL_BOUND = 50;
 
 /**
- * The index of the last compaction summary in a built session message list,
- * `-1` when it carries none. The summary is pi's `compactionSummary` context
- * message, a role outside pi-ai's `Message` union, hence the widened read.
+ * The index of the newest compaction summary in a built session message list,
+ * `-1` when it carries none. `buildContextEntries` places the latest
+ * compaction at the head, ahead of its kept entries, so an older compaction
+ * inside the kept range projects a second summary AFTER the newest one; the
+ * first summary is the newest. The summary is pi's `compactionSummary`
+ * context message, a role outside pi-ai's `Message` union, hence the widened
+ * read.
  */
-function lastCompactionSummaryIndex(messages: readonly Message[]): number {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
+function newestCompactionSummaryIndex(messages: readonly Message[]): number {
+  for (let i = 0; i < messages.length; i += 1) {
     const role: string | undefined = messages[i]?.role;
     if (role === "compactionSummary") {
       return i;
@@ -226,6 +230,15 @@ class LivePromptQueryModel implements QueryModelDriver {
    * probe verdict over a captured turn surfaces as usual.
    */
   #endedOnCapturedRecovery = false;
+  /**
+   * Bug 0483 (PIC-78): whether any attempt of this query was classified
+   * through the compaction-relocated trailing-turn read. The compaction that
+   * forced that read rebuilt the message list, so `#queryWindowStart` no
+   * longer indexes this query's turns and a window-shaped forced respond
+   * would replay a stale or empty conversation. Never reset: the rebuilt list
+   * stays rebuilt for every later dispatch of the query.
+   */
+  #windowRelocated = false;
   /**
    * Bug 0319 (cancellation.md §"Forwarding into `thetaAbort`", bidirectional
    * prompt-mode clause): guards the reverse `thetaAbort` -> `ctx.abort()`
@@ -745,6 +758,23 @@ class LivePromptQueryModel implements QueryModelDriver {
    * mechanism byte-identically.
    */
   #dispatchRespondOverWindow(respond: RespondTurnContext): Promise<ForcedRespondTurn> {
+    // Bug 0483 (PIC-78): under forced tool choice a provider binds a
+    // schema-valid payload even over a window that carries none of this
+    // query's turns, so a stale window must fail loudly, never dispatch.
+    if (this.#windowRelocated) {
+      return Promise.resolve({
+        kind: "transport",
+        error: {
+          kind: "transport",
+          message:
+            "typed query forced respond turn not dispatched: a mid-turn compaction relocated the driven turn " +
+            "(PIC-78), so the query window recorded at the query's first send no longer spans this query's turns",
+          http_status: null,
+          provider: this.#provider,
+          retryable: true,
+        },
+      });
+    }
     const messages: Message[] = [
       ...this.#readMessages().slice(this.#queryWindowStart ?? 0),
       { role: "user", content: respond.template, timestamp: 0 },
@@ -1158,6 +1188,7 @@ class LivePromptQueryModel implements QueryModelDriver {
                 this.#recordLifecycleExpiry("settle", settleBound * POLL_INTERVAL_MS, recorder);
                 return;
               }
+              this.#windowRelocated = true;
               turnSlice = trailingSlice;
             }
             // Bug 0483 §Fix item 1: classify the settled turn against the host's
@@ -1271,7 +1302,7 @@ class LivePromptQueryModel implements QueryModelDriver {
    * attempt's own entry never landed). A list with no `user` message at all is
    * pi's split-turn compaction layout — the summary, then the turn's kept
    * recent tool rounds, then the post-compaction run — so the turn is the list
-   * after the compaction summary, the same span PIC-51/PIC-53 read when no
+   * after the newest compaction summary, the same span PIC-51/PIC-53 read when no
    * `user` message anchors them; only a compaction appended during this
    * attempt (absent from `pathIdsBeforeSend`) explains the missing anchor. An
    * unanswered trailing compaction means the post-compaction run produced
@@ -1297,7 +1328,7 @@ class LivePromptQueryModel implements QueryModelDriver {
       const compactedThisAttempt = path.some(
         (entry) => entry.type === "compaction" && !pathIdsBeforeSend.has(entry.id),
       );
-      const summary = compactedThisAttempt ? lastCompactionSummaryIndex(messages) : -1;
+      const summary = compactedThisAttempt ? newestCompactionSummaryIndex(messages) : -1;
       if (summary === -1) {
         return undefined;
       }

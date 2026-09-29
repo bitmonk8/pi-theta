@@ -425,7 +425,17 @@ The version bump and CHANGELOG entry land at the separate release step; the
     anchor first. The post-settle `agent_end` synthesis is gated
     by the same classification. The captured-respond precedence is a
     per-drive flag set only on the recovering-with-capture exit, read by
-    both `nextFreePhaseTurn` and `#driveRestartedRepairPhase`.
+    both `nextFreePhaseTurn` and `#driveRestartedRepairPhase`. With no `user`
+    anchor the trailing turn opens after the FIRST `compactionSummary`
+    message (`newestCompactionSummaryIndex`): `buildContextEntries` places
+    the latest compaction at the head, so an older compaction inside its
+    kept range projects a second summary after it. Once any attempt of a
+    typed query is classified through the relocated read, the per-query
+    `#windowRelocated` flag makes `#dispatchRespondOverWindow` — the
+    initial forced respond and the repair restart's fresh dispatch — return
+    `Err(transport)` (retryable, naming the compaction relocation) instead
+    of replaying `slice(#queryWindowStart)` of the rebuilt list; a payload
+    the early-respond capture holds still resolves first.
   - `src/runtime/conversation-drive.ts` (item 3) — `extractTrailingTurnText`
     skips `stopReason: "error"` assistant entries.
   - `src/extension/sdk-inventory.ts` — `isRetryableAssistantError` and
@@ -446,10 +456,17 @@ The version bump and CHANGELOG entry land at the separate release step; the
     exclusion, typed-query bullet exception for the bounded ride
     continuation, the split-turn layout (no `user` anchor and a compaction
     from this attempt: the list after the summary) and the classification
-    on the first settled read; cancellation.md's uncovered-window sentence
+    on the first settled read, the newest summary opening the split-turn
+    span, and *Typed-query window after a relocated classification* (the
+    forced respond and the repair fresh dispatch end `Err(transport)`,
+    retryable, the window is not rebuilt, a captured payload still wins);
+    PIC-70's *Scope (bug 0483)* names PIC-78 as the owner of the relocated
+    `"recovered"` fall-through; cancellation.md's uncovered-window sentence
     corrected for pi ≥ 0.87's error-stop omission (residual 2); `version-bump-step2.md` item (av) + preamble ranges to
-    (av) + the live cell B retirement note; `query/query-tool-loop.md` QRY-14
-    sentence; `runtime-event-channel.md` informational-note list (ten notes,
+    (av) + the live cell B retirement note + the compaction-projection
+    dependency (`compactionSummary` role, newest-first ordering, `compaction`
+    entry type; a rename falls back to `cancel`); `query/query-tool-loop.md`
+    QRY-14 sentences (captured respond; the relocated-window `Err`); `runtime-event-channel.md` informational-note list (ten notes,
     ride note added); `docs/plan_topics/coverage-matrix.md` PIC-78 row.
 - Tests that lock it:
   - `tests/b0483-host-recovery-ride.test.ts` — 34 cells: the eight §Witness
@@ -499,7 +516,19 @@ The version bump and CHANGELOG entry land at the separate release step; the
     27b reds with the per-attempt `liveRecorder?.dispose()` removed (run 2's
     listener stays live), 31 reds when any compaction on the path is
     accepted (the earlier turn's tagged error-stop rides). Fixed tree
-    34/34.
+    34/34. Release review round 4 added the typed relocated-window cells:
+    (32) drifted `"recovered"`, (33) split-turn `"recovered"`, (34) drifted
+    ride whose continuation settles, (35) split-turn ride → each
+    `Err(transport)`, retryable, naming the compaction relocation, zero
+    forced respond dispatches; (36) split-turn `"recovering"` with a
+    capture this attempt → `Ok(<captured payload>)`, zero dispatches (pin);
+    (37) typed control, no compaction → one dispatch over
+    `[user, assistant, user]` (pin); (38) the repair restart classified
+    through the relocated read → no fresh dispatch, `Err(transport)`; (39)
+    two projected compaction summaries → the newest opens the turn,
+    `"recovered"`. At `41f2fe88`: 32–35 red (one dispatch over `["user"]`,
+    the template alone), 38 red (a second dispatch), 39 red (`cancel` with
+    the watchdog reason); 36, 37 green pins. Fixed tree 42/42.
   - `tests/live/b0483-host-recovery-live.test.ts` +
     `tests/live/fixtures/b0483-watchdog-mimic-extension.ts` — H8a, cell A
     (`retry.enabled` off, idle-recovery arm: one continuation, one `ride 1/3`
@@ -508,6 +537,13 @@ The version bump and CHANGELOG entry land at the separate release step; the
     or convert it when the dev pin crosses 0.87, item (av)). At HEAD
     both red with `systemNotes=["theta /b0483rideidle cancelled"]` /
     `["theta /b0483rideinrun cancelled"]`; fixed tree 2/2 green.
+- Gates (release review round 4 tree): parse gate `Tests 58 passed (58)`;
+  `npm run typecheck` exit 0; `npm run lint` exit 0; targeted (b0483,
+  b0288, b0319, b0413, b0414, b0464, b0482, typed/respond/QRY families,
+  closing-gate, inventory-closure audit + gate, sdk-inventory,
+  session-control sdk-inventory, parse gate) `Test Files 26 passed (26)`,
+  `Tests 394 passed (394)`; `npm test` `Test Files 713 passed (713)`,
+  `Tests 12014 passed (12014)`; live b0483 2/2.
 - Gates (release review round 3 tree): parse gate `Tests 58 passed (58)`;
   `npm run typecheck` exit 0; `npm run lint` exit 0; targeted (b0483,
   b0288, b0319, b0413, b0414, b0464, b0482, closing-gate,
@@ -535,7 +571,7 @@ The version bump and CHANGELOG entry land at the separate release step; the
   prompt-mode turn / schema-typed @-query / subagent-mode theta / typed
   invoke; `typed-query-wire-shapes`, `live-session-control`,
   `b0480live-…`, `b0481live-…`, `off-session-overflow-classification`).
-- Review: 2 rounds. Round 1 (deep): 13 findings — captured-respond
+- Review: 2 rounds, then 4 release review rounds. Round 1 (deep): 13 findings — captured-respond
   precedence unscoped (fidelity), repair-phase capture discarded
   (correctness), recorded-abort lifecycle expiries minted transport `Err`
   (fidelity), `recovered` accepted non-normal stop reasons (fidelity), spec
@@ -565,6 +601,15 @@ The version bump and CHANGELOG entry land at the separate release step; the
   compaction; no witness reddened on removing the per-attempt recorder
   dispose; the spec note scoped PIC-18 loosely. All fixed; the spec note
   now points at bug 0498.
+  Release review round 4: after a compaction-relocated classification a
+  typed query's forced respond and the repair restart's fresh dispatch
+  replayed `slice(#queryWindowStart)` of the rebuilt list — the template
+  alone or an empty window — so a provider under forced tool choice could
+  bind a fabricated payload as `Ok` (operator disposition: a loud retryable
+  `Err(transport)`, the window not rebuilt); the split-turn span opened at
+  the older of two projected summaries; (av) did not name the compaction
+  projection; PIC-70's scope clause did not name PIC-78 as the owner of the
+  relocated fall-through. All fixed; two residuals recorded (5, 6).
 - Verification: VERIFIED — witnesses red on a HEAD scratch copy and green
   on the fixed tree (unit and live); full suite green; live end-to-end and
   regression live runs green; lint, typecheck, parse gate green.
@@ -602,6 +647,16 @@ The version bump and CHANGELOG entry land at the separate release step; the
      `subagent model pre-flight mismatch … (unresolved: no matching model)`
      under full-suite load (reviewer and verifier runs; each file green in
      isolation); unrelated to this change — filed as bug 0497.
+  5. pi 0.87.1: `projectContextEntry` returns fresh message objects for
+     entries a `context_edit` replaced, so the `userBeforeSend` identity
+     check can break when an extension edits the prior user message and
+     this attempt's own send is dropped: the edited earlier message reads
+     as a new anchor and its turn can be classified as this attempt's.
+  6. Mid-drive tree navigation onto a branch carrying an older
+     `compaction` entry absent from the pre-send path treats that
+     compaction as appended during this attempt. This matches the spec's
+     definition (an entry absent from the leaf path read before the send)
+     and is the same exposure anchored reads have to a navigated leaf.
 - Discharge notes appended: none.
 - Pinned dispositions / non-goals: the §Fix *Out of scope* list stands
   (upstream pi abort distinction, `fix-cluster-tree.theta` one-retry

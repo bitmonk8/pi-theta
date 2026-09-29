@@ -119,6 +119,22 @@
 //      entry never landed over an earlier split-turn compaction) →
 //      Err(cancelled) with the recorded reason, no ride        [GREEN, pin]
 //
+// TYPED-WINDOW AND SUMMARY-ORDER CELLS (verdict at 41f2fe88, the review
+// round 3 commit, in brackets). The compaction that forces the relocated read
+// rebuilds the message list, so the query window recorded at the first send
+// no longer indexes the query's turns:
+//  32–35. typed, drifted / split-turn, relocated "recovered" or a ride whose
+//      continuation settles → Err(transport, retryable) naming the
+//      compaction relocation, zero forced respond dispatches         [RED]
+//  36. typed, split turn, relocated "recovering" with a capture this
+//      attempt → Ok(<captured payload>), zero dispatches       [GREEN, pin]
+//  37. typed control, no compaction → one dispatch over the query
+//      turn plus the template                                   [GREEN, pin]
+//  38. respond repair: the restarted phase is classified through the
+//      relocated read → no fresh dispatch, Err(transport)            [RED]
+//  39. two projected compaction summaries: the newest (first) one opens
+//      the trailing turn → "recovered"                               [RED]
+//
 // HARNESS. The bug-0288/0319/0482 scripted-session pattern: drive the REAL
 // producer (`createProductionProducerDeps` → `bindPromptConversation` →
 // `executeBody`) so the REAL `LivePromptQueryModel` is constructed. The
@@ -2104,4 +2120,242 @@ describe("bug 0483 — a host-recovery abort must ride the host's retry, not can
     expect(out.session.sends, "an earlier turn's settle is never ridden").toEqual([QUERY_TEXT]);
     expectRideNotes(out.pi.notes, 0);
   });
+
+  // --- Typed queries after a compaction-relocated classification (32–39) ----
+  // The compaction that forced the relocated read rebuilt the message list, so
+  // the query window recorded at the first send no longer indexes this
+  // query's turns. The forced respond and the repair restart's fresh dispatch
+  // must end Err(transport) instead of replaying a stale or empty window.
+
+  it("(32) typed, drifted anchor, relocated \"recovered\": the forced respond is NOT dispatched over the stale window → Err(transport, retryable) naming the compaction relocation — RED at 41f2fe88: dispatched, Ok(<forced payload>)", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(
+      TYPED_QUERY_THETA,
+      [
+        driftedTurn(watchdogAbortReason(), [
+          { kind: "assistant", stopReason: "error", text: "post-compaction partial", errorMessage: TAGGED_RETRYABLE_ERROR },
+          { kind: "retryRun" },
+          { kind: "assistant", stopReason: "stop", text: "retried answer" },
+        ]),
+      ],
+      { priorExchanges: DRIFT_PRIOR_EXCHANGES, completeQueue: [forcedRespondReply({ score: 7 })] },
+    );
+
+    expectAnchorDrifted(out.session);
+    expectRelocatedWindowRefused(out, [QUERY_TEXT], 0);
+  });
+
+  it("(33) typed, split turn, relocated \"recovered\": the forced respond is NOT dispatched over the stale window → Err(transport, retryable) — RED at 41f2fe88: dispatched, Ok(<forced payload>)", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(
+      TYPED_QUERY_THETA,
+      [
+        {
+          steps: [
+            { kind: "toolRound", toolName: "probe_tool" },
+            { kind: "assistant", stopReason: "error", errorMessage: CONTEXT_OVERFLOW_ERROR },
+            { kind: "compaction", keep: "splitTurn" },
+            { kind: "retryRun" },
+            { kind: "abort", reason: watchdogAbortReason() },
+            { kind: "assistant", stopReason: "error", text: "post-compaction partial", errorMessage: TAGGED_RETRYABLE_ERROR },
+            { kind: "retryRun" },
+            { kind: "assistant", stopReason: "stop", text: "retried answer" },
+            { kind: "idle" },
+          ],
+        },
+      ],
+      { priorExchanges: DRIFT_PRIOR_EXCHANGES, completeQueue: [forcedRespondReply({ score: 7 })] },
+    );
+
+    expectSplitTurnLayout(out.session, [
+      "compactionSummary",
+      "assistant",
+      "toolResult",
+      "assistant",
+      "assistant",
+      "assistant",
+    ]);
+    expectRelocatedWindowRefused(out, [QUERY_TEXT], 0);
+  });
+
+  it("(34) typed, drifted anchor, relocated \"recovering\" then a ride whose continuation settles: the forced respond is NOT dispatched → Err(transport, retryable) — RED at 41f2fe88: dispatched, Ok(<forced payload>)", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(
+      TYPED_QUERY_THETA,
+      [
+        driftedTurn(watchdogAbortReason(), [
+          { kind: "assistant", stopReason: "error", text: "post-compaction partial", errorMessage: TAGGED_RETRYABLE_ERROR },
+        ]),
+        cleanTurn("continued answer after recovery"),
+      ],
+      { priorExchanges: DRIFT_PRIOR_EXCHANGES, completeQueue: [forcedRespondReply({ score: 7 })] },
+    );
+
+    expectAnchorDrifted(out.session);
+    expectRelocatedWindowRefused(out, [QUERY_TEXT, PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT], 1);
+  });
+
+  it("(35) typed, split turn, relocated \"recovering\" then a ride whose continuation settles: the forced respond is NOT dispatched → Err(transport, retryable) — RED at 41f2fe88: dispatched, Ok(<forced payload>)", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(
+      TYPED_QUERY_THETA,
+      [
+        {
+          steps: [
+            { kind: "toolRound", toolName: "probe_tool" },
+            { kind: "compaction", keep: "splitTurn" },
+            { kind: "retryRun" },
+            { kind: "abort", reason: watchdogAbortReason() },
+            { kind: "assistant", stopReason: "error", text: "post-compaction partial", errorMessage: TAGGED_RETRYABLE_ERROR },
+            { kind: "idle" },
+          ],
+        },
+        cleanTurn("continued answer after recovery"),
+      ],
+      { priorExchanges: DRIFT_PRIOR_EXCHANGES, completeQueue: [forcedRespondReply({ score: 7 })] },
+    );
+
+    expectSplitTurnLayout(out.session, ["compactionSummary", "assistant", "toolResult", "assistant"]);
+    expectRelocatedWindowRefused(out, [QUERY_TEXT, PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT], 1);
+  });
+
+  it("(36) typed, split turn, relocated \"recovering\" with the respond tool already captured THIS attempt: the answer in hand still wins → Ok(<captured payload>), no ride, zero dispatches", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(
+      TYPED_QUERY_THETA,
+      [
+        {
+          steps: [
+            { kind: "respond", payload: { score: 3 } },
+            { kind: "compaction", keep: "splitTurn" },
+            { kind: "retryRun" },
+            { kind: "abort", reason: watchdogAbortReason() },
+            { kind: "assistant", stopReason: "error", errorMessage: TAGGED_RETRYABLE_ERROR },
+            { kind: "idle" },
+          ],
+        },
+        // Scripted in case a ride is issued; unconsumed on the fixed tree.
+        cleanTurn("continued answer after recovery"),
+      ],
+      { priorExchanges: DRIFT_PRIOR_EXCHANGES },
+    );
+
+    expectSplitTurnLayout(out.session, ["compactionSummary", "assistant", "toolResult", "assistant"]);
+    expect(executeResultText(await out.session.respondResults[0]!), "cell premise: the respond call captured").toMatch(
+      /recorded/i,
+    );
+    expect(out.execution.outcome, `the captured payload resolves the query; observed ${disposition(out)}`).toBe("success");
+    expect(out.execution.result.value, "the captured respond payload is the typed value").toEqual({ score: 3 });
+    expect(out.session.sends, "no continuation: the answer is already in hand").toEqual([QUERY_TEXT]);
+    expect(scripted.calls.length, "zero forced respond dispatches (QRY-14 early respond)").toBe(0);
+    expectRideNotes(out.pi.notes, 0);
+  });
+
+  it("(37) typed control, no compaction: the forced respond dispatches ONCE over the query window (the query turn plus the trailing template) → Ok(<forced payload>)", async () => {
+    const out = await driveLiveTheta(TYPED_QUERY_THETA, [cleanTurn("free-phase answer")], {
+      priorExchanges: DRIFT_PRIOR_EXCHANGES,
+      completeQueue: [forcedRespondReply({ score: 7 })],
+    });
+
+    expect(out.execution.outcome, `a clean typed query binds the forced payload; observed ${disposition(out)}`).toBe(
+      "success",
+    );
+    expect(out.execution.result.value, "the forced respond payload is the typed value").toEqual({ score: 7 });
+    expect(scripted.calls.length, "exactly one forced respond dispatch").toBe(1);
+    const messages = (scripted.calls[0]!.context as { readonly messages: readonly Message[] }).messages;
+    expect(
+      messages.map((m) => m.role),
+      "PIC-53 window: this query's turn only, earlier exchanges excluded, then the QRY-15 template",
+    ).toEqual(["user", "assistant", "user"]);
+    expect(messages[0]!.content, "the window opens at this query's own send").toEqual([{ type: "text", text: QUERY_TEXT }]);
+  });
+
+  it("(38) respond repair: the restarted free phase is classified through the relocated read, so the fresh dispatch is NOT issued → Err(transport, retryable) — RED at 41f2fe88: a second dispatch, Ok(<its payload>)", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(
+      REPAIR_TYPED_QUERY_THETA,
+      [
+        cleanTurn("free-phase answer"),
+        driftedTurn(watchdogAbortReason(), [
+          { kind: "assistant", stopReason: "error", text: "post-compaction partial", errorMessage: TAGGED_RETRYABLE_ERROR },
+          { kind: "retryRun" },
+          { kind: "assistant", stopReason: "stop", text: "retried answer" },
+        ]),
+      ],
+      {
+        priorExchanges: DRIFT_PRIOR_EXCHANGES,
+        completeQueue: [forcedRespondReply({ score: "not a number" }), forcedRespondReply({ score: 9 })],
+      },
+    );
+
+    expect(out.session.sends.length, `cell premise: the repair restart was driven; observed ${disposition(out)}`).toBe(2);
+    expect(scripted.calls.length, "only the initial forced respond was dispatched").toBe(1);
+    const leaf = expectErrOfKind(out.execution, "transport");
+    expect(leaf.retryable, `the relocation Err is retryable; observed ${JSON.stringify(leaf)}`).toBe(true);
+    expect(String(leaf.message), "the Err names the compaction relocation").toMatch(/compaction relocated the driven turn/);
+    expect(out.thetaAbort.signal.aborted, `not a cancellation; observed ${disposition(out)}`).toBe(false);
+  });
+
+  it("(39) two compaction summaries projected (a second split-turn compaction keeping the range that holds the first): the NEWEST summary opens the trailing turn, so the retry residue before the older summary is in it → \"recovered\", Ok — RED at 41f2fe88: Err(cancelled) with the watchdog reason", async () => {
+    expectTaggedMessageIsHostRetryable();
+    const out = await driveLiveTheta(
+      ONE_QUERY_THETA,
+      [
+        {
+          steps: [
+            { kind: "toolRound", toolName: "probe_tool" },
+            { kind: "abort", reason: watchdogAbortReason() },
+            { kind: "assistant", stopReason: "error", text: "run 1 partial", errorMessage: TAGGED_RETRYABLE_ERROR },
+            { kind: "retryRun" },
+            { kind: "compaction", keep: "splitTurn" },
+            { kind: "retryRun" },
+            { kind: "assistant", stopReason: "error", errorMessage: CONTEXT_OVERFLOW_ERROR },
+            { kind: "compaction", keep: "splitTurn" },
+            { kind: "retryRun" },
+            { kind: "assistant", stopReason: "stop", text: "retried answer" },
+            { kind: "idle" },
+          ],
+        },
+      ],
+      { priorExchanges: DRIFT_PRIOR_EXCHANGES },
+    );
+
+    expectSplitTurnLayout(out.session, [
+      "compactionSummary",
+      "assistant",
+      "toolResult",
+      "assistant",
+      "compactionSummary",
+      "assistant",
+      "assistant",
+    ]);
+    expect(out.thetaAbort.signal.aborted, `the in-run core retry recovered the turn; observed ${disposition(out)}`).toBe(
+      false,
+    );
+    expect(out.execution.outcome, `"recovered" falls through to the extraction; observed ${disposition(out)}`).toBe(
+      "success",
+    );
+    expect(out.session.sends, "zero continuation sends").toEqual([QUERY_TEXT]);
+    expectRideNotes(out.pi.notes, 0);
+  });
 });
+
+/**
+ * Assert a typed query classified through the compaction-relocated read ended
+ * `Err(transport)` — retryable, naming the relocation — with ZERO forced
+ * respond dispatches, after exactly `sends` and `rides` ride notes.
+ */
+function expectRelocatedWindowRefused(out: DriveOutput, sends: readonly string[], rides: number): void {
+  expect(out.session.sends, `cell premise: the driven sends; observed ${disposition(out)}`).toEqual(sends);
+  expectRideNotes(out.pi.notes, rides);
+  expect(
+    scripted.calls.length,
+    `PIC-78: no forced respond dispatch over the stale query window; observed ${JSON.stringify(
+      scripted.calls.map((call) => (call.context as { readonly messages: readonly Message[] }).messages.map((m) => m.role)),
+    )}`,
+  ).toBe(0);
+  const leaf = expectErrOfKind(out.execution, "transport");
+  expect(leaf.retryable, `the relocation Err is retryable; observed ${JSON.stringify(leaf)}`).toBe(true);
+  expect(String(leaf.message), "the Err names the compaction relocation").toMatch(/compaction relocated the driven turn/);
+  expect(out.thetaAbort.signal.aborted, `not a cancellation; observed ${disposition(out)}`).toBe(false);
+}
