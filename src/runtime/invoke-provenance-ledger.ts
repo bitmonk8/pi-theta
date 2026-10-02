@@ -51,7 +51,11 @@ export interface InvocationProvenanceLedgerDeps {
 export interface InvokeHopInput {
   /** The parent theta's path as resolved at the call site (pre-`realpath`). */
   readonly parentPath: string;
-  /** The callee path resolved against the parent's directory (pre-`realpath`). */
+  /**
+   * The callee path (pre-`realpath`) resolved against the directory of the
+   * file the invoke boundary resolved it from: the declaring `.thetalib` for an
+   * `invoke` in an imported fn body, else the parent theta.
+   */
   readonly calleePath: string;
   /** The call-site token descriptor whose 1-indexed line is recorded. */
   readonly callSite: InvokeCallSite;

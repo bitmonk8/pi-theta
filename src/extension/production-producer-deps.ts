@@ -289,18 +289,18 @@ export interface ProductionProducerInput {
   /** Runtime-defect diagnostic sink (advisory teardown / spawn-failure / wire failures). */
   readonly emitDiagnostic?: (diagnostic: Diagnostic) => void;
   /**
-   * H8b: parse a `.theta`-callable / `invoke(...)` callee referenced from
-   * `callerPath` into a runnable composition input (resolving the callee path
-   * against the caller's directory). Bug 0293: returns the three-arm
-   * `CalleeParseOutcome` verdict (`ok` / `unreadable` / `unparseable`) so
-   * `#driveCallee` can mint `load_failure` vs `parse_failure`; `undefined` (a
-   * non-production stub, e.g. `production-core-exec.test.ts`) is the
-   * `load_failure` default, preserving the pre-0293 behaviour of that harness.
-   * Constructed at the composition root over the real `FileSystem` seam and the
-   * shared parser deps.
+   * H8b: parse a `.theta`-callable / `invoke(...)` callee into a runnable
+   * composition input, resolving a relative callee path against `baseFile`'s
+   * directory (the calling theta, or an imported fn body's declaring `.thetalib`).
+   * Bug 0293: returns the three-arm `CalleeParseOutcome` verdict (`ok` /
+   * `unreadable` / `unparseable`) so `#driveCallee` can mint `load_failure` vs
+   * `parse_failure`; `undefined` (a non-production stub, e.g.
+   * `production-core-exec.test.ts`) is the `load_failure` default, preserving
+   * the pre-0293 behaviour of that harness. Constructed at the composition root
+   * over the real `FileSystem` seam and the shared parser deps.
    */
   readonly parseCallee?: (
-    callerPath: string | undefined,
+    baseFile: string | undefined,
     calleePath: string,
   ) => Promise<CalleeParseOutcome | undefined>;
   /**

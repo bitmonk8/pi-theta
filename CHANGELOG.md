@@ -4,6 +4,26 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.495.0]
+
+### Fixed
+- **Bug 0504 — an `invoke(...)` inside an imported `.thetalib` `fn` now
+  resolves its callee path against the `.thetalib` file's location.** Before
+  this release the path always resolved against the calling theta's directory.
+  A callee sitting beside the library failed `Err(invoke_infra, load_failure)`
+  for every importer outside the library's directory, and a same-named file
+  beside the caller was invoked instead (imports.md:17).
+  - The invoke boundary takes the executing body's declaring file as the path
+    base, falling back to the calling theta for an `invoke` the caller writes
+    itself. This base is used for the callee load, the INV-1 runtime
+    containment re-check, and the SLSH-5 chain suffix's `<callee_path>`.
+  - The conversation anchor is unchanged: a prompt-mode callee still attaches
+    to the calling theta's session, and a subagent-mode callee still spawns
+    from it.
+  - Caller-written invoke paths and `tools:`-callable calls stay
+    caller-relative.
+  - Locked by `tests/b0504-thetalib-invoke-resolves-lib-relative.test.ts`.
+
 ## [0.494.0]
 
 ### Fixed

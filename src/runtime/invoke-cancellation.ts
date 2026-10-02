@@ -82,6 +82,16 @@ export interface DrivenInvokeResult {
  */
 export interface InvokeChild {
   readonly calleePath: string;
+  /**
+   * `calleePath` resolved to an absolute, pre-`realpath` path against the
+   * file the invoke boundary resolved it from — the declaring `.thetalib` for
+   * an `invoke` inside an imported fn body, else the calling theta. The
+   * SLSH-5 hop ledger must canonicalise the same file the containment
+   * re-check judged and the load seam read; re-resolving the literal against
+   * the calling theta names a different (or no) file for a lib-body hop.
+   * Absent when the boundary had no base file to resolve against.
+   */
+  readonly resolvedCalleePath?: string;
   drive(): Promise<DrivenInvokeResult>;
   readonly committed: readonly CommittedSideEffect[];
 }

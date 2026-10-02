@@ -313,12 +313,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
 
   /**
    * Bug 0088: the `EffectfulStatementHostDeps.recordInvokeHop` implementation
-   * wired into every host built for `theta`. Resolves `calleePath` (the literal
-   * text from the `invoke(...)` site) against `theta.sourcePath`'s directory
-   * exactly as `#recheckCalleeContainment` does, then hands the ledger the
-   * pre-`realpath` parent/callee paths to canonicalise. Records nothing when
-   * there is no ledger (no `fileSystem` seam) or `theta.sourcePath` is
-   * `undefined` (an in-memory theta has no on-disk parent path to record).
+   * wired into every host built for `theta`. An absolute `calleePath` is the
+   * invoke boundary's own resolution (the declaring `.thetalib` for an invoke
+   * in an imported fn body) and passes through unchanged; a relative literal
+   * resolves against the calling theta's directory. The ledger canonicalises
+   * the pre-`realpath` parent/callee paths. Records nothing when there is no
+   * ledger (no `fileSystem` seam) or `theta.sourcePath` is `undefined`.
    */
   async #recordInvokeHop(
     theta: ConversationBindInput["theta"],

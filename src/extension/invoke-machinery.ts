@@ -76,6 +76,19 @@ import type {
 export type { InvokeReturnSite, InvokeReturnTyping } from "./invoke-return-validation";
 
 /**
+ * Resolve a callee path literal against the directory of `resolutionBase` (a
+ * FILE path). The INV-1 re-check and the SLSH-5 hop record both read this one
+ * resolution, so the path containment judged is the path provenance names.
+ * `undefined` when there is no base file to resolve against.
+ */
+function resolveCalleeAgainstBase(calleePath: string, resolutionBase: string | undefined): string | undefined {
+  if (resolutionBase === undefined) {
+    return undefined;
+  }
+  return isAbsolute(calleePath) ? calleePath : resolvePath(dirname(resolutionBase), calleePath);
+}
+
+/**
  * The producer collaborators the extracted invoke machinery reaches back
  * through: the construction input, the bug-0437 system-note channel
  * resolution, the binder's declared-default recovery (`#bindCalleeParams`'s
@@ -118,8 +131,12 @@ export class InvokeMachinery {
 
   /**
    * H8b live invoke resolver for an `invoke("./x.theta", ...args)` expression:
-   * bind the positional args, resolve+parse the callee against the caller's
-   * directory, spawn/drive it, and return its top-level `Result` (FN-5).
+   * bind the positional args, resolve+parse the callee against the executing
+   * body's declaring residence — the declaring `.thetalib`'s own directory for
+   * an `invoke` written inside an imported fn body, the calling theta's own
+   * directory otherwise (bug 0504 §Fix; imports.md:17: the PATH resolves
+   * against the `.thetalib`, only the conversation anchor follows the
+   * caller) — then spawn/drive it and return its top-level `Result` (FN-5).
    */
   resolveInvoke(
     theta: ConversationBindInput["theta"],
@@ -144,6 +161,12 @@ export class InvokeMachinery {
     // `expr.args[0]` is the callee path literal; the remaining args are the
     // positional invocation arguments bound to the callee's params.
     const argValues = expr.args.slice(1).map((arg) => evaluatePureExpression(arg, env, chain));
+    // Bug 0504 §Fix: `env.currentResidence()` answers the declaring lib's
+    // resolved path when this `invoke` sits inside an imported fn's body
+    // (bug 0354's `moduleResidence` stamp, carried on bug 0303's `moduleEnv`);
+    // it is `undefined` for an `invoke` written directly in the caller's own
+    // body, where `theta.sourcePath` is already the correct base.
+    const resolutionBase = env.currentResidence() ?? theta.sourcePath;
     // The `invoke<Schema>` return annotation drives the runtime AJV
     // return-value validation on the child's `Ok` payload (invocation.md §Typed
     // return, anchor `#typed-return`; hard-ceilings ceiling #4). Untyped
@@ -163,6 +186,7 @@ export class InvokeMachinery {
       evaluateCallSiteCwd(expr, env, chain),
       parentInvocationId,
       trace,
+      resolutionBase,
     );
   }
 
@@ -198,6 +222,9 @@ export class InvokeMachinery {
     // annotation, so there is no parse-time return-type site. tool-calls.md
     // §"Return type" types the row by INFERENCE over the statically resolved
     // callee instead, which `#driveCallee` derives once the callee is parsed.
+    // Bug 0504 §Fix: this route's callee path comes from the CALLING theta's
+    // own `tools:` frontmatter list, caller-relative by definition — the base
+    // is `theta.sourcePath` unconditionally, never the executing residence.
     return this.#buildInvokeChild(
       theta,
       calleePath,
@@ -210,6 +237,7 @@ export class InvokeMachinery {
       rawCwd,
       parentInvocationId,
       trace,
+      theta.sourcePath,
     );
   }
 
@@ -238,9 +266,19 @@ export class InvokeMachinery {
     parentInvocationId: string | undefined,
     /** RFC 0015 (D5): the CALLER's trace closure (see `#resolveInvoke`). */
     trace: Trace | undefined,
+    /**
+     * Bug 0504 §Fix: the PATH-resolution base for this callee — a FILE path,
+     * whose `dirname` a relative callee path resolves against: the declaring
+     * `.thetalib` for an `invoke` inside an imported fn body, the calling
+     * theta otherwise. `theta` stays the conversation/spawn anchor and the
+     * source of mode and frontmatter.
+     */
+    resolutionBase: string | undefined,
   ): InvokeChild {
+    const resolvedCalleePath = resolveCalleeAgainstBase(calleePath, resolutionBase);
     return {
       calleePath,
+      ...(resolvedCalleePath !== undefined ? { resolvedCalleePath } : {}),
       committed: [],
       drive: (): Promise<DrivenInvokeResult> => {
         // INV-4 / ceiling #1 (invocation.md §INV-4, CIO-2): push a countable
@@ -271,6 +309,7 @@ export class InvokeMachinery {
             rawCwd,
             parentInvocationId,
             trace,
+            resolutionBase,
           ),
           signalGuard(parentSignal),
           noopSwallowChannels(),
@@ -310,8 +349,10 @@ export class InvokeMachinery {
      *  callee bind below so nested-invoke heat keys the top-level card;
      *  subagent callees run in a child process and ignore it. */
     trace: Trace | undefined,
+    /** Bug 0504 §Fix: the PATH-resolution base threaded from `#buildInvokeChild`. */
+    resolutionBase: string | undefined,
   ): Promise<DrivenInvokeResult> {
-    const boundary = await this.#guardInvokeBoundary(theta, calleePath, argValues, ctx, rawCwd);
+    const boundary = await this.#guardInvokeBoundary(calleePath, argValues, ctx, rawCwd, resolutionBase);
     if ("result" in boundary) return boundary;
     const { callee, resolvedCwd } = boundary;
     // tool-calls.md §"Return type" (registered-theta row): the return type of a
@@ -534,11 +575,12 @@ export class InvokeMachinery {
 
   /** Check the invoke boundary and parse its callee in the prescribed guard order. */
   async #guardInvokeBoundary(
-    theta: ConversationBindInput["theta"],
     calleePath: string,
     argValues: readonly ThetaValue[],
     ctx: ExtensionCommandContext,
     rawCwd: ThetaValue | undefined,
+    /** Bug 0504's resolution base (see `resolutionBase` on `#buildInvokeChild`). */
+    resolutionBase: string | undefined,
   ): Promise<DrivenInvokeResult | {
     callee: ConversationBindInput["theta"];
     resolvedCwd: string | undefined;
@@ -554,13 +596,13 @@ export class InvokeMachinery {
     }
     const { resolvedCwd } = argGuard;
 
-    const escape = await this.#recheckCalleeContainment(theta, calleePath);
+    const escape = await this.#recheckCalleeContainment(calleePath, resolutionBase);
     if (escape !== undefined) {
       // The containment re-check is THIS hop's own guard — the callee never ran
       // (bug 0294 provenance).
       return { source: "boundary-minted", result: makeErr(escape as unknown as ThetaValue) };
     }
-    const parseOutcome = await this.#parseCalleeOrErr(theta, calleePath);
+    const parseOutcome = await this.#parseCalleeOrErr(calleePath, resolutionBase);
     if ("source" in parseOutcome) {
       return parseOutcome;
     }
@@ -597,10 +639,11 @@ export class InvokeMachinery {
    * `load_failure`, preserving the pre-0293 unit-harness behaviour.
    */
   async #parseCalleeOrErr(
-    theta: ConversationBindInput["theta"],
     calleePath: string,
+    /** Bug 0504's resolution base (see `resolutionBase` on `#buildInvokeChild`). */
+    resolutionBase: string | undefined,
   ): Promise<DrivenInvokeResult | { callee: ConversationBindInput["theta"] }> {
-    const parsed = await this.#input.parseCallee?.(theta.sourcePath, calleePath);
+    const parsed = await this.#input.parseCallee?.(resolutionBase, calleePath);
     if (parsed === undefined || parsed.kind !== "ok") {
       const cause: InvokeInfraCause = parsed?.kind === "unparseable" ? "parse_failure" : "load_failure";
       const message =
@@ -682,25 +725,24 @@ export class InvokeMachinery {
 
   /**
    * INV-1 (invocation.md §Resolution) runtime re-check: resolve the callee path
-   * against the caller's directory and re-run the shared realpath +
+   * against the resolution base's directory — the declaring `.thetalib` for an
+   * invoke written in an imported fn body, the calling theta otherwise (bug
+   * 0504 §Fix) — and re-run the shared realpath +
    * discovery-root containment check against the currently-active roots. Returns
    * the `load_failure` `InvokeInfraError` on escape, or `undefined` when
    * contained (or when the production seams needed for the check are absent).
    */
   async #recheckCalleeContainment(
-    theta: ConversationBindInput["theta"],
     calleePath: string,
+    /** Bug 0504's resolution base (see `resolutionBase` on `#buildInvokeChild`). */
+    resolutionBase: string | undefined,
   ): Promise<InvokeInfraError | undefined> {
     const fileSystem = this.#input.fileSystem;
     const activeRoots = this.#input.activeRoots;
     if (fileSystem === undefined || activeRoots === undefined) {
       return undefined;
     }
-    const baseDir = theta.sourcePath !== undefined ? dirname(theta.sourcePath) : undefined;
-    const resolvedPath =
-      baseDir !== undefined && !isAbsolute(calleePath)
-        ? resolvePath(baseDir, calleePath)
-        : calleePath;
+    const resolvedPath = resolveCalleeAgainstBase(calleePath, resolutionBase) ?? calleePath;
     try {
       const verdict = await recheckInvokePathAtRuntime({
         deps: { fs: fileSystem },

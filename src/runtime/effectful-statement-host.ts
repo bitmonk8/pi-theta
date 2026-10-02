@@ -171,10 +171,12 @@ export interface EffectfulStatementHostDeps {
    * provenance against the `invoke_callee` wrapper its producer built, so
    * the SLSH-5 chain suffix has a `ChainHop` to render at the slash-dispatch
    * boundary. Two producers record here: `runInvokeEffect` (the literal
-   * `invoke(...)` hop, `calleePath` the literal callee path from the expression)
-   * and `runToolCallEffect`'s theta-callable branch (the `.theta`-callable
-   * code-call hop, bug 0349, `calleePath` the callable-set-resolved callee path)
-   * — in both cases the same value on the wrapper's own `callee_path` field.
+   * `invoke(...)` hop) and `runToolCallEffect`'s theta-callable branch (the
+   * `.theta`-callable code-call hop, bug 0349). In both, `calleePath` is the
+   * child's `resolvedCalleePath` when the invoke boundary resolved one
+   * (absolute, against the file the boundary resolved from: the declaring
+   * `.thetalib` for an `invoke` inside an imported fn body), else the same
+   * literal the wrapper's own `callee_path` field carries.
    * `callSite` is the call-site token descriptor (invoke-provenance.ts). Absent
    * dep (a caller with no ledger to record into) leaves the SLSH-5 chain empty
    * for every hop it would otherwise have covered.
@@ -623,7 +625,14 @@ async function wrapInvokeCalleeFailure(
     `${messagePrefix} of ${child.calleePath} callee returned Err(${summariseErrorField(innerKind)})`,
   );
   // Bug 0088 (SLSH-5): record this hop before the wrapper propagates anywhere.
-  await deps.recordInvokeHop?.(wrapped as InvokeCalleeError, child.calleePath, callSite);
+  // The boundary's own resolution (the declaring `.thetalib` for a lib-body
+  // invoke) is what SLSH-5 must canonicalise; the literal is the fallback when
+  // the boundary had no base file.
+  await deps.recordInvokeHop?.(
+    wrapped as InvokeCalleeError,
+    child.resolvedCalleePath ?? child.calleePath,
+    callSite,
+  );
   return { ok: true, value: makeErr(wrapped as unknown as ThetaValue) };
 }
 

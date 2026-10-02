@@ -1801,7 +1801,7 @@ function buildProducerDeps({
     // The runtime-defect / spawn-failure / wire-failure diagnostic sink (the
     // per-diagnostic arm; runtime emits are not per-file scan batches).
     emitDiagnostic: sink.emit,
-    // H8b: parse an `invoke` / `.theta`-callable callee against the caller's
+    // H8b: parse an `invoke` / `.theta`-callable callee against `baseFile`'s
     // directory, reusing the shared parser deps. Bug 0276 SCOPE CONTRACT: a
     // FRESH registry-snapshot closure per dispatch, deliberately NOT the
     // hoisted load-pass one above, so gate-side verdict reuse spans exactly
@@ -1817,11 +1817,11 @@ function buildProducerDeps({
     // ONE dispatch the recursion still shares this single reference, so the
     // shared-subtree collapse (§Fix constraint 6, cost profile) holds for the
     // gate's own walk.
-    parseCallee: (callerPath, calleePath) =>
+    parseCallee: (baseFile, calleePath) =>
       parseCalleeTheta(
         fileSystem,
         ctx,
-        callerPath,
+        baseFile,
         calleePath,
         parseDeps,
         () => pi.getAllTools?.() ?? [],
@@ -4643,8 +4643,8 @@ function collectReservedNames(body: ThetaBody): ReadonlySet<string> {
 }
 
 /**
- * H8b: resolve a callee path against the caller's directory (or `cwd` for an
- * in-memory caller) and parse it into a runnable composition input. Bug 0293
+ * H8b: resolve a callee path against `baseFile`'s directory (or `cwd` with no
+ * base file) and parse it into a runnable composition input. Bug 0293
  * (queryerror-variants.md:182-183): returns the three-arm `CalleeParseOutcome`
  * verdict so `#driveCallee` (`production-theta-producer.ts`) can mint
  * `load_failure` vs `parse_failure` from it — `unreadable` when the bytes could
@@ -4657,7 +4657,7 @@ function collectReservedNames(body: ThetaBody): ReadonlySet<string> {
 async function parseCalleeTheta(
   fs: FileSystem,
   ctx: ExtensionContext,
-  callerPath: string | undefined,
+  baseFile: string | undefined, // the calling theta, or an imported fn body's declaring `.thetalib`
   calleePath: string,
   deps: PassParseDeps,
   // Bug 0001 (frontmatter-fields-a.md §`tools`): the callee's own `tools:`
@@ -4670,7 +4670,7 @@ async function parseCalleeTheta(
   // tool name is not itself flagged `unknown-tool`.
   inProcessToolNames?: ReadonlySet<string>,
 ): Promise<CalleeParseOutcome> {
-  const baseDir = callerPath !== undefined ? dirname(callerPath) : ctx.cwd;
+  const baseDir = baseFile !== undefined ? dirname(baseFile) : ctx.cwd;
   const absolute = isAbsolute(calleePath) ? calleePath : resolvePath(baseDir, calleePath);
   const bytes = await readThetaBytes(fs, absolute);
   if (bytes === undefined) {
