@@ -314,6 +314,8 @@ function checkStructural(
     queryPropagations: indexQueryPropagations(queryPropagations),
     priorDiagnostics,
   };
+  // RET-3 at depth 0 judges statement pairs only: the top-level tail is not
+  // judged against a preceding `return`, so `walkStatements`' result is unused.
   walkStatements(
     body.statements,
     { inLoop: false, topLevel: true, voidReturn: false },
@@ -346,13 +348,21 @@ function pushDiag(out: Diagnostic[], diag: Diagnostic | undefined): void {
   }
 }
 
+/**
+ * Walk `statements` for RET-3 ("code after return is unreachable") plus every
+ * statement's own structural checks. Returns whether the LAST statement
+ * walked was itself a `return` — the caller's own tail (`Block.tail`), if
+ * any, is the next form in source order, so a `true`
+ * result means that tail is ALSO unreachable code under RET-3's own rule
+ * (return.md RET-3: "Code after a `return` in the same block").
+ */
 function walkStatements(
   statements: readonly Stmt[],
   scope: WalkCtx,
   refs: StructuralRefs,
   file: string,
   out: Diagnostic[],
-): void {
+): boolean {
   // RET-3 — the first statement after a `return` in the same block is
   // unreachable (a warning).
   let returnedAt = -1;
@@ -375,6 +385,7 @@ function walkStatements(
       returnedAt = i;
     }
   }
+  return returnedAt >= 0 && returnedAt === statements.length - 1;
 }
 
 function walkBlock(
@@ -384,8 +395,21 @@ function walkBlock(
   file: string,
   out: Diagnostic[],
 ): void {
-  walkStatements(block.statements, scope, refs, file, out);
+  const lastWasReturn = walkStatements(block.statements, scope, refs, file, out);
   if (block.tail !== null) {
+    // RET-3: a `return` immediately followed by the block's tail expression is
+    // the same "code after return" shape the statement loop warns on between
+    // two statements — the tail is unreachable code regardless of which AST
+    // slot `parseForms` records it in (a `FnBody` / `ParForBody` /
+    // `BlockExpr` promotes its final expression form to the tail; a
+    // `StmtBlock` does so when that form begins a logical line, as after a
+    // postfix `?` or a closing `}`).
+    pushDiag(
+      out,
+      lastWasReturn
+        ? checkUnreachableCode({ hasCodeAfterReturn: true }, { file, range: block.tail.range })
+        : undefined,
+    );
     walkExpr(block.tail, scope, refs, file, out);
   }
 }
@@ -532,10 +556,15 @@ function walkStatement(
       // QRY-19 (query-escapes-stringification.md#qry-19): a bare `@`...`` in
       // expression-statement position drops the must-use `Result` without
       // acknowledgement. A `QueryStmt` is produced only for a NON-tail bare
-      // query — `parseForms` promotes a trailing line-start query to the
-      // body/void tail (the accepted void-tail discard, QRY-20 territory), and
-      // the `?`-propagate / `let _ =`-discard / `let x = …` binding forms parse
-      // to `try` / `let` nodes — so its disposition is always
+      // query: `parseForms` promotes a trailing query to `Block.tail` as the
+      // final form of a `FnBody` / `ParForBody` / `BlockExpr`, and as a
+      // line-start final form of the `ThetaBody` or a `StmtBlock` (see
+      // `TailPromotion`, ./body-parser.ts). A promoted query is the block's
+      // tail value (QRY-20 territory), not a statement. Every other bare
+      // query — a non-final one, or a `StmtBlock` / `ThetaBody` final one
+      // that did not begin a logical line — is a `QueryStmt`; the
+      // `?`-propagate / `let _ =`-discard / `let x = …` binding forms parse to
+      // `try` / `let` nodes, so a `QueryStmt`'s disposition is always
       // `bare-expr-statement`, the sole QRY-19 trigger.
       pushDiag(
         out,

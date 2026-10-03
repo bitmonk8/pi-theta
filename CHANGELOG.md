@@ -4,6 +4,29 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.496.0]
+
+### Fixed
+- **Bug 0510: a bare call, `invoke(...)` or `@`-query that ends a
+  multi-statement `fn` body, `par for` body or block expression is now that
+  block's final value.** Previously the value was dropped and the block
+  produced `null`. A `par for` element came back as `Ok(null)`, and a
+  caller reading a field from it aborted the theta. A call-tailed block
+  expression in a `match` arm was wrongly refused with
+  `theta/parse/block-expr-missing-tail` (grammar.md `FnBody` / `ParForBody` /
+  `BlockExpr`; FN-5; CTRL-3).
+  - Inside the braces of those three block kinds, the last expression is
+    always the block's tail, whichever line it starts on. `if` / `while` /
+    `for` bodies and the top level of a `.theta` are unchanged. Their tail
+    values are discarded or follow real line breaks.
+  - A `void`-annotated `fn` or `subagent fn` call now evaluates to `null`
+    whatever its last expression produced (FN-4). Before, a call in that
+    position returned the tail value.
+  - An expression after a `return` in the same block now draws
+    `theta/parse/unreachable-code` when it is the block's tail expression. The
+    registry Trigger is widened to match RET-3.
+  - Locked by `tests/b0510-block-trailing-call-tail.test.ts`.
+
 ## [0.495.0]
 
 ### Fixed

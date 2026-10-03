@@ -155,17 +155,14 @@ function canStartExpression(t: Token): boolean {
  * structural tail (`BlockExpr`, bug 0082 §Fix): promote a trailing bare
  * `ExprStmt` to `Block.tail` when `parseForms` left `tail: null`.
  *
- * WHY THIS IS NEEDED, NOT COSMETIC. Newline continuation swallows every
- * `stmt-sep` at bracket depth > 0 (lexer.ts `collapseContinuations`), so
- * inside ANY `{ ... }` — a `BlockExpr` included — only the FIRST statement in
- * source order (or one immediately following a postfix `?` / a nested `}`)
- * ever sees `lineStart: true`; every later line-start expression form reaches
- * `parseForms`'s tail-promotion test with `lineStart: false` and is recorded
- * as an ordinary `ExprStmt` instead. `executeBlock`
- * (../runtime/statement-executor.ts) already treats a trailing bare `expr`
- * statement as tail-EQUIVALENT for VALUE purposes (its own doc comment states
- * the rule); this function makes that equivalence STRUCTURAL for `BlockExpr`
- * specifically, so `Block.tail` genuinely carries the block's value node
+ * `parseBlockExprNode` parses its body under `"final-form"` promotion, so a
+ * call / invoke / query / plain-expression tail arrives with `Block.tail`
+ * already set. The one expression form `parseForms` keeps OUT of that
+ * promotion is a trailing statement-position `par for` (`parseForm` records
+ * it with `tailExpr = null` — grammar.md §Blocks, "a standalone `par for`
+ * reads as an expression statement"), which lands as an un-promoted
+ * `ExprStmt`. This function restores `BlockExpr`'s structural tail for
+ * exactly that shape, so `Block.tail` genuinely carries the block's value node
  * (grammar.md:118) rather than leaving grammar.md's REQUIRED tail to a
  * runtime fallback that this position's `theta/parse/block-expr-missing-tail`
  * check would otherwise misfire against.
@@ -185,6 +182,29 @@ function promoteTrailingExprToTail(block: Block): Block {
   }
   return { statements: block.statements.slice(0, -1), tail: last.expr };
 }
+
+/**
+ * How `parseForms` decides whether a block's final form is its `Block.tail`.
+ *
+ *   - `"final-form"` — the final form is the tail whenever it is an expression
+ *     form. Used for the brace-delimited VALUE blocks (`FnBody`, `ParForBody`,
+ *     `BlockExpr`): `collapseContinuations` (../lexer/continuation.ts)
+ *     swallows every newline inside a brace pair, so `lineStart` carries no
+ *     logical-line information there, and gating on it would turn the
+ *     trailing expression of every multi-statement block into a statement —
+ *     a trailing call / invoke / query then loses the block's value (bug
+ *     0510).
+ *   - `"line-start"` — the final form is the tail only when it is an
+ *     expression form that began a logical line. Used for the depth-0
+ *     `ThetaBody`, where the lexer emits a real `stmt-sep` and `lineStart`
+ *     separates a line-starting final form from a same-logical-line residue,
+ *     and for the `StmtBlock` bodies of `if` / `else` / `while` / `for`,
+ *     whose value the executor discards (grammar.md §Blocks) but whose
+ *     promoted tail the static checks read as a value position
+ *     (return-type inference, `type-as-value`, the QRY-19 discarded-query
+ *     judgment).
+ */
+type TailPromotion = "final-form" | "line-start";
 
 /** One parsed top-level / block form: its statement node plus tail metadata. */
 interface Form {
@@ -358,10 +378,12 @@ class BodyParser {
   // --- body / block -------------------------------------------------------
 
   public parseBody(): Block {
-    return this.parseForms(() => this.atEnd());
+    // Depth 0: the lexer emits a real `stmt-sep` here, so `lineStart`
+    // separates a line-starting final form from a same-logical-line residue.
+    return this.parseForms(() => this.atEnd(), "line-start");
   }
 
-  private parseBlock(): Block {
+  private parseBlock(promotion: TailPromotion): Block {
     // Consumes a `{ ... }` StmtBlock / FnBody. `parseBlock` is the single
     // production for EVERY non-top-level block (if/else/while/for/fn-body/
     // match-arm block-exprs); the top-level document parses through
@@ -382,7 +404,7 @@ class BodyParser {
       this.advance();
     }
     try {
-      const block = this.parseForms(() => this.isPunct("}") || this.atEnd());
+      const block = this.parseForms(() => this.isPunct("}") || this.atEnd(), promotion);
       if (this.isPunct("}")) {
         this.advance();
       }
@@ -395,8 +417,12 @@ class BodyParser {
     }
   }
 
-  /** Parse forms until `isEnd`, promoting a trailing tail `Expr` per grammar. */
-  private parseForms(isEnd: () => boolean): Block {
+  /**
+   * Parse forms until `isEnd`, promoting a trailing tail `Expr` per grammar.
+   * `promotion` selects the test the final form must pass (`TailPromotion`
+   * states each mode and the positions that use it).
+   */
+  private parseForms(isEnd: () => boolean, promotion: TailPromotion): Block {
     const forms: Form[] = [];
     // The postfix error-propagation `?` is a complete-expression terminator that
     // always closes its statement and never triggers newline continuation
@@ -449,23 +475,33 @@ class BodyParser {
       // its tail-`Expr` promotion eligibility. Without the `}` arm, a trailing
       // expression after an `if`/`while`/`for`/`fn` block
       // (`fn s(n){ if …{…}\n n + s(n - 1) }`) would lose its FN-5 tail promotion
-      // and its value would be dropped.
+      // and its value would be dropped. Only the `"line-start"` promotion test
+      // below reads this; under `"final-form"` every expression-form `last`
+      // promotes regardless of `lineStart`.
       forcedLineStart =
         lastTok !== undefined &&
         lastTok.kind === "punct" &&
         (lastTok.text === "?" || lastTok.text === "}");
     }
 
-    // ThetaBody ::= Stmt* Expr? — the final form is promoted to the tail iff it
-    // is a line-start expression form. Its value is the body's final value
-    // (functions.md FN-5: a fn/theta body's value is its tail expression),
-    // including a lone or trailing call/invoke/query — `fn f(n){ g(n) }` MUST
-    // return `g(n)` (FN-5), so a bare-call tail is the final value, not a
-    // discarded action. The V19a-T continuation witness `f(a,\n b)` is about
-    // grouping the multi-line call arguments into ONE form (a lexer concern),
-    // orthogonal to whether that one form's value is the body's tail.
+    // `Stmt* Expr?` — the final form is promoted to the tail per `promotion`
+    // (`TailPromotion`). Under `"line-start"` a same-logical-line residue at
+    // depth 0 (`schema X = Cat 42` — the severed `42`) is NOT the body's tail.
+    //
+    // Either way the promoted value is the body's final value (functions.md
+    // FN-5: a fn/theta body's value is its tail expression), including a lone
+    // or trailing call/invoke/query — `fn f(n){ g(n) }` MUST return `g(n)`
+    // (FN-5), so a bare-call tail is the final value, not a discarded action.
+    // A statement-position `par for` is the one expression form `parseForm`
+    // itself keeps out of this promotion (`tailExpr = null` below, grammar.md
+    // §Blocks): it is recorded as an `expr` statement, not a candidate `last`
+    // here. The V19a-T continuation witness `f(a,\n b)` is about grouping the
+    // multi-line call arguments into ONE form (a lexer concern), orthogonal to
+    // whether that one form's value is the body's tail.
     const last = forms[forms.length - 1];
-    if (last !== undefined && last.expr !== null && last.lineStart) {
+    const promoteLast =
+      last !== undefined && last.expr !== null && (promotion === "final-form" || last.lineStart);
+    if (promoteLast) {
       return {
         statements: forms.slice(0, -1).map((f) => f.stmt),
         tail: last.expr,
@@ -807,7 +843,7 @@ class BodyParser {
   private parseIf(): Stmt {
     const kw = this.advance(); // `if`
     const condition = this.parseHeaderExpression() ?? nullExpr(kw.range);
-    const then = this.parseBlock();
+    const then = this.parseBlock("line-start");
     let otherwise: IfStmt | Block | null = null;
     // An `else` may follow across an intervening `stmt-sep`.
     const save = this.pos;
@@ -819,7 +855,7 @@ class BodyParser {
       if (this.isKeyword("if")) {
         otherwise = this.parseIf() as IfStmt;
       } else {
-        otherwise = this.parseBlock();
+        otherwise = this.parseBlock("line-start");
       }
     } else {
       this.pos = save;
@@ -836,7 +872,7 @@ class BodyParser {
   private parseWhile(): Stmt {
     const kw = this.advance();
     const condition = this.parseHeaderExpression() ?? nullExpr(kw.range);
-    const body = this.parseBlock();
+    const body = this.parseBlock("line-start");
     return {
       kind: "while",
       condition,
@@ -881,7 +917,7 @@ class BodyParser {
     // contexts"); scope it to the body's parse only so a reassignment to it
     // draws `immutable-rebinding` (bug 0370 §Fix layer 1) without leaking onto
     // an unrelated same-named binding once the loop's own scope ends.
-    const body = this.withImmutableBindings([variable], () => this.parseBlock());
+    const body = this.withImmutableBindings([variable], () => this.parseBlock("line-start"));
     return {
       kind: "for",
       variable,
@@ -953,7 +989,7 @@ class BodyParser {
     // without leaking onto an unrelated same-named binding once the fn body's
     // own scope ends.
     const body = this.withImmutableBindings(params.map((p) => p.name), () =>
-      this.parseBlock(),
+      this.parseBlock("final-form"),
     );
     return {
       kind: "fn",
@@ -1821,7 +1857,7 @@ class BodyParser {
    */
   private parseBlockExprNode(): Expr {
     const startTok = this.peek(); // `{`, not yet consumed
-    const body = promoteTrailingExprToTail(this.parseBlock());
+    const body = promoteTrailingExprToTail(this.parseBlock("final-form"));
     const range = spanRange(startTok.range, this.prevRange());
     if (body.tail === null) {
       this.diagnostics.push(blockExprMissingTailDiagnostic(range, this.file));
@@ -1854,7 +1890,8 @@ class BodyParser {
   public parseSingleExpressionWithResidue(): Expr | null {
     const expr = this.parseExpression();
     if (!this.atEnd()) {
-      this.parseForms(() => this.atEnd());
+      // The residue is depth-0 text, so it drains under the `ThetaBody` mode.
+      this.parseForms(() => this.atEnd(), "line-start");
     }
     return expr;
   }
@@ -2921,7 +2958,7 @@ class BodyParser {
     // (bindings.md:32) — so scope it to the body parse exactly as `parseFor`
     // does, so a write to it draws `immutable-rebinding` (bug 0370 §Fix layer 1;
     // F1) instead of silently reaching the runtime belt.
-    const body = this.withImmutableBindings([variable], () => this.parseBlock());
+    const body = this.withImmutableBindings([variable], () => this.parseBlock("final-form"));
     emitParForBodyDiagnostics(
       { diagnostics: this.diagnostics, file: this.file },
       body,

@@ -558,11 +558,16 @@ export function diagnosticLines(doc: ThetaDocument): string[] {
  * promoted `tail`, or the final `ExprStmt`'s expression. The two encodings
  * are runtime-equivalent by design (src/runtime/statement-executor.ts — "the
  * executor's final value [is] invariant to the tail-vs-`expr`-statement
- * encoding"), and a fn-body trailing expression lands as an `ExprStmt` (the
- * block-internal `stmt-sep` is swallowed, so tail promotion's `lineStart`
- * never fires). Asserting through this helper keeps statement-boundary tests
- * pinned to a standalone trailing expression without over-pinning which
- * encoding the parser picks.
+ * encoding"). Used against both a `fn.body` and the depth-0 `ThetaBody`
+ * (`doc.body`), whose promotion rules differ (src/parser/body-parser.ts
+ * `TailPromotion`): a `FnBody`'s final expression form is promoted to
+ * `Block.tail` whenever it is an expression form, so the one expression form
+ * it records as a trailing `ExprStmt` is a statement-position `par for`
+ * (whose value `executeBlock` returns through the trailing-`expr` rule); a
+ * `ThetaBody`'s promotion is `lineStart`-gated, so a same-logical-line final
+ * expression there lands as a trailing statement. Asserting through this
+ * helper keeps statement-boundary tests pinned to a standalone trailing
+ * expression without over-pinning which encoding the parser picks.
  */
 export function trailingExpr(block: Block): Expr | null {
   if (block.tail !== null) {

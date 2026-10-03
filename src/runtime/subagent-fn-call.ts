@@ -5,6 +5,7 @@ import type { LexicalEnvironment } from "./lexical-environment";
 import type { InvokeCalleeError, InvokeInfraError, QueryError } from "./query-error";
 import { HostFatal, isThetaPanic } from "./runtime-panics";
 import { pushCountableFrame } from "./invoke-depth-cycle";
+import { discardForVoid } from "./function-result";
 import { makeErr, type ThetaValue } from "./value";
 import { evalExpr, executeBlock, panicSiteFile, ThetaFnArityError, type ExecuteBodyDeps, type EvalResult, type SubagentFnChildOutcome } from "./statement-executor";
 
@@ -23,6 +24,18 @@ function subagentCalleeError(inner: ThetaValue, fnName: string): InvokeCalleeErr
     callee_path: fnName,
     inner: inner as unknown as QueryError,
   };
+}
+
+/**
+ * The value a `subagent fn` call yields on its success path. A `void`-annotated
+ * fn discards its tail value (FN-4), so its call yields `null` whatever the body
+ * produced. The in-process drive and the child launch reach no shared point
+ * that can still tell a success value from a boundary `Err` value, so each
+ * regime's success arm routes through this one projection and the two cannot
+ * disagree on it (FN-6; GOV-15).
+ */
+function subagentFnSuccessValue(fn: FnDecl, value: ThetaValue): ThetaValue {
+  return fn.returnType === "void" ? discardForVoid(value) : value;
 }
 
 /**
@@ -140,7 +153,7 @@ async function runSubagentFnViaChild(
       value: makeErr(subagentInfraError(thrown, fn.name) as unknown as ThetaValue),
     };
   }
-  return mapSubagentFnChildOutcome(outcome, fn.name, deps.signal);
+  return mapSubagentFnChildOutcome(outcome, fn, deps.signal);
 }
 
 /** Run the isolated in-process session, restoring it before mapping its flow. */
@@ -204,7 +217,7 @@ function mapSubagentFnFlow(flow: EvalResult, fn: FnDecl): EvalResult {
     case "return":
     case "value":
       // Success — the callee's final value (FN-5) crosses the boundary.
-      return { flow: "value", value: flow.value };
+      return { flow: "value", value: subagentFnSuccessValue(fn, flow.value) };
     case "break":
     case "continue":
       // Barred inside a `fn` body; defensively a `null` final value.
@@ -250,10 +263,14 @@ function mapSubagentFnFlow(flow: EvalResult, fn: FnDecl): EvalResult {
  *   - a cancellation the CALLER's own signal explains → the `cancel` flow (the
  *     in-process `cancel` arm); a child-internal cancel wraps like any other
  *     callee-returned failure (bug 0295's two-arm rule).
+ *
+ * The three tail values are the in-process `value` / `return` flow, so a
+ * `void`-annotated fn's call yields `null` for each of them (FN-4); every other
+ * arm is a failure or a cancellation and crosses unchanged.
  */
 function mapSubagentFnChildOutcome(
   outcome: SubagentFnChildOutcome,
-  fnName: string,
+  fn: FnDecl,
   signal: AbortSignal,
 ): EvalResult {
   switch (outcome.kind) {
@@ -272,10 +289,10 @@ function mapSubagentFnChildOutcome(
   }
   const { result } = outcome;
   if (result.ok) {
-    return { flow: "value", value: outcome.fnTail === "ok" ? result : result.value };
+    return { flow: "value", value: subagentFnSuccessValue(fn, outcome.fnTail === "ok" ? result : result.value) };
   }
   if (outcome.fnTail === "err") {
-    return { flow: "value", value: result };
+    return { flow: "value", value: subagentFnSuccessValue(fn, result) };
   }
   const innerKind = (result.error as { readonly kind?: unknown } | null)?.kind;
   if (innerKind === "cancelled" && signal.aborted) {
@@ -286,6 +303,6 @@ function mapSubagentFnChildOutcome(
   }
   return {
     flow: "value",
-    value: makeErr(subagentCalleeError(result.error, fnName) as unknown as ThetaValue),
+    value: makeErr(subagentCalleeError(result.error, fn.name) as unknown as ThetaValue),
   };
 }

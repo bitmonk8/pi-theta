@@ -79,7 +79,7 @@ import { isThetaPanic, attachPanicSite, pushPanicFrame } from "./runtime-panics"
 import { pushCountableFrame, thetalibFnFrameKind } from "./invoke-depth-cycle";
 import { evaluateForLoop, type ForLoopHost } from "./control-flow";
 import { PiToolArgShapeDefectError, ShadowedCalleeDispatchDefectError } from "./tool-call";
-import { functionResult } from "./function-result";
+import { discardForVoid, functionResult } from "./function-result";
 import type { LexicalEnvironment } from "./lexical-environment";
 import {
   evaluateIndexAccess,
@@ -278,7 +278,8 @@ export function resolveUserFn(
  * immutable local into a fresh child scope, and the `fn` body runs through the
  * SAME `executeBlock` the top-level body and the invoke callee use. The body's
  * final value flows back as the call's value: an explicit `return` or the block's
- * tail expression (FN-3…FN-5); a `?`-propagation inside the body early-returns
+ * tail expression (FN-3…FN-5), or `null` for a `void`-annotated `fn` (FN-4);
+ * a `?`-propagation inside the body early-returns
  * the `fn` with `Err(e)` (the enclosing function of a `?` is this `fn`); a
  * `break`/`continue` with no enclosing loop yields the `null` final value.
  */
@@ -359,7 +360,9 @@ async function evalUserFnCall(
   switch (flow.flow) {
     case "return":
     case "value":
-      return { flow: "value", value: flow.value };
+      // FN-4: a `void`-annotated fn discards its tail value; the call's
+      // success value is `null` whatever the body's last form produced.
+      return { flow: "value", value: fn.returnType === "void" ? discardForVoid(flow.value) : flow.value };
     case "break":
     case "continue":
       return { flow: "value", value: null };
@@ -812,16 +815,20 @@ export async function executeBlock(
   atTerminal: boolean = true,
 ): Promise<EvalResult> {
   // A trailing bare-expression statement contributes the block's FN-5 final
-  // value (V20e). The parser promotes a trailing bare expression form to the
-  // block `tail` and leaves only lone call/invoke/query actions (and non-
-  // expression statements) as trailing statements, so a bare-`expr` last
-  // statement is tail-equivalent: it carries the value the same trailing
-  // expression would if the AST recorded it as the tail. This keeps the
-  // executor's final value invariant to the tail-vs-`expr`-statement encoding of
-  // a trailing expression, so a `match` (or any expression) routed through the
-  // executor at the block tail-position yields its value regardless of encoding.
-  // A trailing action statement, or any other statement, still terminates the
-  // block with the literal `null` (FN-5 statement-terminated body).
+  // value (V20e), so the executor's final value is invariant to the
+  // tail-vs-`expr`-statement encoding of a trailing expression. `parseForms`
+  // (../parser/body-parser.ts, `TailPromotion`) leaves a trailing expression
+  // as a statement in two shapes. First, a statement-position `par for`
+  // ending a `FnBody`, `ParForBody`, `StmtBlock` or the `ThetaBody`: `parseForm`
+  // keeps it out of tail promotion, and this rule returns its value (a
+  // `BlockExpr` restores it as the tail through `promoteTrailingExprToTail`).
+  // Second, in the `ThetaBody` and a `StmtBlock` (`if` / `else` / `while` /
+  // `for` body), a final expression form that did not begin a logical line.
+  // `exprToStmt` encodes the latter by kind: a call / invoke / query becomes a
+  // `tool-call` / `invoke` / `query` statement, any other expression an `expr`
+  // statement. Only an `expr` statement carries its value here; any other
+  // trailing statement terminates the block with the literal `null` (FN-5
+  // statement-terminated body).
   let trailingExprValue: { readonly value: ThetaValue } | undefined;
   for (const stmt of block.statements) {
     const flow = await executeStatement(stmt, env, deps);
