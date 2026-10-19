@@ -1,7 +1,7 @@
 ---
 description: "D10 verification-posture reviewer - audits one shard of fix records for claim→evidence decay, files candidate findings into quality/intake/"
 mode: subagent
-model: "anthropic/claude-opus-5-5"
+model: "openai/gpt-6.1-sol"
 thinking: high
 tools: read, grep, bash, write
 tool_loop:
@@ -117,7 +117,7 @@ opened; sites: the count; fix_scope: localized. Body per the template.
 Write each finding as one file: quality/intake/${wave}-d10-NN-<short-slug>.md
 where NN is 01, 02, ... in filing order. Follow this template exactly
 (frontmatter fields included; set lens: D10, wave: ${wave},
-reported_by: lens-d10-verification (anthropic/claude-opus-5-5) — this exact
+reported_by: lens-d10-verification (openai/gpt-6.1-sol) — this exact
 string, never a guess — status: intake, verdict: pending, id: pending):
 ${template}
 

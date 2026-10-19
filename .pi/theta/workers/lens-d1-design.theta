@@ -1,7 +1,7 @@
 ---
 description: "D1 design-consistency reviewer - reviews one shard of production sources for same-problem-solved-differently and over-wide contract surfaces, files candidate findings into quality/intake/"
 mode: subagent
-model: "anthropic/claude-fable-5-1"
+model: "openai/gpt-6-astra"
 thinking: high
 tools: read, grep, bash, write
 tool_loop:
@@ -102,7 +102,7 @@ fix_scope: module | cross-module. Body per the template.
 Write each finding as one file: quality/intake/${wave}-d1-NN-<short-slug>.md
 where NN is 01, 02, ... in filing order. Follow this template exactly
 (frontmatter fields included; set lens: D1, wave: ${wave},
-reported_by: lens-d1-design (anthropic/claude-fable-5-1) — this exact
+reported_by: lens-d1-design (openai/gpt-6-astra) — this exact
 string, character for character; never substitute the model name you believe
 you are — status: intake, verdict: pending, id: pending):
 ${template}

@@ -48,6 +48,12 @@ mental model read the [Guide](../guide.md); for the first end-to-end run, the
   a backend package instead of headless, and know the visible cap and
   credential caveat.
 
+## Project maintenance workflows
+
+- [Fix a numbered bug](./fix-a-numbered-bug.md) — run the committed
+  `/fix-bug` workflow in this checkout, prove red/green behavior, pause for
+  specification decisions, review and optionally commit/push.
+
 ## Watching and reporting live progress
 
 - [Watch a running theta](./watch-a-running-theta.md) — read the footer

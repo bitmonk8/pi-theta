@@ -1,7 +1,7 @@
 ---
-description: "BENCH copy of the D4 duplication & drift reviewer (unity-completions/gpt-6-astra) - reviews one shard of production source files through the clone/drift/parallel lens, files candidate findings into quality/intake/"
+description: "BENCH copy of the D4 duplication & drift reviewer (openai/gpt-6-astra) - reviews one shard of production source files through the clone/drift/parallel lens, files candidate findings into quality/intake/"
 mode: subagent
-model: "unity-completions/gpt-6-astra"
+model: "openai/gpt-6-astra"
 tools: read, grep, bash, write
 tool_loop:
   max_rounds: 100
@@ -109,7 +109,7 @@ Write each finding as one file:
 quality/intake/${wave}-d4-NN-<short-slug>.md where NN is 01, 02, ... in
 filing order and <short-slug> is a few lowercase words joined by hyphens.
 Follow this template exactly (frontmatter fields included; set lens: D4,
-wave: ${wave}, reported_by: bench-d4-astra (unity-completions/gpt-6-astra),
+wave: ${wave}, reported_by: bench-d4-astra (openai/gpt-6-astra),
 status: intake, verdict: pending, id: pending):
 ${template}
 

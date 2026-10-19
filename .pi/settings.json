@@ -1,4 +1,4 @@
 {
   "thetaPaths": ["../.localpi", "theta/workers"],
-  "theta": { "binderModel": "anthropic/claude-sonnet-5" }
+  "theta": { "binderModel": "openai/gpt-5.6-terra" }
 }

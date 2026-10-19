@@ -281,6 +281,7 @@ describe("bug 0023 element 1 — the production emitDiagnostic sink (theta/load/
       "registerFlag",
       "registerFlag",
       "registerMessageRenderer",
+      "registerMessageRenderer", // theta_print's separate plain-text channel
       "on:resources_discover",
       "on:session_start",
     ]);
@@ -317,7 +318,8 @@ describe("bug 0023 element 2 — the production RendererGate (theta/load/extensi
     expect(errorLines).toEqual([[`theta: ${expectedLine}`]]);
     expect(stderrChunks).toEqual([]);
 
-    // Non-abort (V9p): the remaining steps still run.
+    // Non-abort (V9p): the remaining steps still run. A globally failed
+    // renderer capability suppresses theta_print registration (fail-closed).
     expect(host.calls).toEqual([...FULL_BOOTSTRAP_CALLS]);
   });
 
@@ -430,7 +432,9 @@ describe("bug 0023 element 3 — the step-0 capability probe (theta/load/host-in
 
     expect(() => thetaExtension(host.pi)).not.toThrow();
 
-    expect(host.calls).toEqual([...FULL_BOOTSTRAP_CALLS]);
+    const expected = [...FULL_BOOTSTRAP_CALLS];
+    expected.splice(expected.indexOf("registerMessageRenderer") + 1, 0, "registerMessageRenderer");
+    expect(host.calls).toEqual(expected);
     expect(host.notes).toEqual([]);
     expect(errorLines).toEqual([]);
     expect(stderrChunks).toEqual([]);

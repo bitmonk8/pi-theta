@@ -1,7 +1,7 @@
 ---
 description: "D4 duplication & drift reviewer - reviews one shard of production source files through the clone/drift/parallel lens, files candidate findings into quality/intake/"
 mode: subagent
-model: "anthropic/claude-opus-5-5"
+model: "openai/gpt-6.1-sol"
 thinking: xhigh
 tools: read, grep, bash, write
 tool_loop:
@@ -122,7 +122,7 @@ Write each finding as one file:
 quality/intake/${wave}-d4-NN-<short-slug>.md where NN is 01, 02, ... in
 filing order and <short-slug> is a few lowercase words joined by hyphens.
 Follow this template exactly (frontmatter fields included; set lens: D4,
-wave: ${wave}, reported_by: lens-d4-duplication (anthropic/claude-opus-5-5),
+wave: ${wave}, reported_by: lens-d4-duplication (openai/gpt-6.1-sol),
 status: intake, verdict: pending, id: pending):
 ${template}
 

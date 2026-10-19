@@ -75,6 +75,23 @@ of `validation`, `execution`, `cancelled`, or `unknown_tool`; a tool that
 reports failure (an `isError` result) — extension tools included — lowers to
 `cause: "execution"`, never a fabricated `Ok`.
 
+## Display a deterministic result
+
+To show a tool result directly instead of paying for an echo query, also list
+`theta_print` in frontmatter `tools:` and call:
+
+```theta
+let listing = bash({ command: "git log -5 --oneline" })?
+theta_print({ text: listing })?
+```
+
+`theta_print` adds a plain-text custom message to this session with no model
+turn or fabricated host-loop turn. It returns `Ok("ok")`; child output stays
+private. Input is limited to 65,536 UTF-8 bytes and terminal-control sequences
+are stripped. See [the contract](../spec_topics/tool-calls.md#theta-print).
+For zero model calls overall, avoid the argument binder too: use no parameters
+or a single defaultless `string` parameter, as `/fix-bug` does.
+
 ## Reference
 
 - `tools:` callable set, resolution, and the `as` rename — [Frontmatter](../reference/frontmatter.md).

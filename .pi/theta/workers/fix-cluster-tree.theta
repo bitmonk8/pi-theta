@@ -1,7 +1,7 @@
 ---
 description: "Fix one cluster inside its own git worktree - the manifest runs as SEQUENTIAL small batches (fixer/gate/review/commit per batch, each its own revert boundary), squashed to one commit at lane end; never touches the quality store"
 mode: subagent
-model: "anthropic/claude-sonnet-5"
+model: "openai/gpt-5.6-terra"
 tools:
   - bash
   - theta_progress

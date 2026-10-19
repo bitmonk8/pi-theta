@@ -1,0 +1,153 @@
+---
+description: List open bugs with no arguments, or prove, plan, fix, verify, review and ship ONE numbered bug
+argument-hint: "[bug number (omit to list open bugs)] [ship true/false] [review_rounds 5]"
+mode: prompt
+tools:
+  - bash
+  - read
+  - write
+  - question
+  - theta_print
+  - ./workers/bugfix-stage.theta
+  - ./workers/bugfix-review.theta
+params:
+  arguments: string
+---
+schema OwnerOption { label: string, description: string }
+// Do not infer shell success from tool Ok: some hosts render a nonzero exit
+// as ordinary text. Every control-plane operation must return the exact PASS.
+fn control(command: string): boolean {
+  let output: string = match bash({ command: command }) {
+    Ok(text) => text,
+    Err(_) => "CONTROL_ERROR",
+  }
+  output.trim() == "PASS"
+}
+// A single defaultless string bypasses the model binder. Listing is now
+// entirely deterministic, not merely free of an output-echo query.
+let mut bug = ""
+let mut ship = true
+let mut review_rounds = 5
+if arguments.trim() != "" {
+  write({ path: ".pi/tmp/bugfix-request.txt", content: arguments })?
+  let parsed = bash({ command: "node tools/bugfix/run.mjs parse-file .pi/tmp/bugfix-request.txt" })?
+  let fields = parsed.trim().split("\n")
+  if fields.length != 4 || fields[0] != "FIX" {
+    theta_print({ text: "Invalid /fix-bug arguments. " + parsed })?
+    return "STOP: invalid arguments"
+  }
+  bug = fields[1]
+  ship = fields[2] == "true"
+  review_rounds = 0
+  for value in ["1", "2", "3", "4", "5"] {
+    review_rounds += 1
+    if value == fields[3] { break }
+  }
+}
+if bug.trim() == "" {
+  let listing = bash({ command: "node tools/bugfix/run.mjs list" })?
+  theta_print({ text: listing })?
+  return listing
+}
+if review_rounds < 1 || review_rounds > 5 {
+  return "review_rounds must be between 1 and 5"
+}
+// Pass the untrusted slash argument through a file, never shell interpolation.
+write({ path: ".pi/tmp/bugfix-request.txt", content: bug })?
+let initial: string = match bash({ command: "node tools/bugfix/run.mjs init-file .pi/tmp/bugfix-request.txt" }) {
+  Ok(text) => text,
+  Err(_) => "INIT_ERROR",
+}
+let run = initial.trim()
+if !run.startsWith("/") || !run.includes("/.pi/tmp/fix-bug-") || run.includes("\n") || run.includes("BLOCKED:") {
+  return "STOP: checkout preflight failed: " + initial
+}
+let prefix = "node tools/bugfix/run.mjs "
+let quoted = "\"" + run + "\""
+let reproduce = bugfix_stage(run, "reproduce", "")?
+if reproduce.status != "pass" {
+  return "STOP: " + reproduce.summary + " — artifacts: " + run
+}
+let diagnosis = bugfix_stage(run, "diagnose", "")?
+if diagnosis.status != "pass" {
+  return "STOP: " + diagnosis.summary + " — artifacts: " + run
+}
+if !control(prefix + "red " + quoted) { return "STOP: red evidence gate failed. Artifacts: " + run }
+if !control(prefix + "snapshot " + quoted) { return "STOP: plan snapshot failed. Artifacts: " + run }
+let plan = bugfix_stage(run, "plan", "")?
+if !control(prefix + "review-check " + quoted) { return "STOP: plan changed checkout files. Artifacts: " + run }
+if plan.status != "pass" && plan.status != "needs_spec" {
+  return "STOP: " + plan.summary + " — artifacts: " + run
+}
+if !control(prefix + "snapshot " + quoted) { return "STOP: evidence snapshot failed. Artifacts: " + run }
+let evidence = bugfix_review(run, "evidence")?
+if !control(prefix + "review-check " + quoted) { return "STOP: evidence reviewer changed files. Artifacts: " + run }
+write({ path: run + "/evidence-review.md", content: evidence.findings })?
+if !evidence.ok {
+  return "STOP: evidence/plan review failed: " + evidence.findings + " — artifacts: " + run
+}
+if plan.status == "needs_spec" {
+  let proposal = read({ path: run + "/spec-proposal.md" })?
+  let presentation = @`Explain the proposed specification change below to the project owner:
+${proposal}
+Give the design choice, alternatives, consequences and the plan summary:
+${plan.summary}
+Do not use tools or change files. A separate dialog will request approval.`?
+  let answer = question({ question: "Approve the exact specification proposal in " + run + "/spec-proposal.md, as discussed above?", options: [OwnerOption { label: "Stop without spec changes", description: "Keep evidence and plan for discussion - no implementation." }, OwnerOption { label: "Approve proposed spec changes", description: "Authorize only the presented clauses - new spec decisions require another pause." }] })?
+  write({ path: run + "/spec-answer.txt", content: answer })?
+  if !control(prefix + "approval " + quoted) { return "STOP: specification proposal not approved. Artifacts: " + run }
+}
+let implemented = bugfix_stage(run, "implement", "")?
+if implemented.status != "pass" {
+  return "STOP: " + implemented.summary + " — artifacts: " + run
+}
+if !control(prefix + "gate " + quoted + " initial") { return "STOP: initial verification failed. Artifacts: " + run }
+let mut clean = false
+let mut round = 0
+let mut reviews: array<string> = []
+while round < review_rounds {
+  round += 1
+  if !control(prefix + "snapshot " + quoted) { return "STOP: review snapshot failed. Artifacts: " + run }
+  let review = bugfix_review(run, "fix")?
+  if !control(prefix + "review-check " + quoted) { return "STOP: reviewer changed files. Artifacts: " + run }
+  reviews = reviews.concat([review.findings])
+  write({ path: run + "/reviews.md", content: reviews.join("\n\n--- next review ---\n\n") })?
+  if review.ok {
+    clean = true
+    break
+  }
+  if round >= review_rounds { break }
+  let repair = bugfix_stage(run, "repair", review.findings)?
+  if repair.status != "pass" {
+    return "STOP: " + repair.summary + " — artifacts: " + run
+  }
+  if !control(prefix + "gate " + quoted + " repair") { return "STOP: repair verification failed. Artifacts: " + run }
+}
+if !clean {
+  return "STOP: review budget exhausted - no shipment. Artifacts: " + run
+}
+let closed = bugfix_stage(run, "close", "Independent fix review is clean - prepare factual closure record, no release claims.")?
+if closed.status != "pass" {
+  return "STOP: " + closed.summary + " — artifacts: " + run
+}
+if !control(prefix + "gate " + quoted + " final") { return "STOP: final verification failed. Artifacts: " + run }
+if !control(prefix + "snapshot " + quoted) { return "STOP: final snapshot failed. Artifacts: " + run }
+let final_review = bugfix_review(run, "final")?
+if !control(prefix + "review-check " + quoted) { return "STOP: final reviewer changed files. Artifacts: " + run }
+write({ path: run + "/final-review.md", content: final_review.findings })?
+if !final_review.ok {
+  return "STOP: final verification review failed: " + final_review.findings + " — artifacts: " + run
+}
+if !ship {
+  if !control(prefix + "release " + quoted) { return "STOP: lease release failed. Artifacts: " + run }
+  return "VERIFIED, NOT SHIPPED: inspect the diff and reports in " + run + ". No commit, push, tag or package publication performed."
+}
+let shipment_context = @`Summarize the verified fix for bug ${bug}, its evidence and residuals,
+using the final independent review below. Do not call tools or change files.
+Explain that the next dialog commits and pushes the current branch to origin,
+but does not bump a version, tag, or publish npm. Reports: ${run}.
+${final_review.findings}`?
+let ship_answer = question({ question: "Commit and push this verified fix on the current branch to origin?", options: [OwnerOption { label: "Keep local for inspection", description: "No commit or push - preserve verified changes and evidence." }, OwnerOption { label: "Commit and push this fix", description: "Stage scoped src/tests/docs changes, commit, then push current branch - no force or publication." }] })?
+write({ path: run + "/ship-answer.txt", content: ship_answer })?
+if !control(prefix + "ship " + quoted) { return "STOP: shipment refused or failed - inspect shipment.json before retrying. Artifacts: " + run }
+"COMMITTED AND PUSHED - reports and SHA in " + run + "/shipment.json"

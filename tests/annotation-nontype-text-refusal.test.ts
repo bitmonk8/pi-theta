@@ -2599,7 +2599,7 @@ describe("bug 0124 (x) — the committed corpus declares no annotation in this c
       `x1: the census is over ${files.length} committed files; a change in the corpus size means ` +
         `the inventory below must be re-derived rather than trusted. Files: ` +
         `${JSON.stringify(files)}`,
-    ).toEqual([53, 3]);
+    ).toEqual([56, 3]);
 
     const lets: string[] = [];
     const params: string[] = [];
@@ -2626,7 +2626,8 @@ describe("bug 0124 (x) — the committed corpus declares no annotation in this c
       `x1: the inventory at the three positions this report owns. Observed lets ` +
         `${JSON.stringify([...lets].sort())}, params ${JSON.stringify([...params].sort())}, ` +
         `returns ${JSON.stringify([...returns].sort())}`,
-    ).toEqual([38, 8, 7]);
+    // /fix-bug adds five let annotations, one fn parameter and one fn return annotation.
+    ).toEqual([43, 9, 8]);
     expect(
       offenders,
       `x1: ZERO offenders — no committed fixture changes disposition when the refusal lands, so ` +

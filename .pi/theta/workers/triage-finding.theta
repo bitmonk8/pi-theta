@@ -1,7 +1,7 @@
 ---
 description: "Triage one candidate finding - re-verify its evidence against the code and issue a verdict"
 mode: subagent
-model: "anthropic/claude-opus-5-5"
+model: "openai/gpt-6.1-sol"
 thinking: high
 tools: read, grep, bash, edit
 tool_loop:
@@ -138,7 +138,7 @@ Method — run every step:
    design decision for a human ruling (NEVER confirmed). Dead code → D2;
    size → D9; duplication → D4 (out-of-scope).
    lens: D6 — error posture in src/ ONLY; d6_class selects the check.
-   reported_by must be exactly "lens-d6-errorposture (anthropic/claude-opus-5-5)"
+   reported_by must be exactly "lens-d6-errorposture (openai/gpt-6.1-sol)"
    — a mismatch is malformed (the identity is dictated, never guessed). All
    classes: open BOTH cited sides and confirm the excerpts at the cited lines;
    confirm the sibling relationship is real (same failure class, argued
@@ -164,7 +164,7 @@ Method — run every step:
    docs/reference/coverage-matrix.md (a claim location outside them =
    out-of-scope); the evidence side may cite anything, read-only — you NEVER
    execute tests for a D10 candidate. reported_by must be exactly
-   "lens-d10-verification (anthropic/claude-opus-5-5)" — a mismatch is
+   "lens-d10-verification (openai/gpt-6.1-sol)" — a mismatch is
    malformed. d10_class selects the check. unwitnessed-claim / memory-evidence:
    re-run EVERY stated search verbatim (command + hit count must reproduce);
    then run at least one search of YOUR OWN shaping per evidence representation
@@ -220,7 +220,7 @@ Method — run every step:
    stale grammar line numbers) → out-of-scope (a mechanical gate owns them).
    Coverage gaps, test smells, behaviour bugs → out-of-scope.
    lens: D1 — design consistency in src/ ONLY; d1_class selects the check.
-   reported_by must be exactly "lens-d1-design (anthropic/claude-fable-5-1)" —
+   reported_by must be exactly "lens-d1-design (openai/gpt-6-astra)" —
    a mismatch is malformed (the identity is dictated; this lens's model has
    misnamed itself in benchmark runs). Every stated search must paste its
    raw output lines (the first 10 plus a total count is enough) - a

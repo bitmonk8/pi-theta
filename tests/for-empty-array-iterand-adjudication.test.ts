@@ -382,7 +382,7 @@ describe("bug 0195 (D) — no committed theta carries a `for`-iterand `[]`", () 
     expect(
       files.length,
       `D1: the census is over ${files.length} committed files; sibling fixes land \`.theta\` files, so a changed count means the disposition below must be re-derived rather than trusted. Files: ${JSON.stringify(files)}`,
-    ).toBe(56);
+    ).toBe(59);
     const offenders = files.filter((f) =>
       readFileSync(path.join(REPO_ROOT, f), "utf8").includes("[]"),
     );
@@ -415,7 +415,10 @@ describe("bug 0195 (D) — no committed theta carries a `for`-iterand `[]`", () 
       offenders.sort(),
       "D1: the committed `[]` occurrences live in exactly these type-sunk, non-iterand sites; a new offender means the disposition must be re-derived rather than trusted",
     ).toEqual([
+      // New workflow: typed review accumulator and JSON example text, not for iterands.
+      ".pi/" + "theta" + "/fix-bug.theta",
       ".pi/theta/quality-loop.theta",
+      ".pi/" + "theta" + "/workers/bugfix-stage.theta",
       ".pi/theta/workers/fix-cluster-tree.theta",
       ".pi/theta/workers/quality.thetalib",
     ]);

@@ -400,8 +400,8 @@ describe("T-PRG — factory-path (a): registerTool fires in the factory's synchr
     // itself is not even installed until AFTER registerTool ran.
     expect(calls.indexOf("on:session_start")).toBeGreaterThan(registerToolIndex);
 
-    expect(registeredTools).toHaveLength(1);
-    expect(registeredTools[0]?.name).toBe(THETA_PROGRESS_TOOL_NAME);
+    expect(registeredTools.filter(tool => tool.name === THETA_PROGRESS_TOOL_NAME)).toHaveLength(1);
+    expect(registeredTools.map(tool => tool.name).sort()).toEqual(["theta_print", THETA_PROGRESS_TOOL_NAME].sort());
   });
 });
 
@@ -417,7 +417,7 @@ describe("T-PRG — factory-path (b): a throwing pi.registerTool draws bootstrap
     expect(calls).toContain("registerTool");
     const bootstrapDiagnostics = diagnostics.filter((d) => d.code === EXTENSION_BOOTSTRAP_FAILED_CODE);
     const progressDiagnostic = bootstrapDiagnostics.find((d) =>
-      d.message.includes("pi.registerTool"),
+      d.message.includes("pi.registerTool") && (d.details as { theta?: string } | undefined)?.theta === THETA_PROGRESS_TOOL_NAME,
     );
     expect(
       progressDiagnostic,

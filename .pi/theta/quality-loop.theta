@@ -2,7 +2,7 @@
 description: "Ralph-style quality loop - review changed pi-theta sources lens-by-lens (roster in `lenses`; worker-backed today: D1, D2, D4, D6, D7, D8, D9, D10), triage, fix confirmed findings in parallel git worktrees behind the offline gate, integrate, repeat until the open backlog is empty (state under quality/)"
 argument-hint: "[max_cycles] [lenses (or 'none' = fix-only drain)] [shard_loc] [review_cap] [budget] [parallel] [push true/false]"
 mode: prompt
-bind_model: "anthropic/claude-sonnet-5"
+bind_model: "openai/gpt-5.6-terra"
 tools:
   - bash
   - write

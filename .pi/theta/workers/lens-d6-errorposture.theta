@@ -1,7 +1,7 @@
 ---
 description: "D6 error-posture reviewer - reviews one shard of production sources for sibling-path posture divergence, files candidate findings into quality/intake/"
 mode: subagent
-model: "anthropic/claude-opus-5-5"
+model: "openai/gpt-6.1-sol"
 thinking: high
 tools: read, grep, bash, write
 tool_loop:
@@ -111,7 +111,7 @@ sites: the count; fix_scope: module | cross-module. Body per the template.
 Write each finding as one file: quality/intake/${wave}-d6-NN-<short-slug>.md
 where NN is 01, 02, ... in filing order. Follow this template exactly
 (frontmatter fields included; set lens: D6, wave: ${wave},
-reported_by: lens-d6-errorposture (anthropic/claude-opus-5-5) — this exact
+reported_by: lens-d6-errorposture (openai/gpt-6.1-sol) — this exact
 string, never a guess — status: intake, verdict: pending, id: pending):
 ${template}
 

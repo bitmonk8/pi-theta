@@ -71,6 +71,25 @@ intro                                                 # tail expression = final 
 - Effects (file/network/process) happen only through admitted Pi tools; a theta has
   no such primitive of its own. Call a tool or a `.theta` callable as `name(args)`.
 
+## Display text without a model turn
+
+List `theta_print` in `tools:` and call it directly:
+
+```theta
+let listing = bash({ command: "git log -5 --oneline" })?
+theta_print({ text: listing })?
+```
+
+It displays plain text in the current session and returns `Ok("ok")`, without
+an `@` query or fabricated host-loop turn. Child output stays in the child's
+private session. ANSI/terminal controls are stripped; input is limited to
+65,536 UTF-8 bytes. Normal code-side tool output and a theta's return value
+are not themselves interactive display operations.
+
+For a completely model-free command, use no parameters or a single defaultless
+`string` parameter (the existing argument-binder bypass). A multi-parameter
+command can still invoke the model binder even when its body has no queries.
+
 ## Agent loops
 
 A subagent callable gives a fresh context each call, and its typed final value

@@ -260,7 +260,17 @@ host session — where a theta whose code calls an extension tool refuses to
 load with `theta/load/extension-tool-unreachable` (distinct from
 `theta/load/unknown-tool`, which means the tool is absent from Pi's registry).
 
-One extension tool is registered by pi-theta itself: **`theta_progress`**
+Pi-theta registers **`theta_print`** for deterministic plain-text output:
+`theta_print({ text: value })?` displays one `theta-print` custom message in
+this session without requesting a model turn. The code-side path is in-process,
+not a fabricated host-loop turn. Input is limited to 65,536 UTF-8 bytes and
+terminal controls/ANSI are stripped (LF/tab preserved, CRLF normalized).
+It returns `ok` after delivery. Child output stays in the child's own session
+and never enters its stdout protocol or an ancestor transcript. Parent text-print
+mode additionally writes the safe text to stdout; JSON/RPC/TUI use the custom
+message surface. See [Tool Calls — theta_print](../spec_topics/tool-calls.md#theta-print).
+
+Pi-theta also registers **`theta_progress`**
 (RFC 0010, L3) — the author-facing live-progress reporter. It resolves like
 any registry name above, takes `{ message: string, scope?: string, done?:
 integer, total?: integer }` (additional properties rejected; violations are

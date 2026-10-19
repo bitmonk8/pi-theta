@@ -49,6 +49,7 @@ import {
   THETA_STATUS_COMMAND_NAME,
 } from "./execution-status/status-command";
 import { registerThetaProgressTool } from "./execution-status/progress-tool";
+import { registerThetaPrintTool, createThetaPrintRenderer, THETA_PRINT_CHANNEL, THETA_PRINT_TOOL_NAME } from "./print-tool";
 import type { InProcessToolExecute } from "../runtime/tool-call-execute";
 import {
   RendererGate,
@@ -420,6 +421,7 @@ export function createThetaExtension(
     // into a repeat compose, and closed at `session_shutdown`. Undefined under
     // `pipe` and in every parent process.
     let liveResultChannel: ResultChannelClient | undefined;
+    let printHostMode: string | undefined;
     // Bug 0493 D1 (b): the LIVE armed parent-liveness watchdog of the current
     // composed instance, latched from the compose wiring, handed back into a
     // repeat `session_start` compose of this instance (which reuses it), and
@@ -488,8 +490,10 @@ export function createThetaExtension(
     // `ctx.ui.notify` arm of the System-notes fallback chain (the
     // persistent-transcript renderer is unavailable), so the factory degrades
     // the shared `RendererGate` and emits one diagnostic naming the capability.
+    let messageRendererReady = false;
     try {
       pi.registerMessageRenderer(SYSTEM_NOTE_CHANNEL, createSystemNoteRenderer());
+      messageRendererReady = true;
     } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
       deps.rendererGate?.degrade();
       deps.emitDiagnostic?.(
@@ -540,6 +544,26 @@ export function createThetaExtension(
     // host without `registerTool` (the tool never registers there anyway).
     let inProcessTools: Readonly<Record<string, InProcessToolExecute>> | undefined;
     if (typeof pi.registerTool === "function") {
+      let printRendererReady = false;
+      if (messageRendererReady) {
+        try {
+          pi.registerMessageRenderer(THETA_PRINT_CHANNEL, createThetaPrintRenderer());
+          printRendererReady = true;
+        } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — print renderer registration
+          deps.emitDiagnostic?.(bootstrapFailedDiagnostic("pi.registerMessageRenderer", e));
+        }
+      }
+      if (printRendererReady) {
+        try {
+          const printing = registerThetaPrintTool(pi, {
+            isChildRegime: deps.isSubagentChild === true,
+            mode: () => printHostMode,
+          });
+          inProcessTools = { [THETA_PRINT_TOOL_NAME]: printing.codeSideExecute };
+        } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — print tool registration
+          deps.emitDiagnostic?.(bootstrapFailedDiagnostic("pi.registerTool", e, { theta: THETA_PRINT_TOOL_NAME }));
+        }
+      }
       try {
         const progress = registerThetaProgressTool(pi, {
           isChildRegime: deps.isSubagentChild === true,
@@ -551,7 +575,7 @@ export function createThetaExtension(
           // rides the result channel; absent (pipe), the fd-1 default stands.
           wireSink: () => liveResultChannel,
         });
-        inProcessTools = { [THETA_PROGRESS_TOOL_NAME]: progress.codeSideExecute };
+        inProcessTools = { ...inProcessTools, [THETA_PROGRESS_TOOL_NAME]: progress.codeSideExecute };
       } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
         deps.emitDiagnostic?.(
           bootstrapFailedDiagnostic("pi.registerTool", e, { theta: THETA_PROGRESS_TOOL_NAME }),
@@ -602,6 +626,7 @@ export function createThetaExtension(
         // e.g. `session_shutdown`) can route through the sink's full
         // System-notes chain instead of the factory-time partial one.
         deps.latchSessionContext?.(ctx);
+        printHostMode = (ctx as ExtensionContext & { readonly mode?: string }).mode;
         // Bug 0451: build the factory-local note channel (harness paths, no
         // injected `systemNoteChannel`) over THIS ctx, so its `ctx.ui.notify`
         // fallback arm notifies on the same session the injected channel would.

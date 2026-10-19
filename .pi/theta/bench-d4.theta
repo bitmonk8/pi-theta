@@ -2,7 +2,7 @@
 description: "Benchmark the D4 duplication lens across candidate models on one pending shard - each model reviews the same shard in isolation, filings are quarantined under quality/bench/, a judge scores precision/recall per model"
 argument-hint: "[manifest (empty = first pending D4 shard)] [budget]"
 mode: prompt
-bind_model: "anthropic/claude-sonnet-5"
+bind_model: "openai/gpt-5.6-terra"
 tools:
   - bash
   - ./workers/bench-d4-fable51.theta
@@ -47,12 +47,15 @@ schema Lane {
   slug: string,
   model: string
 }
+// OpenAI-only mapping: keep legacy lane slugs/callable names for compatibility.
+// fable51 and astra now both run GPT-6 Astra (separate runs, not distinct models).
+// opus55 runs GPT-6.1 Sol; sol retains GPT-5.6 Sol for version comparison.
 let lanes: array<Lane> = [
-  Lane { slug: "fable51", model: "anthropic/claude-fable-5-1" },
-  Lane { slug: "opus55", model: "anthropic/claude-opus-5-5" },
-  Lane { slug: "astra", model: "unity-completions/gpt-6-astra" },
-  Lane { slug: "sol", model: "unity-completions/gpt-5.6-sol" },
-  Lane { slug: "terra", model: "unity-completions/gpt-5.6-terra" }
+  Lane { slug: "fable51", model: "openai/gpt-6-astra" },
+  Lane { slug: "opus55", model: "openai/gpt-6.1-sol" },
+  Lane { slug: "astra", model: "openai/gpt-6-astra" },
+  Lane { slug: "sol", model: "openai/gpt-5.6-sol" },
+  Lane { slug: "terra", model: "openai/gpt-5.6-terra" }
 ]
 
 // ---------------------------------------------------------------- bench runs

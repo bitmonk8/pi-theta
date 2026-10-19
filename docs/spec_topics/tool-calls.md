@@ -9,9 +9,36 @@ let summary  = summarise(contents)?
 let label    = triage(summary)?
 ```
 
-**No conversation turn.** A tool call is a direct call against Pi's tool runtime (or, for a `.theta` callable, a fresh subagent invocation; see below). It does **not** add a turn to the theta's conversation, does **not** consume model tokens, and does **not** appear in the conversation transcript. This is the deliberate distinction from `@`...`` queries: queries cross code → model in the current conversation; tool calls cross code → side-effect (or code → child conversation, for a `.theta` callable) without disturbing the current one.
+**No conversation turn.** A tool call is a direct call against Pi's tool runtime (or, for a `.theta` callable, a fresh subagent invocation; see below). It does **not** add a turn to the theta's conversation, does **not** consume model tokens, and does **not** normally appear in the conversation transcript (explicit output tools such as `theta_print` below are an exception). This is the deliberate distinction from `@`...`` queries: queries cross code → model in the current conversation; tool calls cross code → side-effect (or code → child conversation, for a `.theta` callable) without disturbing the current one.
 
 **The `theta_progress` extension tool (RFC 0010, L3).** The execution-status feature registers one ordinarily-registered extension tool, `theta_progress` ([Execution Status — EXST-13](./execution-status.md#exst-13)): it resolves into a callable set like any Pi tool name (the `pi.getAllTools()` registry-snapshot admission, [Parameters and Frontmatter — `tools:`](./frontmatter/frontmatter-fields-a.md#tools)), takes the single-object argument `{ message: string, scope?: string, done?: integer, total?: integer }` under this page's ordinary argument rules — [TOOL-1](#tool-1)'s shape rule, the runtime AJV check surfacing a non-conforming code-side argument as the existing `Err(CodeToolError { cause: "validation", … })` arm, a non-conforming model-side call fed back as that `tool_use` block's failing tool result, and the parse-time provable-disjointness check, with no new diagnostics — and returns the fixed literal `ok`. Its execution renders on the execution-status sinks and the LLM-context-free entry channel only, clamped ([Execution Status — EXST-14](./execution-status.md#exst-14) in the parent regime; [EXST-15](./execution-status.md#exst-15)'s stdout wire line in a subagent child, [Subagent — PIC-74](./pi-integration-contract/subagent.md#pic-74)). Milestone rendering is entry-channel-only (`pi.appendEntry`), so the **No conversation turn** rule above holds unchanged: a `theta_progress` call adds no turn, consumes no model tokens, and appears in no conversation transcript.
+
+<a id="theta-print"></a>
+
+**The `theta_print` extension tool.** List `theta_print` in `tools:` and call
+`theta_print({ text: expression })`. This ordinarily registered Pi tool accepts
+exactly one string field, `text`, and returns `Result<string, QueryError>` with
+`Ok("ok")` after successful delivery. A code-side call dispatches in-process:
+no query, fabricated host-loop turn, assistant message, or model request occurs.
+The tool adds one displayed `theta-print` custom message to the calling process's
+own session with `triggerTurn: false`; it is ordinary conversation content,
+unlike `theta_progress`. The renderer uses plain text, not Markdown. LF line
+breaks and tabs are preserved, CRLF is normalized to LF, ANSI/VT sequences and
+other C0/C1/DEL controls are stripped before storing or rendering the text.
+Input over 65,536 UTF-8 bytes is rejected rather than silently truncated.
+Shape/schema failures use ordinary tool validation; delivery/size failures use
+ordinary execution failures. Delivery failure does not report `ok`.
+
+In TUI mode the custom renderer displays the message; RPC and JSON use the host's
+custom-message event transport without raw text on their protocol streams.
+In parent text-print mode (`pi -p`), the tool additionally writes the safe text
+to stdout, adding a newline only when one is absent. A spawned subagent
+(including a `subagent fn`) writes **only to its own private session**, never to
+stdout and never to an ancestor transcript or progress/result channel. A visible
+child may render its own message in its own pane. The print call's only return
+payload is `"ok"`; printed text is not automatically added to the child's invoke
+result (the child's explicit final value still determines that result).
+Empty text is accepted.
 
 <a id="options-surface"></a>
 
