@@ -1,8 +1,11 @@
 # Bug 0501 — a mid-turn overflow or split-turn compaction with NO recorded abort drifts the `turnStart` anchor out of the rebuilt message list: `thisTurnSettled` never opens, the settle poll burns its full 10 s bound, and the reply already sitting in the rebuilt list is discarded as a false, non-retryable `Err(transport)` "on-session turn did not settle" — the 0483 fix's compaction-relocated read exists but runs only when an abort was recorded
 
-- **Status:** open — `## Fix` settled 2026-09-29 (design; folds bug
-  0500 in — see §Fix decision; implementation pending, targets
-  0.495.0)
+- **Status:** fixed, unreleased — the 2026-10-19 prerequisite work
+  implements no-abort own-turn relocation, including prior-history context
+  edits, on top of 0503's bounded ownership. See **Current fix** below.
+  No commit, resolving SHA, version bump or package release is claimed.
+  The historical 2026-09-29 combined 0500/0501 design below is retained as
+  evidence, not current approval or implementation scope; 0500 remains open.
 - **Owning repo:** pi-theta
 - **Sev/Diff estimate:** S3/D2 — S3: no silent corruption (the failure is
   loud), but it is FALSE — the host's own overflow recovery completed the
@@ -169,7 +172,68 @@ compaction-relocated read is reachable only when a mid-turn `ctx.signal`
 abort was recorded (the stall-watchdog/ESC family) — which the pure
 host-side overflow recovery never produces.
 
-## Fix (settled 2026-09-29 — design; on top of 0.494.0, main 08a8ba39; targets 0.495.0)
+## Current fix (2026-10-19 — prerequisite for 0499; fixed, unreleased)
+
+Owner direction: choose scope for the prior-history-edit control, implement and
+verify the prerequisite, then prepare an ownership-aware 0499 proposal for
+separate approval. A prior-history projection edit is included in 0501 because
+it exposes the same rejected, below-index own anchor, not an unhealed omission
+of this attempt. Historical version plans are not approvals.
+
+`LivePromptQueryModel` now permits the existing `OwnedTurnAttempt` relocated read
+without a recorded abort, including fast completed sends. The raw own-send
+identity and bounded own span from 0503 are retained; foreign users cannot
+supply an anchor, ending, classifier evidence or answer. The no-user summary
+fallback additionally requires an attributable raw send and a fresh compaction,
+and remains unavailable in a foreign window. No-abort waits retain their full
+bound; recorded-abort grace, recovery rides, reason identity and cancellation
+precedence remain separate. An active session is not accepted as a settled
+no-foreign turn merely because a relocated assistant is present.
+
+Typed queries mark a relocated replay window sticky even on an ordinary
+no-abort settle. Forced or repair replay fails retryably rather than using a
+stale index. Existing eligible early capture remains usable unless cancellation
+or foreign interleaving takes precedence. Non-compaction shifts use truthful
+session-projection wording rather than attributing them to compaction.
+
+**0500 is not folded into this implementation.** Its answered-compaction rule
+would change the current 0482/PIC-70 wait-through contract and is not required
+for the 0499 prior-target control. `trailingCompactionUnanswered` and all
+tracked baseline tests remain unchanged. A final trailing compaction can
+therefore still cause the separately filed 0500 false expiry. 0499's omission
+handling and 0502's pre-prompt scheduling remain separate.
+
+Evidence lives in `.pi/tmp/fix-bug-0501-prerequisite-for-0499/`:
+
+- New `tests/b0501-no-abort-owned-relocation.test.ts`: pre-fix 12 intended
+  assertion failures / 8 controls green; final 22 cells green, including two
+  added safety controls. Existing focused 0288/0482/0483/0503 coverage stays
+  green (128 tests / 7 files).
+- New `tests/live/b0501-prior-history-edit-live.test.ts`: real AgentSession,
+  shipped extension and OpenAI provider; SDK history edits at the settled
+  boundary move the own anchor below the saved index. Pre-fix the completed
+  `777` is discarded as a 10-second expiry; post-fix the next persisted theta
+  user message carries `777`, normal endings, no failure notes, session idle.
+  The initial single-edit fixture did not produce below-index drift because
+  the host appends a system entry; its green runs are not regression evidence.
+  The corrected fixture explicitly checks drift and has a correct-reason red.
+- Independent review: CLEAN, focused 128/128 and live 11/11 (four files,
+  OpenAI `gpt-6.1-sol`, including 0483/0503 controls). No tracked baseline
+  witnesses were changed. Real natural overflow and historical host variants
+  were not newly measured; compaction/split-turn coverage uses SDK projection
+  plus scripted driver timing.
+- The 0499 prior-target control is now green. Its 7 unit, 3 composition and
+  1 live intended failures remained at that prerequisite checkpoint. The owner
+  subsequently approved PIC-79 and the separate 0499 implementation greens
+  those witnesses; see 0499's current fix and run-local verification report.
+  The earlier prerequisite report remains historical evidence, not a claim
+  that 0499 was already fixed at that checkpoint.
+
+## Historical combined design (settled 2026-09-29; not the current implementation scope)
+
+The following proposed combined 0500/0501 design and version numbers predate
+0503. They remain historical design evidence and do not override the current
+fix, ownership rules, residual boundaries or approval requirements above.
 
 **Decision — bug 0500 is FOLDED into this fix** (0500's doc points here):
 

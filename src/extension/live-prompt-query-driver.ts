@@ -9,7 +9,7 @@ import {
   type SystemNoteChannelDeps,
 } from "./system-note-channel";
 import { extractTrailingTurnText, computeActiveSetInstall, type CallableSetInstall } from "../runtime/conversation-drive";
-import { probePostTurnFailure, mapPromptModeSyncThrow, mapPromptModeTurnLifecycleExpiry, mapPromptModeInterleaving, type PromptModeTurnLifecyclePhase } from "../runtime/prompt-transport-mapping";
+import { probePostTurnFailure, mapPromptModeSyncThrow, mapPromptModeTurnLifecycleExpiry, mapPromptModeInterleaving, mapPromptModeHostOmittedRecovery, type PromptModeTurnLifecyclePhase } from "../runtime/prompt-transport-mapping";
 import type { ForcedRespondTurn, FreePhaseTurn, QueryModelDriver } from "../runtime/query-tool-loop";
 import type { CommittedSideEffect } from "../runtime/no-rollback";
 import type { ContextOverflowError, TransportError } from "../runtime/query-error";
@@ -160,7 +160,7 @@ class LivePromptQueryModel implements QueryModelDriver {
   readonly #clock: Clock;
   readonly #queryText: string;
   readonly #readMessages: () => readonly Message[];
-  /** Bug 0482: the chronological leaf path `thisTurnSettled` checks for an unanswered trailing compaction. */
+  /** Chronological raw evidence for unanswered compaction (0482) and own omission (PIC-79). */
   readonly #readContextPath: () => readonly SessionEntry[];
   readonly #activeTools: readonly string[];
   readonly #thetaAbort: AbortController;
@@ -190,7 +190,7 @@ class LivePromptQueryModel implements QueryModelDriver {
   readonly #queryThinking: string | undefined;
   /** The exhaustion snapshot captured after the bounded free-phase turn settled. */
   #exhaustion: PromptToolLoopExhaustion | undefined = undefined;
-  /** Drive failure slot: sync throw, lifecycle expiry, or 0503 refusal. */
+  /** Drive failure slot: sync throw, lifecycle expiry, 0503 refusal or PIC-79 omission. */
   #transportFromThrow: TransportError | undefined = undefined;
   /** The SAME accepted own snapshot feeds classification, text and narration. */
   #acceptedMessages: readonly Message[] = [];
@@ -220,14 +220,12 @@ class LivePromptQueryModel implements QueryModelDriver {
    */
   #endedOnCapturedRecovery = false;
   /**
-   * Bug 0483 (PIC-78): whether any attempt of this query was classified
-   * through the compaction-relocated trailing-turn read. The compaction that
-   * forced that read rebuilt the message list, so `#queryWindowStart` no
-   * longer indexes this query's turns and a window-shaped forced respond
-   * would replay a stale or empty conversation. Never reset: the rebuilt list
-   * stays rebuilt for every later dispatch of the query.
+   * PIC-78/0501: whether any attempt settled through a relocated own read.
+   * Compaction or a prior-history projection edit moved the anchor, so the
+   * indexed query window can replay a stale or empty conversation. Retain
+   * the first cause for a truthful error; never reset across repair/ride.
    */
-  #windowRelocated = false;
+  #windowRelocated: "compaction" | "projection" | undefined;
   /**
    * Bug 0319 (cancellation.md §"Forwarding into `thetaAbort`", bidirectional
    * prompt-mode clause): guards the reverse `thetaAbort` -> `ctx.abort()`
@@ -513,6 +511,12 @@ class LivePromptQueryModel implements QueryModelDriver {
       return { kind: "transport", error: mapPromptModeSyncThrow("cancelled", this.#provider) };
     }
     if (interleaving !== undefined) return { kind: "transport", error: interleaving };
+    // PIC-79: a terminal free-phase failure cannot be bypassed by a capture
+    // or a direct forced-response call after that failed phase. The template-
+    // only boundary has no drive failure and remains unaffected.
+    if (this.#transportFromThrow !== undefined) {
+      return { kind: "transport", error: this.#transportFromThrow };
+    }
     // Bug 0010 (QRY-14 early respond): a payload the model already delivered
     // through a VALID early respond-tool call resolves the query — the
     // off-session forced turn is skipped entirely.
@@ -767,13 +771,16 @@ class LivePromptQueryModel implements QueryModelDriver {
     // Bug 0483 (PIC-78): under forced tool choice a provider binds a
     // schema-valid payload even over a window that carries none of this
     // query's turns, so a stale window must fail loudly, never dispatch.
-    if (this.#windowRelocated) {
+    if (this.#windowRelocated !== undefined) {
+      const relocation = this.#windowRelocated === "compaction"
+        ? "a mid-turn compaction relocated the driven turn"
+        : "a session projection change relocated the driven turn";
       return Promise.resolve({
         kind: "transport",
         error: {
           kind: "transport",
           message:
-            "typed query forced respond turn not dispatched: a mid-turn compaction relocated the driven turn " +
+            `typed query forced respond turn not dispatched: ${relocation} ` +
             "(PIC-78), so the query window recorded at the query's first send no longer spans this query's turns",
           http_status: null,
           provider: this.#provider,
@@ -993,19 +1000,14 @@ class LivePromptQueryModel implements QueryModelDriver {
             if (this.#thetaAbort.signal.aborted) {
               return;
             }
-            // Bug 0288 §Fix item 3/4 / bug 0483 §Fix item 2: the message-list
-            // length recorded BEFORE this attempt's own send, the boundary its OWN
-            // user entry must land at or after. A settled-slice read that ignored
-            // this boundary could still anchor on an EARLIER turn's (already-settled)
-            // user entry and silently re-extract its text (P2's exact failure shape)
-            // instead of failing loudly over this attempt's own, still-unattributed
-            // one. Each continuation attempt records its own boundary, so the settle
-            // polls and the classification read the RETRIED attempt's slice, never
-            // the aborted one's.
+            // Record fresh raw identity and the pre-send projected boundary for
+            // each attempt. PIC-70/0501 permits the same identified own user to
+            // relocate below that index; it never permits selecting an earlier
+            // or foreign turn. Each continuation gets fresh attempt provenance.
             this.#acceptedMessages = [];
             const attempt = new OwnedTurnAttempt(this.#readMessages(), this.#readContextPath(), attemptText);
-            const readOwn = (allowRelocation = false) => {
-              const own = attempt.read(this.#readMessages(), this.#readContextPath(), allowRelocation);
+            const readOwn = () => {
+              const own = attempt.read(this.#readMessages(), this.#readContextPath(), true);
               if (own.userId !== undefined) this.#ownedUserIds.add(own.userId);
               if (own.user !== undefined) this.#ownedUsers.add(own.user);
               if (own.foreign) {
@@ -1038,7 +1040,10 @@ class LivePromptQueryModel implements QueryModelDriver {
                 const own = readOwn();
                 // A foreign boundary is grounds for refusal below, never own
                 // started evidence. Do not relabel it a missing-start expiry.
-                return !own.settled && !own.foreign;
+                // PIC-79: an own raw omitted assistant proves a fast run
+                // started even when projection hides its only assistant. This
+                // does not settle it or shorten the final own-slice wait.
+                return !own.settled && !own.foreign && own.omission === undefined;
               },
               TURN_START_POLL_BOUND,
             );
@@ -1151,15 +1156,17 @@ class LivePromptQueryModel implements QueryModelDriver {
             const settleBound = recorder.recorded
               ? HOST_RECOVERY_ABORT_SETTLE_GRACE_POLL_BOUND
               : TURN_SETTLE_POLL_BOUND;
-            // Keep PIC-78 relocation eligibility (recorded abort ONLY). Foreign
-            // attribution can fail once the existing completion waits clear; it
-            // cannot borrow a foreign ending or spend a recovery ride on it.
+            // 0501: a provable own relocation is readable without an abort.
+            // Keep the full no-abort bound and the recorded-abort-only grace.
+            // Relocation is not completion evidence while a run is still active
+            // (0502 scheduling remains separate). Foreign boundaries retain 0503
+            // refusal/cancellation precedence, never a borrowed ending or ride.
             await this.#pollWhile(() => {
-              const own = readOwn(recorder.recorded);
-              return !own.settled && !own.foreign;
+              const own = readOwn();
+              return !own.foreign && (!this.#ctx.isIdle() || !own.settled);
             }, settleBound);
             if (this.#thetaAbort.signal.aborted) return;
-            const own = readOwn(recorder.recorded);
+            const own = readOwn();
             const postSettleAbortObserved = !recorder.recorded && this.#ctx.signal?.aborted === true;
             if (own.foreign) {
               if (recorder.recorded) {
@@ -1175,13 +1182,22 @@ class LivePromptQueryModel implements QueryModelDriver {
                 return;
               }
             }
-            if (!own.settled || own.messages === undefined) {
+            // PIC-79 is a no-abort, idle-only exception before BOTH partial
+            // projection acceptance and final settle-slice expiry. Never read
+            // a foreign assistant as healing evidence or invent a recovery
+            // continuation against an unobservable backoff cancel.
+            if (!own.foreign && !recorder.recorded && !postSettleAbortObserved &&
+              !this.#thetaAbort.signal.aborted && this.#ctx.isIdle() && own.omission !== undefined) {
+              this.#transportFromThrow = mapPromptModeHostOmittedRecovery(own.omission, this.#provider);
+              return;
+            }
+            if ((!own.foreign && !this.#ctx.isIdle()) || !own.settled || own.messages === undefined) {
               this.#recordLifecycleExpiry("settle", settleBound * POLL_INTERVAL_MS, recorder);
               return;
             }
             const turnSlice = own.messages;
             this.#acceptedMessages = [...turnSlice];
-            if (own.relocated) this.#windowRelocated = true;
+            if (own.relocated) this.#windowRelocated ??= own.relocationCause;
             if (!recorder.recorded && !postSettleAbortObserved) return;
             // Bug 0483 §Fix item 1: classify the settled turn against the host's
             // OWN retry classifier.

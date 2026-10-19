@@ -1,7 +1,9 @@
 # Bug 0499 — on pi ≥ 0.87 the host durably omits a turn's error-stop assistant from the projected context (`context_edit(id, null)`) before core-retry backoff and before overflow compaction; a turn that settles inside that omission window reads as a clean pre-error settle: PIC-51 passes on the last `toolUse` assistant and PIC-53 binds the pre-error narration as a silent partial `Ok`
 
-- **Status:** open — `## Fix` settled 2026-09-29 (design; implementation
-  pending; lands ON TOP of bug 0501's fix (0.495.0) and targets 0.496.0)
+- **Status:** fixed, unreleased — owner-approved PIC-79 implementation on
+  top of the verified 0501 ownership-aware prerequisite. See **Current fix**
+  below. Existing 0.496.0 is not credited with this fix; no version bump,
+  tag or package publication is part of this work.
 - **Owning repo:** pi-theta (defensive consumption of a documented host
   behaviour; the host-side omission is by design — "keep the failed
   attempt in raw history while durably omitting it from model projection")
@@ -146,7 +148,92 @@ projection: a settle inside the omission window binds a silent partial
 the existing PIC-51/0483 paths classify it — the defect is dormant at the
 pin and live on ≥ 0.87 hosts.
 
-## Fix (settled 2026-09-29 — design; on top of bug 0501's fix, targets 0.496.0)
+## Current fix (2026-10-19 — approved PIC-79; fixed, unreleased)
+
+The owner approved the exact ownership-aware proposal (SHA-256
+`21ea8fb1cfe703d456f24d1d80d9ffb13c66911c08319e2499a137e4a307a3ce`)
+and later authorized commit/push after verification. The five normative pages
+match its preview exactly. Historical proposed versions and the older combined
+0500/0501 design below are not approvals and are not implementation claims.
+
+### Implementation
+
+- `host-recovery-omission.ts` detects the newest effective fresh null edit of
+  a fresh own assistant, honoring later non-null restoration and subsequent
+  own-assistant healing. Tool-result edits cannot mask the assistant omission.
+- `OwnedTurnAttempt` supplies the existing raw send identity, pre-send ids and
+  foreign upper boundary; no last-user reselection, raw foreign healing, hidden
+  prompt marker or new host capability is introduced.
+- `LivePromptQueryModel` treats an attributable omitted-only assistant as fast
+  start evidence, then retains all existing completion waits. At the final
+  idle, no-abort, no-foreign disposition it returns PIC-79's transport error
+  before projection-only partial success or generic final settle expiry.
+- The exact stem is `on-session host recovery did not complete: `, followed by
+  the raw error string (including empty), otherwise `omitted assistant stopped
+  with <reason-or-unknown>`. The result has API-shaped provider, null HTTP
+  status and `retryable: true`; retry is caller-controlled, never automatic.
+- Typed capture/forced response cannot bypass the failure. A repair omission
+  takes the ordinary non-validation provider-failure path, with no validation
+  attempt debit or repair response dispatch. Degraded fused and template-only
+  boundaries retain their specified distinctions.
+- Observed cancellation and 0503 foreign-interleaving rules keep precedence.
+  PIC-78 remains projection-based; raw retry residue cannot convert an observed
+  cancel into a recovered bind. No wait budget, continuation count, host
+  scheduling or unanswered-compaction predicate changes here.
+
+### Evidence
+
+Run-local reports: `.pi/tmp/fix-bug-0499-d6cead40-42f7-4e70-971f-6ee267233446/`.
+
+The original seven unit and three production-composition failures reproduce
+before the final disposition is connected, then pass with their assertions
+unchanged. Original live evidence also stays meaningful: a successful real
+OpenAI `777` completion is synthetically rewritten to the pinned retryable
+error, the real host durably omits it, and public `abortRetry()` interrupts the
+backoff. Before the fix it returns the generic settle expiry; after the fix the
+settled system note carries the exact omission error and theta sends no next
+query. The healthy live control still binds `777` into its next query and
+completes normally. This is not natural provider-error or natural overflow
+coverage.
+
+Added raw-evidence/mapper tests cover newest effective edits, restoration,
+freshness, bounded foreign evidence, healing and exact detail fallback. Added
+disposition tests cover fast round zero, kept/split compaction, typed capture,
+actual typed-loop/AJV/repair composition, cancellation, completion bounds,
+cleanup, and provider dispatch counts. The repair case uses an initial invalid
+forced-response payload, not a fabricated invalid valid-capture.
+
+Verification: 207 targeted offline tests / 11 files; 14 live tests / 5 files
+using OpenAI `gpt-6.1-sol`; full default gate 735 files / 12,329 tests; typecheck
+and lint — all exit 0. The full gate includes parse, corpus and real-child
+checks. Independent review and shipment evidence are recorded separately in
+the run directory rather than inventing a resolving SHA or release version.
+
+No tracked baseline test was changed or deleted. Two already-untracked 0499
+reproduction literals received reversible compatibility corrections during the
+prerequisite: `/theta/b0499.theta` -> `/fixtures/b0499.theta` (code-corpus scan)
+and legacy `retry.maxDelayMs` -> migration-equivalent
+`retry.provider.maxRetryDelayMs` (current SDK). Reversing only those literals
+reproduces the original witness hashes; assertions and injected fault remain
+unchanged. Original workflow state/manifest stay preserved, with explicit
+conversation approval and new verification artifacts alongside them.
+
+### Residuals / non-goals
+
+0500's answered trailing compaction and 0502's pre-prompt scheduling remain
+open. Omitted-only/unanswered-compaction cases can still consume the full
+10-second settle bound. An unobservable abort during retry backoff remains a
+retryable transport failure, not a newly inferred cancellation, with no
+re-drive. Real-host mid-tool-loop failure, natural overflow/split-turn timing,
+historical hosts, queued-follow-up timing, and custom-triggered runs without a
+new user boundary are not newly proven. Text/identity correlation is not
+universal caller authentication; committed foreign effects are not rolled back.
+
+## Historical design (settled 2026-09-29; not the current implementation plan)
+
+The design and version numbers below predate 0503 and the current installed
+host. They are preserved as historical evidence; the approved PIC-79 clauses,
+current implementation, verification and residuals above govern this fix.
 
 Make the omission visible to the drive via the raw branch it already
 holds (`readContextPath` = `ctx.sessionManager.getBranch()`,

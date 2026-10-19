@@ -118,6 +118,31 @@ export const PROMPT_MODE_START_PHASE_EXPIRY_MESSAGE =
 export const PROMPT_MODE_SETTLE_PHASE_EXPIRY_MESSAGE =
   "on-session turn did not settle: the run never completed and its reply never landed";
 
+/** PIC-79 raw evidence, scoped to an attributable own attempt by the driver. */
+export interface HostOmittedRecoveryEvidence {
+  readonly errorMessage: string | undefined;
+  readonly stopReason: string | undefined;
+}
+
+/** Approved PIC-79 stem; the final space separates the raw detail. */
+export const PROMPT_MODE_HOST_OMITTED_RECOVERY_MESSAGE =
+  "on-session host recovery did not complete: ";
+
+/** A retryable value for the caller, never authority for an automatic re-drive. */
+export function mapPromptModeHostOmittedRecovery(
+  omitted: HostOmittedRecoveryEvidence,
+  provider: string,
+): TransportError {
+  return {
+    kind: "transport",
+    message: PROMPT_MODE_HOST_OMITTED_RECOVERY_MESSAGE +
+      (omitted.errorMessage ?? `omitted assistant stopped with ${omitted.stopReason ?? "unknown"}`),
+    http_status: null,
+    provider,
+    retryable: true,
+  };
+}
+
 /** Approved 0503 interleaving failures; neither authorizes automatic retry. */
 export const PROMPT_MODE_OWNERSHIP_UNRESOLVED_MESSAGE =
   "on-session turn ownership unresolved: interleaving prevented attribution of the driven reply";

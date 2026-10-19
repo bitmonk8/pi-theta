@@ -836,6 +836,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // that hoist moves the `compaction` entry to the head of the built
     // `Message[]`. `thisTurnSettled` reads this alongside `readMessages()` to
     // detect an unanswered trailing compaction (conversation-drive.md PIC-70).
+    // PIC-79 also reads own-attempt null context edits here: the SDK-built
+    // projection deliberately hides their assistant targets, while this path
+    // retains the raw error/stop evidence. Ownership bounds stay driver-local.
     // `getBranch()` (no argument) is the manager's own root-to-leaf walk from
     // its live leaf — the exact path `buildSessionPath` would produce.
     const readContextPath = (): readonly SessionEntry[] => ctx.sessionManager.getBranch();

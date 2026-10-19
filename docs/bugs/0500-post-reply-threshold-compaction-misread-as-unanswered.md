@@ -1,6 +1,10 @@
 # Bug 0500 — bug 0482's `trailingCompactionUnanswered` misreads a post-run threshold compaction appended AFTER this turn's final reply: the answered turn reads unsettled forever, the settle poll burns its 10 s bound, and a completed answer is discarded as `Err(transport)` "on-session turn did not settle"
 
-- **Status:** open — fix FOLDED into bug 0501 (settled there 2026-09-29):
+- **Status:** open — the 2026-10-19 implementation of the 0501 prerequisite
+  deliberately leaves this answered-compaction change separate and unimplemented;
+  it preserves the existing 0482/PIC-70 wait-through predicate. The following
+  combined design/version plan is historical, not a shipped fix or current
+  approval: fix FOLDED into bug 0501 (settled there 2026-09-29):
   one release (0.495.0) fixes both settle-read conjuncts; see
   `0501-no-abort-compaction-anchor-drift-expires-settle-bound.md` §Fix
   for the settled predicate (answered-compaction arm), the decision

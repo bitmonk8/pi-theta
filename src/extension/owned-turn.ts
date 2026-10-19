@@ -3,6 +3,8 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { Message } from "@earendil-works/pi-ai";
 import { thisTurnSettled, trailingCompactionUnanswered } from "./turn-settlement";
+import { unhealedRecoveryOmission } from "./host-recovery-omission";
+import type { HostOmittedRecoveryEvidence } from "../runtime/prompt-transport-mapping";
 
 function userText(message: Message): string | undefined {
   if (message.role !== "user") return undefined;
@@ -15,6 +17,8 @@ export interface OwnedTurnRead {
   readonly settled: boolean;
   readonly foreign: boolean;
   readonly relocated: boolean;
+  readonly relocationCause: "compaction" | "projection" | undefined;
+  readonly omission: HostOmittedRecoveryEvidence | undefined;
   readonly userId: string | undefined;
   readonly user: Message | undefined;
 }
@@ -87,9 +91,10 @@ export class OwnedTurnAttempt {
       const unprovenEvidence = slice?.some((message) =>
         (message.role === "user" || message.role === "assistant" || message.role === "toolResult") && !references.has(message));
       if (ownAt === -1 || editedOwn || unprovenEvidence === true) slice = undefined;
-    } else if (slice === undefined && allowRelocation && !this.#ambiguous) {
-      // PIC-78's existing split-turn fallback, ONLY in a no-foreign window and
-      // ONLY after a compaction appended by this attempt. Do not ungate 0501.
+    } else if (slice === undefined && allowRelocation && !this.#ambiguous && ownAt !== -1) {
+      // PIC-78/0501 split-turn fallback: ONLY in a no-foreign window and
+      // ONLY after a compaction appended by this attempt. Abort observation
+      // controls recovery classification/grace, not ownership of this read.
       const compacted = path.some((entry) => entry.type === "compaction" && !this.#beforeIds.has(entry.id));
       const summary = compacted ? messages.findIndex((message) => (message.role as string) === "compactionSummary") : -1;
       if (summary !== -1 && !messages.some((message) => message.role === "user")) {
@@ -100,6 +105,12 @@ export class OwnedTurnAttempt {
     const settled = slice !== undefined && !trailingCompactionUnanswered(ownPath) && (
       relocated ? slice.some((message) => message.role === "assistant") : thisTurnSettled(slice, 0, ownPath)
     );
-    return { messages: slice, settled, foreign: this.#foreign, relocated, userId: this.#userId, user: this.#user };
+    const relocationCause = !relocated ? undefined
+      : path.some((entry) => entry.type === "compaction" && !this.#beforeIds.has(entry.id)) ? "compaction" : "projection";
+    // Omission evidence cannot infer a send or heal across a foreign boundary.
+    // The driver owns abort/foreign priority and the final idle disposition.
+    const omission = !this.#ambiguous && ownAt !== -1
+      ? unhealedRecoveryOmission(ownPath, this.#beforeIds) : undefined;
+    return { messages: slice, settled, foreign: this.#foreign, relocated, relocationCause, omission, userId: this.#userId, user: this.#user };
   }
 }
