@@ -133,6 +133,19 @@ worker isolation scopes the mutations to importers),
 `tests/subagent-theta-roots-forwarding.test.ts` (explicit `parentEnv` +
 `ExecutableHost`).
 
+### Test hosts launched from a theta worker are new invocations
+
+A test runner can inherit `PI_THETA_SUBAGENT_ROOT`, params, depth, callable
+hashes and launch-entry state from `/fix-bug`'s worker. Do not authenticate that
+foreign invocation by merely overwriting `PI_THETA_SUBAGENT_PARENT_PID`.
+Use `tests/helpers/top-level-theta-env.ts` to scrub inherited control-plane
+keys before pinning a new top-level host. H9a uses a copied spawn environment;
+H8a and hardening reset their isolated vitest worker's control plane in place.
+Credentials and unrelated environment settings remain inherited. Explicit
+wire-probe overrides may opt into their own root regime after the scrub.
+A prompt-mode outer acceptance host must not emit a `theta_result` envelope;
+assert on the complete JSONL stream, not only its `message_end` subset.
+
 ### Assert on real observables, not on `prompt()` resolving
 
 A fail-closed theta drive still **resolves** — failures surface as values and

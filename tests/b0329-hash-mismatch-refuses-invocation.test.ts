@@ -328,9 +328,10 @@ describe("bug 0329 (C) — a matching closure hash admits the root and callee (c
 //     The 0329 callee-locate compare is still case-folded in the implementation,
 //     but bug 0379 removed its `tools:`-entry case-variance witness; the compare's
 //     remaining reachable case-variance class is directory-case variance, which
-//     this cell does not exercise. The case-SENSITIVE branch keeps a DISTINCT
-//     case-only sibling and asserts it is NOT dropped (the compare does not
-//     blindly case-fold there).
+//     this cell does not exercise. The case-SENSITIVE branch keeps a valid,
+//     unreferenced sibling and asserts it is NOT dropped. An uppercase
+//     case-only sibling cannot witness this: filename validity rejects it
+//     before invocation (discovery-sources.md, Filename validity).
 //
 //     Whether this cell reds pre-fix depends on the branch:
 //       - case-INSENSITIVE (this host, Windows/NTFS): both the root-absent and
@@ -378,14 +379,12 @@ describe("bug 0329 (D) — a stale hash drops the marked root and its referenced
         "the canonical-realpath compare must locate and drop the referenced callee",
       ).not.toContain("zqx-helper");
     } else {
-      // CORRECT casing on a case-sensitive FS; the exact/realpath compare locates
-      // the referenced callee. A DISTINCT case-only sibling file
-      // (`zqx-Helper.theta`, a different inode from `zqx-helper.theta` on a
-      // case-sensitive FS) is NOT referenced by the root and must stay
-      // registered — proving the compare does not blindly case-fold here.
+      // Use valid lowercase slugs so registration is not independently
+      // refused by invalid-slash-name/case-collision before hash validation.
+      // The unrelated sibling must survive the targeted root/callee drop.
       plant("zqx-main.theta", ZQX_MAIN);
       plant("zqx-helper.theta", ZQX_HELPER);
-      plant("zqx-Helper.theta", ZQX_HELPER);
+      plant("zqx-unreferenced.theta", ZQX_HELPER);
       plantChildEnv("zqx-main", { zqx_helper: "sha256:stale-parent-hash" });
 
       const outcome = await runCompose(workspaceDir);
@@ -397,12 +396,12 @@ describe("bug 0329 (D) — a stale hash drops the marked root and its referenced
       ).not.toContain("zqx-main");
       // GREEN pre-fix already: the exact compare drops the callee even today.
       expect(outcome.registered).not.toContain("zqx-helper");
-      // The compare must NOT fold case on a case-sensitive FS: a distinct
-      // case-only sibling the root never referenced stays registered.
+      expect(outcome.notes.some(note => note.includes(HASH_MISMATCH_DIAGNOSTIC_CODE))).toBe(true);
+      expect(outcome.notes.filter(note => note.includes("theta/load/")), "fixture must reach hash validation without a load refusal").toEqual([]);
       expect(
         outcome.registered,
-        "an unreferenced case-only sibling must not be dropped",
-      ).toContain("zqx-Helper");
+        "a valid unreferenced sibling must survive the targeted hash-mismatch drop",
+      ).toContain("zqx-unreferenced");
     }
   });
 });

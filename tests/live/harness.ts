@@ -32,10 +32,7 @@ import type {
   ExtensionRunner,
   ResolvedCommand,
 } from "@earendil-works/pi-coding-agent";
-import {
-  SUBAGENT_EXTENSION_PIN_ENV,
-  SUBAGENT_PARENT_PID_ENV,
-} from "../../src/runtime/subagent-launcher";
+import { resetTopLevelThetaControlPlane } from "../helpers/top-level-theta-env";
 
 import { liveModelPreconditionMessage } from "../helpers/live-model-precondition";
 import { selectLiveModel } from "../helpers/live-model-selection";
@@ -68,16 +65,14 @@ export const SHIPPED_EXTENSION_ENTRY = fileURLToPath(
 process.argv[1] = fileURLToPath(
   new URL("../../node_modules/@earendil-works/pi-coding-agent/dist/cli.js", import.meta.url),
 );
-process.env[SUBAGENT_EXTENSION_PIN_ENV] = fileURLToPath(
-  new URL("../../extensions", import.meta.url),
+// A test host is not the /bugfix-stage worker that launched vitest. Scrub
+// that invocation before authenticating this host's extension pin. Mutations
+// are scoped to the importing test file's isolated vitest worker.
+resetTopLevelThetaControlPlane(
+  process.env,
+  fileURLToPath(new URL("../../extensions", import.meta.url)),
+  process.ppid,
 );
-// The control plane is authenticated (subagent.md
-// #subagent-control-plane-authentication): `readParentEnv` honours `PI_THETA_*`
-// only when the parent-pid carriage names this process's real parent. A
-// harness topping a chain authenticates its own pin the same way a real
-// launcher authenticates a child's — without this line the pin above is
-// silently stripped and every child falls back to ambient discovery.
-process.env[SUBAGENT_PARENT_PID_ENV] = String(process.ppid);
 
 /** A live model resolved from `getAvailable()`. */
 export type LiveModel = ReturnType<ModelRegistry["getAvailable"]>[number];

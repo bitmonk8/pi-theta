@@ -25,6 +25,7 @@ import { assert, expect } from "vitest";
 import { spawnCapturedNodeProcess } from "../../helpers/real-subagent-spawn";
 import { liveModelPreconditionMessage } from "../../helpers/live-model-precondition";
 import { selectLiveModel } from "../../helpers/live-model-selection";
+import { topLevelThetaHostEnv } from "../../helpers/top-level-theta-env";
 import { type LoweredSchema } from "../../../src/seams/schema-validator";
 import { AjvSchemaValidator } from "../../../src/seams/ajv-schema-validator";
 import {
@@ -35,10 +36,6 @@ import {
   ModelRegistry,
   ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
-import {
-  SUBAGENT_EXTENSION_PIN_ENV,
-  SUBAGENT_PARENT_PID_ENV,
-} from "../../../src/runtime/subagent-launcher";
 import {
   RELOAD_REBUILD_REJECTED_PREFIX,
   STALE_QUIESCE_STDERR_PREFIX,
@@ -504,12 +501,11 @@ export async function spawnPiPrint(options: SpawnPiPrintOptions): Promise<PiPrin
     // is THIS harness process, so naming our own pid is what authenticates
     // the control plane inside it — without it the pin is stripped and the
     // inner child falls back to ambient discovery.
-    env: {
-      ...process.env,
-      [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY,
-      [SUBAGENT_PARENT_PID_ENV]: String(process.pid),
-      ...options.extraEnv,
-    },
+    // The outer host is a NEW invocation, even when vitest itself runs in a
+    // /bugfix-stage child. Scrub that worker's control plane before writing a
+    // fresh authenticating PID. Explicit extraEnv can still opt a wire probe
+    // into its own marked-root regime; no ambient invocation state survives.
+    env: topLevelThetaHostEnv(process.env, EXTENSION_ENTRY, process.pid, options.extraEnv),
     ...(options.abortAfterMs === undefined ? {} : { abortAfterMs: options.abortAfterMs }),
   });
 }

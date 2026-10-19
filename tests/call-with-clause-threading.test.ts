@@ -100,7 +100,7 @@ describe("RFC 0009 threading (A) — rows 2/5/8, V5/V6/V7/V8: a present clause r
     expect(outcome.spawns[0]!.cwd).toBe(resolvePath(CALLER_CWD, abs));
   });
 
-  it("V7: both separator spellings of one directory converge on the same resolved path (bug-0467 class)", async () => {
+  it("V7: separator spellings follow host-native path.resolve semantics, converging on Windows", async () => {
     const forward = await driveCaller({
       callerBody: bodyWithInvoke(CHILD_LITERAL, withClause(strExpr("sub/dir"))),
       callerCtx: driveCtx(CALLER_CWD),
@@ -111,11 +111,15 @@ describe("RFC 0009 threading (A) — rows 2/5/8, V5/V6/V7/V8: a present clause r
       callerCtx: driveCtx(CALLER_CWD),
       callees: new Map([[CHILD_LITERAL, subagentCallee("/thetadir/child.theta")]]),
     });
-    // Formulated as resolve-equality (not a literal string), so the assertion
-    // stays meaningful on POSIX (where the two spellings need not converge) and
-    // pins convergence on win32 (`resolvePath` folds them identically there).
+    // Each spelling must follow the host's path.resolve contract. Backslash
+    // is a separator on Windows, but a literal filename character on POSIX.
     expect(forward.spawns[0]!.cwd).toBe(resolvePath(CALLER_CWD, "sub/dir"));
-    expect(backslash.spawns[0]!.cwd).toBe(resolvePath(CALLER_CWD, "sub/dir"));
+    expect(backslash.spawns[0]!.cwd).toBe(resolvePath(CALLER_CWD, "sub\\dir"));
+    if (process.platform === "win32") {
+      expect(backslash.spawns[0]!.cwd).toBe(forward.spawns[0]!.cwd);
+    } else {
+      expect(backslash.spawns[0]!.cwd).not.toBe(forward.spawns[0]!.cwd);
+    }
   });
 
   it("V8: an expression value (not a bare literal) is evaluated at call time (INV-6 full-expression pin)", async () => {

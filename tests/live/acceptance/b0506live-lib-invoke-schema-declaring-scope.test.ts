@@ -102,6 +102,7 @@ describe("H9a bug 0506 — library invoke annotation uses declaring scope", () =
           readonly type?: string;
           readonly message?: Message;
         });
+        expect(events.filter((event) => "theta_result" in event), "B0506 outer host must not inherit another invocation's subagent-root regime").toEqual([]);
         const messages = events.flatMap((event) => event.type === "message_end" && event.message !== undefined ? [event.message] : []);
         const userTexts = messages.filter((message) => message.role === "user").map(textOf);
         expect(userTexts, "B0506 dispatch prerequisite: the probe must execute, not reach the model as a raw slash command").not.toContain("/b0506-probe");

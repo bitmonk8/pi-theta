@@ -50,10 +50,7 @@ import {
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import {
-  SUBAGENT_EXTENSION_PIN_ENV,
-  SUBAGENT_PARENT_PID_ENV,
-} from "../../../src/runtime/subagent-launcher";
+import { resetTopLevelThetaControlPlane } from "../../helpers/top-level-theta-env";
 
 export const SHIPPED_EXTENSION_ENTRY = fileURLToPath(
   new URL("../../../extensions/index.ts", import.meta.url),
@@ -82,14 +79,13 @@ process.argv[1] = fileURLToPath(
     import.meta.url,
   ),
 );
-process.env[SUBAGENT_EXTENSION_PIN_ENV] = fileURLToPath(
-  new URL("../../../extensions", import.meta.url),
+// This test host owns a new invocation, not the worker that launched vitest.
+// Scrub ambient root/params/depth/hash/entry state before authenticating its pin.
+resetTopLevelThetaControlPlane(
+  process.env,
+  fileURLToPath(new URL("../../../extensions", import.meta.url)),
+  process.ppid,
 );
-// The control plane is authenticated (subagent.md
-// #subagent-control-plane-authentication): without the parent-pid carriage
-// naming this process's real parent, `readParentEnv` strips the pin above and
-// every spawned child falls back to ambient discovery (bug 0002 defect 2).
-process.env[SUBAGENT_PARENT_PID_ENV] = String(process.ppid);
 
 export function failLoudly(message: string): never {
   assert.fail(message);
