@@ -43,7 +43,7 @@
 
 import { makeEnumValue, type ThetaValue } from "./value";
 import type { EvalHost } from "./expression-evaluator";
-import type { FnDecl, ThetaBody, SchemaDecl } from "../parser/theta-document";
+import type { FnDecl, ThetaBody, SchemaDecl, EnumDecl } from "../parser/theta-document";
 import type { SourceRange } from "../diagnostics/diagnostic";
 
 // --------------------------------------------------------------------------
@@ -156,16 +156,21 @@ export interface MaterializedImport {
   readonly moduleScope?: ModuleScope;
 }
 
-/**
- * The declaring-module environment inputs for an imported `.thetalib` `fn`
- * (bug 0303): the lib's own body (for hoisted `fn`/`schema`), the lib's own
- * materialised imports (recursively — a lib-to-lib import), and the lib's own
- * enum registrations (`declaringKey`-tagged). `LexicalEnvironment`'s
- * constructor builds a nested environment from this so the imported `fn`'s
- * free names resolve in its DECLARING file's scope, not the caller's.
- */
-export interface ModuleScope {
+/** Readonly declaration metadata, independent of the calling conversation. */
+export interface TypeDeclarationSite {
   readonly body: ThetaBody;
+  readonly importedTypeDecls?: {
+    readonly schemas: readonly SchemaDecl[];
+    readonly enums: readonly EnumDecl[];
+  };
+}
+
+/**
+ * Declaring-module inputs for an imported fn (0303/0506): its own declarations,
+ * imported type closure, materialised bindings, and tagged enum registrations.
+ * The runtime builds a separate root so free names never borrow caller scope.
+ */
+export interface ModuleScope extends TypeDeclarationSite {
   readonly imports: readonly MaterializedImport[];
   readonly enums: readonly EnumRegistration[];
   /**
@@ -226,6 +231,8 @@ export interface EnvironmentInputs {
    * compare a callee's declaration residence against its caller's.
    */
   readonly moduleResidence?: string;
+  /** Declaring-library override; absent at the app root (the bound theta supplies it). */
+  readonly moduleTypeSite?: TypeDeclarationSite;
 }
 
 // --------------------------------------------------------------------------
@@ -346,6 +353,7 @@ export class LexicalEnvironment {
    * scope. Root only; read back through `currentResidence()`.
    */
   private readonly moduleResidencePath: string | undefined;
+  private readonly moduleTypeSite: TypeDeclarationSite | undefined;
 
   /**
    * True iff this scope is the root of a plain `fn` call's activation
@@ -393,6 +401,7 @@ export class LexicalEnvironment {
     // root, RFC 0001 FN-6) keeps its own declaring residence rather than
     // inheriting the enclosing file's.
     this.moduleResidencePath = inputs.moduleResidence;
+    this.moduleTypeSite = inputs.moduleTypeSite;
     if (shared !== undefined) {
       this.fns = shared.fns;
       this.schemas = shared.schemas;
@@ -476,6 +485,7 @@ export class LexicalEnvironment {
               enums: imp.moduleScope.enums,
               callables: inputs.callables ?? [],
               moduleResidence: imp.moduleScope.residence,
+              moduleTypeSite: imp.moduleScope,
             },
             null,
           ),
@@ -513,6 +523,11 @@ export class LexicalEnvironment {
    */
   public currentResidence(): string | undefined {
     return this.root().moduleResidencePath;
+  }
+
+  /** Names in a library-authored annotation belong to its own module, imports included. */
+  public currentTypeDeclarationSite(): TypeDeclarationSite | undefined {
+    return this.root().moduleTypeSite;
   }
 
   /**
@@ -714,6 +729,7 @@ export class LexicalEnvironment {
       // misattributing the caller to the enclosing app file.
       {
         body: { statements: [], tail: null },
+        ...(root.moduleTypeSite !== undefined ? { moduleTypeSite: root.moduleTypeSite } : {}),
         ...(root.moduleResidencePath !== undefined
           ? { moduleResidence: root.moduleResidencePath }
           : {}),

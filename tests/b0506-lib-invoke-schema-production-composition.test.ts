@@ -9,7 +9,9 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+import { composeExtensionInstance, discoverAndComposeFixtures } from "../src/extension/production-composition";
+import { RendererGate } from "../src/extension/system-note-channel";
+import { allDiagnostics, makeHost } from "./helpers/compose-workspace-harness";
 import {
   dispatchTopLevelFixtures,
   hostPi,
@@ -23,7 +25,13 @@ interface Cell {
   readonly callerSchema: string;
   readonly good: boolean;
   readonly importedSchema?: boolean;
+  readonly route?: "nested" | "reexport";
 }
+
+const routedCells: readonly Cell[] = (["nested", "reexport"] as const).flatMap<Cell>((route) => [
+  { name: `${route} terminal library rejects bad value`, callerSchema: "", good: false, route },
+  { name: `${route} terminal library ignores caller and facade conflicts`, callerSchema: "schema ROut { other: boolean }", good: true, route },
+]);
 
 const cells: readonly Cell[] = [
   { name: "missing caller schema rejects wrong shape", callerSchema: "", good: false },
@@ -41,8 +49,44 @@ const cells: readonly Cell[] = [
 const FRONTMATTER = "---\nmode: prompt\n---\n";
 const VALIDATION_NOTE = "theta /caller returned Err: invoke of ./child.theta failed (return_validation)";
 
+describe("B0506 module collision registration refusal", () => {
+  for (const crossSpecifier of [false, true]) {
+    it(`${crossSpecifier ? "cross-specifier" : "alias-sibling"} collision refuses registration with one delivered row`, async () => {
+      const cwd = realpathSync(mkdtempSync(join(process.cwd(), ".pi", "tmp", "b0506-collision-")));
+      try {
+        const root = join(cwd, ".pi", "theta");
+        mkdirSync(root, { recursive: true });
+        writeFileSync(join(cwd, ".pi", "settings.json"), "{}\n");
+        writeFileSync(join(root, "types.thetalib"), "schema Detail { n: integer }\nschema Wrapper { detail: Detail }\n");
+        writeFileSync(join(root, "other.thetalib"), "schema Detail { s: string }\nschema Other { detail: Detail }\n");
+        writeFileSync(join(root, "lib.thetalib"), [
+          crossSpecifier ? 'import { Wrapper } from "./types.thetalib"' : 'import { Wrapper as Detail } from "./types.thetalib"',
+          ...(crossSpecifier ? ['import { Other } from "./other.thetalib"'] : []),
+          "fn one() { null }", "fn two() { null }", "",
+        ].join("\n"));
+        writeFileSync(join(root, "caller.theta"), FRONTMATTER + 'import { one, two } from "./lib.thetalib"\none()\n');
+        // discoverAndComposeFixtures reports load errors via its toast sink,
+        // not the runtime theta-system-note recorder. Exercise the shipped
+        // composition/channel wiring to assert the actual delivered row.
+        const host = makeHost(cwd);
+        const wiring = await composeExtensionInstance(host.pi, host.ctx, {}, new RendererGate());
+        expect(wiring.thetas.map((f) => f.slashName)).not.toContain("caller");
+        const collisions = allDiagnostics(host.notes).filter(diagnostic => diagnostic.code === "theta/load/imported-type-name-collision");
+        expect(collisions).toHaveLength(1);
+        expect(collisions[0]!.message).toContain("imported type name 'Detail' is claimed by two different declarations");
+        expect(collisions[0]!.file).toBe(join(root, "lib.thetalib"));
+        const rendered = host.notes.map(note => note.content).join("\n");
+        expect(rendered.match(/theta\/load\/imported-type-name-collision/g)).toHaveLength(1);
+        expect(rendered).toContain("lib.thetalib");
+      } finally {
+        rmSync(cwd, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
 describe("bug 0506 — declaring schema at production composition boundary", () => {
-  for (const cell of cells) {
+  for (const cell of [...cells, ...routedCells]) {
     it(cell.name, async () => {
       const cwd = realpathSync(mkdtempSync(join(process.cwd(), ".pi", "tmp", "b0506-compose-")));
       try {
@@ -59,9 +103,16 @@ describe("bug 0506 — declaring schema at production composition boundary", () 
         writeFileSync(join(workers, "child.theta"), FRONTMATTER + (cell.good
           ? 'schema ROut { tag: string }\nROut { tag: "x" }\n'
           : '"not-an-ROut"\n'));
+        if (cell.route !== undefined) {
+          writeFileSync(join(workers, "facade.thetalib"), cell.route === "nested"
+            ? 'import { via_lib as inner } from "./lib.thetalib"\nschema ROut { facade: boolean }\nfn via_lib() { inner() }\n'
+            : 'export { via_lib as via_lib } from "./lib.thetalib"\nschema ROut { facade: boolean }\n');
+        }
         writeFileSync(join(root, "caller.theta"), [
           FRONTMATTER.trimEnd(),
-          'import { via_lib } from "./workers/lib.thetalib"',
+          cell.route !== undefined
+            ? 'import { via_lib } from "./workers/facade.thetalib"'
+            : 'import { via_lib } from "./workers/lib.thetalib"',
           cell.callerSchema,
           "via_lib()?",
           "",

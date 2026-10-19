@@ -167,6 +167,7 @@ export class InvokeMachinery {
     // it is `undefined` for an `invoke` written directly in the caller's own
     // body, where `theta.sourcePath` is already the correct base.
     const resolutionBase = env.currentResidence() ?? theta.sourcePath;
+    const declarationSite = env.currentTypeDeclarationSite();
     // The `invoke<Schema>` return annotation drives the runtime AJV
     // return-value validation on the child's `Ok` payload (invocation.md §Typed
     // return, anchor `#typed-return`; hard-ceilings ceiling #4). Untyped
@@ -179,7 +180,10 @@ export class InvokeMachinery {
       ctx,
       chain,
       expr.returnSchema !== null
-        ? { kind: "annotated", annotation: expr.returnSchema }
+        ? {
+            kind: "annotated", annotation: expr.returnSchema,
+            ...(declarationSite !== undefined ? { declarationSite } : {}),
+          }
         : { kind: "untyped" },
       parentSignal,
       callerMode,
@@ -359,8 +363,9 @@ export class InvokeMachinery {
     // `.theta`-callable call is the callee's INFERRED return type, which is
     // legible only now that the callee is parsed — and it resolves against the
     // CALLEE's own `schema` / `enum` declarations, not the caller's, because it
-    // is the callee's type. An `invoke<Schema>` annotation is the caller's and
-    // keeps resolving there.
+    // is the callee's type. An `invoke<Schema>` annotation instead resolves in
+    // its authoring file, captured from the active library environment (or the
+    // bound theta at top level), independently of the conversation anchor.
     const returnSite = resolveReturnSite(theta, returnTyping, callee);
     const paramBindings = await this.#bindCalleeParams(callee, argValues);
     // Prompt→prompt cross-mode cell (invocation.md §Cross-mode semantics): an

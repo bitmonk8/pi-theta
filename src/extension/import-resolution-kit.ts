@@ -19,6 +19,8 @@ import {
 } from "../parser/imports";
 import {
   resolveSubagentSessionConfigAt,
+  type SchemaDecl,
+  type EnumDecl,
   type ThetaBody,
   type ThetaDocument,
 } from "../parser/theta-document";
@@ -32,6 +34,7 @@ import {
 import { parseViaPassCache, type PassParseDeps } from "./pass-parse-cache";
 import { resolveAndParseThetaLibReference, resolveThetaLibImports } from "./thetalib-load-parse";
 import { extractThetaLibForms, type ThetaLibDeclarationStmt } from "./import-static-checks";
+import { recordImportedTypeDecls } from "./import-type-decls";
 
 /**
  * `theta/load/unresolvable-thetalib-path` for a spec that RESOLVED (a byte-exact,
@@ -240,6 +243,7 @@ function createMaterializer(
   parseThetaLib: (resolvedPath: string) => Promise<ParsedThetaLib | undefined>,
   probe: CachingThetaLibProbe,
   resolver: Resolver,
+  diagnostics: Diagnostic[],
 ) {
   // Bug 0303: the DECLARING module's own environment for an imported `fn`,
   // built from the lib's own body plus its own materialised imports
@@ -269,6 +273,9 @@ function createMaterializer(
     }
     moduleScopeInProgress.add(resolvedPath);
     const moduleImports: MaterializedImport[] = [];
+    const schemas = new Map<string, SchemaDecl>();
+    const enums = new Map<string, EnumDecl>();
+    const collisions = new Set<string>();
     for await (const { stmt, resolved } of resolveThetaLibImports(
       body,
       resolvedPath,
@@ -277,6 +284,15 @@ function createMaterializer(
       parseThetaLib,
     )) {
       for (const specifier of stmt.specifiers) {
+        // Collect this module's direct type imports, not the calling theta's.
+        // Share 0465/0466 closure/alias/collision semantics with the caller pass.
+        const statements = resolved.parsed.document.body.statements;
+        recordImportedTypeDecls(
+          statements.find((s): s is SchemaDecl => s.kind === "schema" && s.name === specifier.source),
+          statements.find((s): s is EnumDecl => s.kind === "enum" && s.name === specifier.source),
+          specifier.local, statements, schemas, enums, collisions,
+          { file: resolvedPath, range: specifier.range }, diagnostics,
+        );
         const materialized = await materializeChain(
           specifier.source,
           specifier.local,
@@ -293,6 +309,7 @@ function createMaterializer(
     const scope: ModuleScope = {
       body,
       imports: moduleImports,
+      importedTypeDecls: { schemas: [...schemas.values()], enums: [...enums.values()] },
       enums: enumsOf(body, resolvedPath),
       // Bug 0354, INV-4: the DECLARING lib's own resolved path (this function
       // is always called with the declaring lib's `resolvedPath`/`body`, see
@@ -496,7 +513,7 @@ export function createImportResolutionKit(
     graphEdges.set(resolvedPath, targets);
   };
 
-  const { materializeChain } = createMaterializer(parseThetaLib, probe, resolver);
+  const { materializeChain } = createMaterializer(parseThetaLib, probe, resolver, diagnostics);
 
   return {
     parseThetaLib,

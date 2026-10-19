@@ -5,6 +5,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { topLevelThetaHostEnv } from "./helpers/top-level-theta-env";
 
 const root = process.cwd();
 const cli = process.env.PI_THETA_TEST_PI_CLI ?? join(root, "node_modules/@earendil-works/pi-coding-agent/dist/cli.js");
@@ -37,7 +38,9 @@ function probe(args: string, workflow = readFileSync(join(root, ".pi", "theta", 
     }
     const result = spawnSync(process.execPath, [cli, "-ne", "-e", join(cwd, "question.mjs"), "-e", join(root, "extensions"), "--theta", theta, "--theta", join(theta, "workers"), "--session", join(cwd, ".pi/tmp/session.jsonl"), "-p", "/fix-bug" + (args ? " " + args : "")], {
       cwd, encoding: "utf8", timeout: 45000,
-      env: { ...process.env, PI_OFFLINE: "1", PI_CODING_AGENT_DIR: agent, PI_THETA_SUBAGENT_EXTENSION_PIN: join(root, "extensions"), PI_THETA_SUBAGENT_PARENT_PID: String(process.pid) },
+      env: topLevelThetaHostEnv(process.env, join(root, "extensions"), process.pid, {
+        PI_OFFLINE: "1", PI_CODING_AGENT_DIR: agent,
+      }),
     });
     return result;
   } finally { rmSync(cwd, { recursive: true, force: true }); }

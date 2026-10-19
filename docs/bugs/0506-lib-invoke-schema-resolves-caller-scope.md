@@ -1,6 +1,7 @@
 # Bug 0506 — an `invoke<Schema>(...)` written inside an imported `.thetalib` `fn` resolves `Schema` against the CALLING theta's declarations, not the declaring library's: with no same-named caller schema the annotation lowers to the permissive `{}` and a wrong-shape child value comes back `Ok`, and with a same-named caller schema the caller's shape is substituted and a value conforming to the library's schema fails `return_validation`
 
-- **Status:** open — filed 2026-10-02 as residual 2 of the bug 0504 fix
+- **Status:** fixed (unreleased - commit/push only). No new package release is
+  published. Filed 2026-10-02 as residual 2 of the bug 0504 fix
   ([0504](./0504-thetalib-invoke-resolves-caller-relative.md),
   `## Fix (0.495.0)` → Residuals, item 2; review round 1, R2)
 - **Owning repo:** pi-theta
@@ -187,7 +188,169 @@ validates through the same return site.
   fix.
 - Load-time `invoke<Schema>` checks over lib bodies — bug 0504 residual 4.
 
+## Fix (unreleased - commit/push only)
+
+The runtime now resolves a library-authored `invoke<Schema>` against the
+executing function's declaring library, including that library's directly
+imported type closure. It does not merge the caller's declarations into that
+site. No new package release is published; the existing package version does
+not contain this fix. No resolving commit is assigned in this record.
+
+The preceding symptom, source positions, probe table, root cause and fix
+direction are retained as historical pre-fix evidence. The closure below
+records the implementation and verified working-tree results, not shipment.
+
+### Cause and implementation
+
+The path carrier introduced by 0504 retained the declaring residence but not
+its type declarations. `resolveReturnSite` selected the conversation-bound
+caller's body/imported types for every annotation. An absent caller name
+lowered to `{}`; a conflicting caller name substituted a different shape.
+Selecting only the library body would still miss types imported by the library.
+
+- `TypeDeclarationSite`, `ModuleScope`,
+  `LexicalEnvironment.currentTypeDeclarationSite` and `spawnIsolatedScope`
+  (`src/runtime/lexical-environment.ts`) carry readonly declaration metadata
+  on the declaring module root, through nested activations and isolated roots.
+  Top-level app roots leave the module override absent.
+- `recordImportedTypeDecls` (`src/extension/import-type-decls.ts`) extracts
+  the existing bounded closure/alias/collision collector for reuse by
+  `src/extension/import-specifier-facts.ts` and `buildModuleScope`
+  (`src/extension/import-resolution-kit.ts`). Each module retains its own
+  schema/enum AST declarations. Existing collision refusal and single-delivery
+  diagnostics are preserved; this is not a whole-import-graph type resolver.
+- `InvokeMachinery.resolveInvoke` (`src/extension/invoke-machinery.ts`)
+  captures the active declaration site on the annotated return typing.
+  `resolveReturnSite` (`src/extension/invoke-return-validation.ts`) selects
+  that site, with the bound theta fallback only when no module override exists.
+  Callee-inferred/untyped selection, effect anchoring, path resolution,
+  validation/depth/enum translation, error provenance and teardown are unchanged.
+
+The contract is unchanged: [Imports — permitted top-level forms](../spec_topics/imports.md#permitted-top-level-forms)
+assigns free schema/enum names to the declaring library;
+[Invocation — typed return](../spec_topics/invocation.md#typed-return) requires
+AJV validation; [INV-5](../spec_topics/invocation.md#inv-5) applies it to spawned
+child envelopes. No normative specification files change.
+
+### Pre-fix red / post-fix green
+
+Run artifact root **R**:
+`/home/thomasa/Projects/pi-theta/.pi/tmp/fix-bug-0506-41ead218-972e-4cff-9c09-165de9727dc0`.
+Commands below run from `/home/thomasa/Projects/pi-theta`. The JSON captures
+retain exact `argv`, command exit `code` and complete `output`; text logs retain
+`COMMAND_EXIT_CODE`. These are inspected prior executions, not closure-stage
+reruns. Pre-fix evidence is against HEAD
+`f084fcc0b12a20b35d6133d8e45556b18f3f948d`.
+
+| Exact command | Pre-fix capture / exit | Post-fix capture / exit |
+|---|---|---|
+| `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/b0506live-lib-invoke-schema-declaring-scope.test.ts` | `R/red-0.json`: **1**, 8 scope failures / 9 controls pass | `R/green-1-0.json`, `R/gate-1-initial-2.json`, `R/reviewer-fix-live.log`: **0** each, all 21 cells pass |
+| `npx vitest run tests/b0506-lib-invoke-schema-production-composition.test.ts tests/b0506-live-fixture-setup.test.ts` | `R/red-1.json`: **1**, 4 scope failures / 15 passes | `R/green-1-1.json`: **0**, 25 passes |
+| `npx vitest run tests/b0506-lib-invoke-schema-unit.test.ts` | `R/red-2.json`: **1**, 8 scope/carrier failures / 8 controls pass | `R/green-1-2.json`: **0**, 22 passes |
+| `npm run typecheck` | — | `R/gate-1-initial-0.json`, `R/reviewer-fix-typecheck.log`: **0** each |
+| `npm test` | No pre-fix full-suite claim | `R/gate-1-initial-1.json`: **0**, 727 files / 12,176 tests pass |
+| `npm run lint` | — | `R/reviewer-fix-lint.log`: **0** |
+
+The exact red signatures in the unchanged `R/witnesses.json` identify the
+wrong observable, not a generic failure banner:
+
+- Real host: `B0506 declaring-scope outcome in real-host user turn`, expected
+  `Validation outcome: return_validation...`, received `accepted-valid...`.
+  The reverse arm rejects a library-conformant object under a caller conflict.
+- Composition: `B0506 declaring-scope return-validation note`, expected
+  `theta /caller returned Err: invoke of ./child.theta failed (return_validation)`,
+  received no note; the reverse arm emits the unexpected note.
+- Unit: `B0506 isolated wrong-shape result`, expected boundary-minted
+  `Err(invoke_infra/return_validation)`, received callee-returned
+  `Ok("not-an-ROut")`. Imported schema/enum carrier tests also observed `{}`
+  instead of the declaring shapes.
+
+Healthy acceptance/rejection controls use matching caller schemas and the
+same prompt/child transports. Coverage includes absent/conflicting callers,
+local and directly imported library schemas, imported enum wire fields,
+nested/re-exported **functions**, module isolation/concurrency, exact error
+fields and collision registration refusal/single delivery. Fixture setup
+also tests real command registration and the malformed-fixture red direction.
+All original witness cases and assertions are preserved.
+
+The four added enum live cells and four routed composition cells have a
+captured red-direction check: temporarily omitting only declaration-site
+capture makes every selected cell fail its exact outcome assertion. Commands:
+
+```sh
+npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/b0506live-lib-invoke-schema-declaring-scope.test.ts -t 'imported enum'
+npx vitest run tests/b0506-lib-invoke-schema-production-composition.test.ts -t 'terminal library'
+```
+
+Each exits **1** in `R/implement-enum-red-direction.log` and
+`R/implement-routed-red-direction.log`, respectively. Capture is restored
+before unfiltered green runs; these selectors are not gate exclusions.
+
+Live success is the exact outbound **user text computed from the invoke
+result**, with successful CLI exits, empty stderr, completed nonempty
+OpenAI/gpt-6.1-sol assistant turns (`stopReason: stop`), no fail-closed notes
+and no outer `theta_result` in the complete JSONL streams. Neither `prompt()`
+resolution nor the assistant's arithmetic answer is the oracle. Real CLI
+loading/discovery, prompt attachment, production AJV and real child envelope
+transport are exercised. Offline composition doubles the host/context; unit
+tests also control child payloads. Query-free children prove interpreter and
+envelope transport, not child-side model querying.
+
+### Gates, repair history and independent review
+
+`R/implement.md` and the original `R/implement-default.log` remain **blocked**
+history: that full run exits **1** with eight failures. Six fresh-host tests
+reauthenticate inherited worker control-plane state; two added collision tests
+observe a toast-only helper through the wrong diagnostic channel. These are
+not 0506 witnesses and are not relabelled green.
+
+Owner-authorized repairs recorded in `R/owner-implementation-unblock.md` use
+`topLevelThetaHostEnv` in `tests/bugfix-workflow-reporting.test.ts` and
+`tests/theta-print-real-spawn.test.ts`, and switch the two collision cells to
+`composeExtensionInstance`'s actual system-note channel while preserving
+refusal, exact diagnostic identity/message/path and one-row assertions.
+No production workflow/printing behavior or baseline expectation changes.
+The subsequent initial gate is green without waivers or test exclusions.
+
+The independent fix review is **CLEAN — no actionable in-scope must-fix
+findings** (`R/reviews.md`; unabridged findings in
+`R/owner-review-fix-result.json`; host/session captures in
+`R/owner-review-fix.log` and `R/owner-review-fix.jsonl`). It independently runs
+102 focused offline tests and all 21 real-host cells, typecheck, lint, and
+seven real-spawn tests against the operator's installed CLI, all exit **0**.
+Focused cancellation, enum-carrier, 0465/0466, lexical/path and committed-fixture
+controls are green; full argv/log details are in `R/close.md`.
+
+Before documentation edits, closure inspection recomputes the current
+source/test digest as
+`387cd0539956aac16260939b6bb11acb6c8152da6054ef596937050573b5fd23`,
+matching both independent review and initial gate. The documentation-only
+closure does not claim a later final gate, final review, commit, push or release.
+
+### Residuals and limits
+
+- Existing collector limitations remain: deeper cross-library field-type
+  closure, re-export-only imported **types** and cross-kind collision handling
+  are not solved by this bounded collector reuse (0465/0466 residuals).
+- Typed queries inside imported function bodies remain a separate scope issue;
+  no new probe or fix is claimed here.
+- [0508](./0508-static-invoke-checks-skip-thetalib-fn-bodies.md) remains open:
+  load-time checks do not walk library-body invokes.
+- [0505](./0505-invoked-prompt-callee-missing-imports.md),
+  [0507](./0507-slsh5-lib-hop-parent-path-caller-file-lib-line.md) and
+  [0509](./0509-spec-invoke-caller-relative-no-thetalib-exception.md) remain
+  separate open callee-import/provenance/path-prose issues.
+- No full live-suite or exhaustive cancellation-race claim is made. No new
+  residual report is filed without new evidence.
+
 ## Provenance
+
+Closure: `R/reproduce.md`, `R/diagnose.md`, `R/plan.md`, `R/spec-proposal.md`,
+`R/implement.md`, the owner continuation and independent fix-review artifacts,
+and the exact red/green captures listed above. `R/close.md` records closure
+commands, scope checks and limitations; `R/close-evidence-audit-2.log` records
+complete saved-stream inspection and review/gate digest checks. Governing spec
+and actual implementation symbols are cited in the fix section.
 
 Residual 2 of bug 0504's fix record, from the bug-fix-reviewer's round-1
 scratch probe at 0.495.0. Re-probed at 12f1ccfd with the six-row table

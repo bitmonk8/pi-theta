@@ -18,7 +18,13 @@ interface Cell {
   readonly expected: "accepted-valid" | "return_validation";
   readonly mode?: "prompt" | "subagent";
   readonly importedSchema?: boolean;
+  readonly enumWire?: "yes" | "invalid";
 }
+
+const enumCells: readonly Cell[] = (["prompt", "subagent"] as const).flatMap<Cell>((mode) => [
+  { name: `${mode} imported enum rejects invalid wire`, callerSchema: "", good: true, expected: "return_validation", mode, enumWire: "invalid" },
+  { name: `${mode} imported enum accepts valid wire despite caller conflict`, callerSchema: "schema ROut { other: boolean }", good: true, expected: "accepted-valid", mode, enumWire: "yes" },
+]);
 
 const cells: readonly Cell[] = [
   { name: "missing caller schema rejects wrong shape", callerSchema: "", good: false, expected: "return_validation" },
@@ -36,6 +42,12 @@ const cells: readonly Cell[] = [
   // scope substitution from a child launch/envelope failure, in both directions.
   { name: "subagent child matching caller schema rejects wrong shape CONTROL", callerSchema: "schema ROut { tag: string }", good: false, expected: "return_validation", mode: "subagent" },
   { name: "subagent child matching caller schema accepts library shape CONTROL", callerSchema: "schema ROut { tag: string }", good: true, expected: "accepted-valid", mode: "subagent" },
+  // Exercise the library's own import closure across the real child boundary,
+  // not only a same-file library schema or an in-process prompt attach.
+  { name: "subagent child library imported schema rejects wrong shape", callerSchema: "", good: false, expected: "return_validation", mode: "subagent", importedSchema: true },
+  { name: "subagent child library imported schema ignores conflicting caller schema", callerSchema: "schema ROut { other: boolean }", good: true, expected: "accepted-valid", mode: "subagent", importedSchema: true },
+  { name: "subagent child library imported schema matching caller rejects wrong shape CONTROL", callerSchema: "schema ROut { tag: string }", good: false, expected: "return_validation", mode: "subagent", importedSchema: true },
+  { name: "subagent child library imported schema matching caller accepts library shape CONTROL", callerSchema: "schema ROut { tag: string }", good: true, expected: "accepted-valid", mode: "subagent", importedSchema: true },
 ];
 
 interface Message {
@@ -57,7 +69,7 @@ function question(outcome: string): string {
 }
 
 describe("H9a bug 0506 — library invoke annotation uses declaring scope", () => {
-  for (const cell of cells) {
+  for (const cell of [...cells, ...enumCells]) {
     it(cell.name, async () => {
       const probeSource = b0506ProbeSource(cell);
       assertB0506ProbeParses(probeSource);
@@ -69,9 +81,11 @@ describe("H9a bug 0506 — library invoke annotation uses declaring scope", () =
       const workers = join(roots, "workers");
       mkdirSync(workers, { recursive: true });
       try {
-        writeFileSync(join(workers, "types.thetalib"), "schema ROut { tag: string }\n");
+        writeFileSync(join(workers, "types.thetalib"), 'schema ROut { tag: string }\nenum Choice { Yes = "yes", No = "no" }\n');
         writeFileSync(join(workers, "lib.thetalib"), [
-          cell.importedSchema ? 'import { ROut } from "./types.thetalib"' : "schema ROut { tag: string }",
+          ...(cell.enumWire !== undefined
+            ? ['import { Choice } from "./types.thetalib"', "schema ROut { tag: string, choice: Choice }"]
+            : [cell.importedSchema ? 'import { ROut } from "./types.thetalib"' : "schema ROut { tag: string }"]),
           'fn via_lib() { invoke<ROut>("./child.theta") }',
           "",
         ].join("\n"));
@@ -80,7 +94,9 @@ describe("H9a bug 0506 — library invoke annotation uses declaring scope", () =
           `mode: ${cell.mode ?? "prompt"}`,
           `model: ${host.provider}/${host.model}`,
           "---",
-          ...(cell.good ? ["schema ROut { tag: string }", 'ROut { tag: "x" }'] : ['"not-an-ROut"']),
+          ...(cell.enumWire !== undefined
+            ? ["schema ROut { tag: string, choice: string }", `ROut { tag: "x", choice: "${cell.enumWire}" }`]
+            : cell.good ? ["schema ROut { tag: string }", 'ROut { tag: "x" }'] : ['"not-an-ROut"']),
           "",
         ].join("\n"));
         writeFileSync(join(roots, "b0506-probe.theta"), probeSource);

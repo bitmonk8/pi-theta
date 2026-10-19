@@ -16,6 +16,7 @@ import type { ThetaBody } from "../parser/theta-document";
 import { retagForwardedEnums } from "../runtime/enum-tag-carriage";
 import { decodeInboundValue } from "../runtime/inbound-boundary";
 import { enforceInvokeReturnDepth } from "../runtime/invoke-ceiling-depth";
+import type { TypeDeclarationSite } from "../runtime/lexical-environment";
 import type { InvokeInfraError } from "../runtime/query-error";
 import type { EnumTagEntry } from "../runtime/subagent-envelope";
 import {
@@ -39,14 +40,18 @@ import type {
  * WHOSE declarations the type resolves in — which is why the site cannot be
  * reduced to a bare annotation string:
  *
- *   - `annotated` — `invoke<Schema>(...)`: the caller's annotation and decls.
+ *   - `annotated` — `invoke<Schema>(...)`: the authoring file's annotation and decls.
  *   - `callee-inferred` — a `.theta`-callable call through `tools:`: the
  *     callee's inferred return type and decls (tool-calls.md §"Return type").
  *   - `untyped` — a bare `invoke(...)`: no return type (invocation.md
  *     §"Typed return").
  */
 export type InvokeReturnTyping =
-  | { readonly kind: "annotated"; readonly annotation: string }
+  | {
+      readonly kind: "annotated";
+      readonly annotation: string;
+      readonly declarationSite?: TypeDeclarationSite;
+    }
   | { readonly kind: "callee-inferred" }
   | { readonly kind: "untyped" };
 
@@ -55,8 +60,8 @@ export type InvokeReturnTyping =
  * body whose `schema` / `enum` declarations resolve the names in it. Bug
  * 0465: `importedTypeDecls` rides alongside `declarations` so
  * `#validateInvokeReturn` can merge in the same file's imported schema/enum
- * decls the lowering seam needs — the CALLER's for `annotated` (the caller
- * wrote the annotation and its own imports resolve it), the CALLEE's for
+ * decls the lowering seam needs — the AUTHORING file's for `annotated`
+ * (the declaring library inside an imported fn), the CALLEE's for
  * `callee-inferred` (the inferred name resolves against the callee's own
  * decls, imports included).
  */
@@ -70,9 +75,9 @@ export interface InvokeReturnSite {
  * Resolve which return type a driven callee's `Ok` payload is checked
  * against, and whose declarations that type resolves in.
  *
- *   - `annotated` — an `invoke<Schema>` site: the CALLER wrote the annotation
- *     and the caller's `schema` / `enum` decls resolve it (invocation.md
- *     §"Typed return").
+ *   - `annotated` — an `invoke<Schema>` site: names resolve in the file that
+ *     authored the invoke (imports.md §Calling conversation), independently
+ *     of the calling theta's conversation/effect anchor.
  *   - `callee-inferred` — a `.theta`-callable call through `tools:`: the site
  *     has no annotation, so tool-calls.md §"Return type" types it by the
  *     callee's inferred return type (FN-3), resolved against the CALLEE's own
@@ -89,14 +94,16 @@ export function resolveReturnSite(
   callee: ThetaCompositionInput,
 ): InvokeReturnSite | null {
   switch (returnTyping.kind) {
-    case "annotated":
+    case "annotated": {
+      const site = returnTyping.declarationSite ?? theta;
       return {
         annotation: returnTyping.annotation,
-        declarations: theta.body,
-        ...(theta.importedTypeDecls !== undefined
-          ? { importedTypeDecls: theta.importedTypeDecls }
+        declarations: site.body,
+        ...(site.importedTypeDecls !== undefined
+          ? { importedTypeDecls: site.importedTypeDecls }
           : {}),
       };
+    }
     case "untyped":
       return null;
     case "callee-inferred": {
