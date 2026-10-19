@@ -34,6 +34,8 @@ const cells: readonly Cell[] = [
   { name: "matching caller schema accepts library shape CONTROL", callerSchema: "schema ROut { tag: string }", good: true },
   { name: "library imported schema rejects wrong shape", callerSchema: "", good: false, importedSchema: true },
   { name: "library imported schema accepts library shape CONTROL", callerSchema: "", good: true, importedSchema: true },
+  { name: "library imported schema ignores conflicting caller schema", callerSchema: "schema ROut { other: boolean }", good: true, importedSchema: true },
+  { name: "library imported schema with conflicting caller rejects wrong shape CONTROL", callerSchema: "schema ROut { other: boolean }", good: false, importedSchema: true },
 ];
 
 const FRONTMATTER = "---\nmode: prompt\n---\n";

@@ -9,6 +9,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { requireLiveHost, resolveAcceptanceHost, spawnPiPrint } from "./harness";
+import { assertB0506ProbeParses, b0506ProbeSource } from "../../helpers/b0506-live-fixture";
 
 interface Cell {
   readonly name: string;
@@ -27,8 +28,14 @@ const cells: readonly Cell[] = [
   { name: "matching caller schema rejects wrong shape CONTROL", callerSchema: "schema ROut { tag: string }", good: false, expected: "return_validation" },
   { name: "matching caller schema accepts library shape CONTROL", callerSchema: "schema ROut { tag: string }", good: true, expected: "accepted-valid" },
   { name: "library imported schema rejects wrong shape", callerSchema: "", good: false, expected: "return_validation", importedSchema: true },
+  { name: "library imported schema accepts library shape CONTROL", callerSchema: "", good: true, expected: "accepted-valid", importedSchema: true },
+  { name: "library imported schema ignores conflicting caller schema", callerSchema: "schema ROut { other: boolean }", good: true, expected: "accepted-valid", importedSchema: true },
   { name: "subagent child missing caller schema rejects wrong shape", callerSchema: "", good: false, expected: "return_validation", mode: "subagent" },
   { name: "subagent child conflicting caller schema accepts library shape", callerSchema: "schema ROut { other: boolean }", good: true, expected: "accepted-valid", mode: "subagent" },
+  // Same real transport and validator as the red child cells: distinguish
+  // scope substitution from a child launch/envelope failure, in both directions.
+  { name: "subagent child matching caller schema rejects wrong shape CONTROL", callerSchema: "schema ROut { tag: string }", good: false, expected: "return_validation", mode: "subagent" },
+  { name: "subagent child matching caller schema accepts library shape CONTROL", callerSchema: "schema ROut { tag: string }", good: true, expected: "accepted-valid", mode: "subagent" },
 ];
 
 interface Message {
@@ -52,6 +59,8 @@ function question(outcome: string): string {
 describe("H9a bug 0506 — library invoke annotation uses declaring scope", () => {
   for (const cell of cells) {
     it(cell.name, async () => {
+      const probeSource = b0506ProbeSource(cell);
+      assertB0506ProbeParses(probeSource);
       // Missing credentials/models fail loudly; never skip or treat as a witness.
       await requireLiveHost();
       const host = await resolveAcceptanceHost();
@@ -74,19 +83,7 @@ describe("H9a bug 0506 — library invoke annotation uses declaring scope", () =
           ...(cell.good ? ["schema ROut { tag: string }", 'ROut { tag: "x" }'] : ['"not-an-ROut"']),
           "",
         ].join("\n"));
-        writeFileSync(join(roots, "b0506-probe.theta"), [
-          "---", "mode: prompt", "---",
-          'import { via_lib } from "./workers/lib.thetalib"',
-          cell.callerSchema,
-          "let result = via_lib()",
-          "let outcome = match result {",
-          // Prove the right payload crossed the boundary, not just any Ok.
-          `  Ok(v) => if ${cell.good ? 'v.tag == "x"' : 'v == "not-an-ROut"'} { "accepted-valid" } else { "accepted-unexpected" },`,
-          "  Err(e) => e.cause",
-          "}",
-          "@`Validation outcome: ${outcome}. What is 263 plus 514? Answer with the number only.`",
-          "",
-        ].join("\n"));
+        writeFileSync(join(roots, "b0506-probe.theta"), probeSource);
 
         const result = await spawnPiPrint({
           cwd,
@@ -106,12 +103,13 @@ describe("H9a bug 0506 — library invoke annotation uses declaring scope", () =
           readonly message?: Message;
         });
         const messages = events.flatMap((event) => event.type === "message_end" && event.message !== undefined ? [event.message] : []);
+        const userTexts = messages.filter((message) => message.role === "user").map(textOf);
+        expect(userTexts, "B0506 dispatch prerequisite: the probe must execute, not reach the model as a raw slash command").not.toContain("/b0506-probe");
         const assistants = messages.filter((message) => message.role === "assistant");
         expect(assistants.length, "a real provider turn completed, not merely prompt() resolving").toBeGreaterThan(0);
         expect(assistants.map((message) => message.stopReason), "provider errors/aborts cannot witness schema scope").toEqual(["stop"]);
         expect(textOf(assistants[0]!), "provider returned nonempty assistant text").not.toBe("");
         expect(messages.filter((message) => message.customType === "theta-system-note").map(textOf), "no fail-closed theta ending").toEqual([]);
-        const userTexts = messages.filter((message) => message.role === "user").map(textOf);
         expect(userTexts, "B0506 declaring-scope outcome in real-host user turn").toEqual([question(cell.expected)]);
       } finally {
         // Only this test's freshly-created scratch workspace is removed.
