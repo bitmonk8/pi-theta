@@ -118,6 +118,22 @@ export const PROMPT_MODE_START_PHASE_EXPIRY_MESSAGE =
 export const PROMPT_MODE_SETTLE_PHASE_EXPIRY_MESSAGE =
   "on-session turn did not settle: the run never completed and its reply never landed";
 
+/** Approved 0503 interleaving failures; neither authorizes automatic retry. */
+export const PROMPT_MODE_OWNERSHIP_UNRESOLVED_MESSAGE =
+  "on-session turn ownership unresolved: interleaving prevented attribution of the driven reply";
+export const PROMPT_MODE_TYPED_INTERLEAVING_MESSAGE =
+  "typed query not dispatched: a foreign turn interleaved with the driven query";
+
+export function mapPromptModeInterleaving(provider: string, typed: boolean): TransportError {
+  return {
+    kind: "transport",
+    message: typed ? PROMPT_MODE_TYPED_INTERLEAVING_MESSAGE : PROMPT_MODE_OWNERSHIP_UNRESOLVED_MESSAGE,
+    http_status: null,
+    provider,
+    retryable: true,
+  };
+}
+
 /** Which bounded wait in `#driveUserVisibleTurn` expired (§Fix items 1–4). */
 export type PromptModeTurnLifecyclePhase = "pre-send-gate" | "start" | "settle";
 

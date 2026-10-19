@@ -9,7 +9,7 @@ import {
   type SystemNoteChannelDeps,
 } from "./system-note-channel";
 import { extractTrailingTurnText, computeActiveSetInstall, type CallableSetInstall } from "../runtime/conversation-drive";
-import { probePostTurnFailure, mapPromptModeSyncThrow, mapPromptModeTurnLifecycleExpiry, trailingTurnUserIndex, type PromptModeTurnLifecyclePhase } from "../runtime/prompt-transport-mapping";
+import { probePostTurnFailure, mapPromptModeSyncThrow, mapPromptModeTurnLifecycleExpiry, mapPromptModeInterleaving, type PromptModeTurnLifecyclePhase } from "../runtime/prompt-transport-mapping";
 import type { ForcedRespondTurn, FreePhaseTurn, QueryModelDriver } from "../runtime/query-tool-loop";
 import type { CommittedSideEffect } from "../runtime/no-rollback";
 import type { ContextOverflowError, TransportError } from "../runtime/query-error";
@@ -31,7 +31,8 @@ import {
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import { PromptToolLoopGovernor, type PromptToolLoopExhaustion } from "./prompt-tool-loop-governor";
 import type { ActiveRespondCapture, RespondTurnContext } from "./respond-capture";
-import { macrotask, thisTurnSettled, trailingCompactionUnanswered, POLL_INTERVAL_MS, PRE_SEND_GATE_POLL_BOUND, TURN_START_POLL_BOUND, TURN_END_POLL_BOUND, WAIT_FOR_IDLE_BOUND_MS, TURN_SETTLE_POLL_BOUND } from "./turn-settlement";
+import { OwnedTurnAttempt } from "./owned-turn";
+import { macrotask, POLL_INTERVAL_MS, PRE_SEND_GATE_POLL_BOUND, TURN_START_POLL_BOUND, TURN_END_POLL_BOUND, WAIT_FOR_IDLE_BOUND_MS, TURN_SETTLE_POLL_BOUND } from "./turn-settlement";
 import { dispatchForcedRespondTurn } from "./off-session-respond-dispatch";
 
 /**
@@ -47,25 +48,6 @@ import { dispatchForcedRespondTurn } from "./off-session-respond-dispatch";
  * run reads idle and this poll clears on its first reads.
  */
 const HOST_RECOVERY_ABORT_SETTLE_GRACE_POLL_BOUND = 50;
-
-/**
- * The index of the newest compaction summary in a built session message list,
- * `-1` when it carries none. `buildContextEntries` places the latest
- * compaction at the head, ahead of its kept entries, so an older compaction
- * inside the kept range projects a second summary AFTER the newest one; the
- * first summary is the newest. The summary is pi's `compactionSummary`
- * context message, a role outside pi-ai's `Message` union, hence the widened
- * read.
- */
-function newestCompactionSummaryIndex(messages: readonly Message[]): number {
-  for (let i = 0; i < messages.length; i += 1) {
-    const role: string | undefined = messages[i]?.role;
-    if (role === "compactionSummary") {
-      return i;
-    }
-  }
-  return -1;
-}
 
 /**
  * Bug 0483 §Fix item 2: one attempt's deferred `ctx.signal` abort — the
@@ -208,8 +190,15 @@ class LivePromptQueryModel implements QueryModelDriver {
   readonly #queryThinking: string | undefined;
   /** The exhaustion snapshot captured after the bounded free-phase turn settled. */
   #exhaustion: PromptToolLoopExhaustion | undefined = undefined;
-  /** PIC-50: a `TransportError` synthesised from a `sendUserMessage` sync-throw. */
+  /** Drive failure slot: sync throw, lifecycle expiry, or 0503 refusal. */
   #transportFromThrow: TransportError | undefined = undefined;
+  /** The SAME accepted own snapshot feeds classification, text and narration. */
+  #acceptedMessages: readonly Message[] = [];
+  #queryPathBefore: ReadonlySet<string> | undefined;
+  readonly #ownedUserIds = new Set<string>();
+  readonly #ownedUsers = new Set<Message>();
+  #foreignWindow = false;
+  #driveInterleaved = false;
   /** Bug 0010: whether a free-phase turn was driven (false at `max_rounds: 0`). */
   #freePhaseDriven = false;
   /**
@@ -337,6 +326,7 @@ class LivePromptQueryModel implements QueryModelDriver {
       // turns — the window start is recorded ONCE per query, never rewound to
       // a follow-up's send position.
       this.#queryWindowStart ??= this.#readMessages().length;
+      this.#queryPathBefore ??= new Set(this.#readContextPath().map((entry) => entry.id));
       // SLSH-2: issue the rendered query as one streamed user-visible turn and
       // await its completion so the assistant text is committed before the
       // interpreter resumes. pi runs its NATIVE agentic tool loop for this turn;
@@ -346,6 +336,8 @@ class LivePromptQueryModel implements QueryModelDriver {
       // forced respond turn is off-session and inherently ungoverned).
       await this.#driveUserVisibleTurn(true);
       this.#freePhaseDriven = true;
+      const interleaving = this.#typedInterleavingFailure();
+      if (interleaving !== undefined && !this.#thetaAbort.signal.aborted) return { kind: "transport", error: interleaving };
       // PIC-50: a synchronous throw from `pi.sendUserMessage` was mapped to a
       // `TransportError` (no turn was issued); surface it as the free-phase
       // transport failure ahead of any exhaustion / text extraction.
@@ -381,7 +373,7 @@ class LivePromptQueryModel implements QueryModelDriver {
       // verdict except `cancelled` diverts here (`excludeCancelled`:
       // cancellation is handled by the enclosing loop's signal guards — bug
       // 0010 F1 / bug 0012 — so it is excluded, not re-classified).
-      const failure = probePostTurnFailure(this.#readMessages(), {
+      const failure = probePostTurnFailure(this.#acceptedMessages, {
         aborted: this.#thetaAbort.signal.aborted,
         provider: this.#provider,
         excludeCancelled: true,
@@ -405,7 +397,7 @@ class LivePromptQueryModel implements QueryModelDriver {
         return this.#exhaustionTurn(this.#exhaustion?.lastAllowedToolName);
       }
       // Completed within the cap: the terminating plain-text turn.
-      return { kind: "text", text: extractTrailingTurnText(this.#readMessages()) };
+      return { kind: "text", text: extractTrailingTurnText(this.#acceptedMessages) };
     }
     // Only reachable on the exhausted path: keep returning the synthetic
     // `tool_use` round until `runUntypedQueryLoop`'s slot count reaches
@@ -492,7 +484,7 @@ class LivePromptQueryModel implements QueryModelDriver {
     // whitespace, e.g. `["", ""].join("\n") === "\n"` — which must map to null
     // per the biconditional's reservation for text the model never emitted.
     // Genuine narration (any non-whitespace) is surfaced verbatim, untrimmed.
-    const text = extractTrailingTurnText(this.#readMessages());
+    const text = extractTrailingTurnText(this.#acceptedMessages);
     return {
       kind: "tool_use",
       batch: [{ toolName, toolUseId: "theta-prompt-loop-exhausted" }],
@@ -516,6 +508,11 @@ class LivePromptQueryModel implements QueryModelDriver {
     if (this.#respond?.gateError !== undefined) {
       return { kind: "transport", error: this.#respond.gateError };
     }
+    const interleaving = this.#typedInterleavingFailure();
+    if (this.#thetaAbort.signal.aborted) {
+      return { kind: "transport", error: mapPromptModeSyncThrow("cancelled", this.#provider) };
+    }
+    if (interleaving !== undefined) return { kind: "transport", error: interleaving };
     // Bug 0010 (QRY-14 early respond): a payload the model already delivered
     // through a VALID early respond-tool call resolves the query — the
     // off-session forced turn is skipped entirely.
@@ -554,7 +551,7 @@ class LivePromptQueryModel implements QueryModelDriver {
       if (this.#transportFromThrow !== undefined) {
         return { kind: "transport", error: this.#transportFromThrow };
       }
-      const failure = probePostTurnFailure(this.#readMessages(), {
+      const failure = probePostTurnFailure(this.#acceptedMessages, {
         aborted: this.#thetaAbort.signal.aborted,
         provider: this.#provider,
         excludeCancelled: true,
@@ -562,7 +559,7 @@ class LivePromptQueryModel implements QueryModelDriver {
       if (failure !== undefined) {
         return { kind: "transport", error: failure as TransportError | ContextOverflowError };
       }
-      const text = extractTrailingTurnText(this.#readMessages());
+      const text = extractTrailingTurnText(this.#acceptedMessages);
       const parse = parseStructuredPayload(text);
       return { kind: "respond", payload: payloadForRespond(parse) };
     }
@@ -633,6 +630,9 @@ class LivePromptQueryModel implements QueryModelDriver {
     if (respond.gateError !== undefined) {
       return { kind: "provider_failure", error: respond.gateError };
     }
+    const interleaving = this.#typedInterleavingFailure();
+    if (this.#thetaAbort.signal.aborted) return { kind: "provider_failure", error: makeCancelledError() };
+    if (interleaving !== undefined) return { kind: "provider_failure", error: interleaving };
     // Reset the per-attempt early-respond snapshot BEFORE the restarted phase:
     // the capture slot is re-armed per driven turn inside
     // `#driveUserVisibleTurn` (it arms whenever `#respond` is present), and the
@@ -683,6 +683,9 @@ class LivePromptQueryModel implements QueryModelDriver {
     // per-follow-up `tool_loop` budget QRY-16 pins — and re-arms the
     // early-respond capture slot around the turn.
     await this.#driveUserVisibleTurn(true, prompt);
+    const interleaving = this.#typedInterleavingFailure();
+    if (this.#thetaAbort.signal.aborted) return { kind: "provider_failure", error: makeCancelledError() };
+    if (interleaving !== undefined) return { kind: "provider_failure", error: interleaving };
     if (this.#transportFromThrow !== undefined) {
       // PIC-50: a `sendUserMessage` sync-throw is the attempt's proximate
       // transport failure — no attempts debit (QRY-11 §non-validation).
@@ -716,7 +719,7 @@ class LivePromptQueryModel implements QueryModelDriver {
     // Neither verdict is text-parsed, and neither falls through to the
     // fresh off-session dispatch — an aborted attempt issues NO post-abort
     // provider call.
-    const failure = probePostTurnFailure(this.#readMessages(), {
+    const failure = probePostTurnFailure(this.#acceptedMessages, {
       aborted: this.#thetaAbort.signal.aborted,
       provider: this.#provider,
       excludeCancelled: false,
@@ -758,6 +761,9 @@ class LivePromptQueryModel implements QueryModelDriver {
    * mechanism byte-identically.
    */
   #dispatchRespondOverWindow(respond: RespondTurnContext): Promise<ForcedRespondTurn> {
+    const interleaving = this.#typedInterleavingFailure();
+    if (this.#thetaAbort.signal.aborted) return Promise.resolve({ kind: "transport", error: mapPromptModeSyncThrow("cancelled", this.#provider) });
+    if (interleaving !== undefined) return Promise.resolve({ kind: "transport", error: interleaving });
     // Bug 0483 (PIC-78): under forced tool choice a provider binds a
     // schema-valid payload even over a window that carries none of this
     // query's turns, so a stale window must fail loudly, never dispatch.
@@ -797,6 +803,10 @@ class LivePromptQueryModel implements QueryModelDriver {
    */
   async #driveUserVisibleTurn(bound: boolean, text: string = this.#queryText): Promise<void> {
     this.#endedOnCapturedRecovery = false;
+    this.#acceptedMessages = [];
+    this.#transportFromThrow = undefined;
+    this.#exhaustion = undefined;
+    this.#driveInterleaved = false;
     // Bug 0288 §Fix item 1: the pre-send gate. `pi.sendUserMessage` is
     // fire-and-forget, and a send issued while the host reports streaming is
     // rejected ASYNCHRONOUSLY into the host's extension-error channel
@@ -992,19 +1002,18 @@ class LivePromptQueryModel implements QueryModelDriver {
             // one. Each continuation attempt records its own boundary, so the settle
             // polls and the classification read the RETRIED attempt's slice, never
             // the aborted one's.
-            const messagesBeforeSend = this.#readMessages();
-            const turnStart = messagesBeforeSend.length;
-            // The trailing `user` message before this attempt's send, by identity:
-            // the relocated trailing-turn read below must never take it for this
-            // attempt's own anchor.
-            const userBeforeSend = messagesBeforeSend[trailingTurnUserIndex(messagesBeforeSend)];
-            // The leaf-path entry ids before this attempt's send: a `compaction`
-            // entry absent from them was appended during this attempt, the only
-            // compaction that can explain this attempt's own user message missing
-            // from the rebuilt list (`#ownTrailingTurnSlice`).
-            const pathIdsBeforeSend: ReadonlySet<string> = new Set(
-              this.#readContextPath().map((entry) => entry.id),
-            );
+            this.#acceptedMessages = [];
+            const attempt = new OwnedTurnAttempt(this.#readMessages(), this.#readContextPath(), attemptText);
+            const readOwn = (allowRelocation = false) => {
+              const own = attempt.read(this.#readMessages(), this.#readContextPath(), allowRelocation);
+              if (own.userId !== undefined) this.#ownedUserIds.add(own.userId);
+              if (own.user !== undefined) this.#ownedUsers.add(own.user);
+              if (own.foreign) {
+                this.#foreignWindow = true;
+                this.#driveInterleaved = true;
+              }
+              return own;
+            };
             // PIC-50: `pi.sendUserMessage` is the only failure the call surface itself
             // can signal synchronously. Map such a throw to a `TransportError` (never
             // `theta/runtime/internal-error`, never a swallowed `Ok("")`) and return
@@ -1024,9 +1033,13 @@ class LivePromptQueryModel implements QueryModelDriver {
             // Only an expiry with the slice still UNSETTLED is the loud failure
             // (P1/P4: `isIdle` is not a proxy for "the send took effect").
             const startCleared = await this.#pollWhile(
-              () =>
-                this.#ctx.isIdle() &&
-                !thisTurnSettled(this.#readMessages(), turnStart, this.#readContextPath()),
+              () => {
+                if (!this.#ctx.isIdle()) return false;
+                const own = readOwn();
+                // A foreign boundary is grounds for refusal below, never own
+                // started evidence. Do not relabel it a missing-start expiry.
+                return !own.settled && !own.foreign;
+              },
               TURN_START_POLL_BOUND,
             );
             if (!startCleared) {
@@ -1067,6 +1080,7 @@ class LivePromptQueryModel implements QueryModelDriver {
               // re-arm: a signal still exposed after the run settled belongs to the
               // post-settle `agent_end` site below.
               const endCleared = await this.#pollWhile(() => {
+                readOwn();
                 if (this.#ctx.isIdle()) {
                   return false;
                 }
@@ -1137,60 +1151,38 @@ class LivePromptQueryModel implements QueryModelDriver {
             const settleBound = recorder.recorded
               ? HOST_RECOVERY_ABORT_SETTLE_GRACE_POLL_BOUND
               : TURN_SETTLE_POLL_BOUND;
-            // A mid-turn compaction can leave this attempt's slice unopenable at
-            // `turnStart`: an overflow compaction rebuilds the list shorter, so the
-            // attempt's own user message sits BEFORE `turnStart`, and a split-turn
-            // compaction (the cut falls inside the turn once its own content
-            // outgrows the kept-recent budget) summarises that user message away
-            // entirely. With a recorded abort the poll therefore also clears the
-            // moment the trailing turn `#ownTrailingTurnSlice` locates reads
-            // settled, rather than at the grace's end: a retry extension re-kicks
-            // the session about a second after its abort, and that re-kick's user
-            // message would otherwise become the trailing turn's anchor first.
-            const trailingSettledSlice = (): readonly Message[] | undefined =>
-              recorder.recorded && !this.#thetaAbort.signal.aborted
-                ? this.#ownTrailingTurnSlice(userBeforeSend, pathIdsBeforeSend)
-                : undefined;
-            await this.#pollWhile(
-              () =>
-                !thisTurnSettled(this.#readMessages(), turnStart, this.#readContextPath()) &&
-                trailingSettledSlice() === undefined,
-              settleBound,
-            );
-            let turnSlice: readonly Message[];
-            if (thisTurnSettled(this.#readMessages(), turnStart, this.#readContextPath())) {
-              // Bug 0483 §Fix item 2: which site observed the abort. The mid-turn
-              // recorder above (CNCL-4 identity: its RECORDED reason is what a
-              // `cancel` classification forwards), or, only when the recorder never
-              // fired, the post-settle CANCEL-2 `agent_end` trigger: `ctx.signal`
-              // observed aborted only AFTER this attempt settled, whose `cancel`
-              // classification forwards `abortForAgentEnd`'s synthesised reason.
-              const postSettleAbortObserved =
-                !recorder.recorded && this.#ctx.signal?.aborted === true && !this.#thetaAbort.signal.aborted;
-              if (!recorder.recorded && !postSettleAbortObserved) {
-                // No abort observed anywhere for this attempt: a normal settle.
-                // Fall through to the ordinary probe/extraction outside this loop
-                // (the ≤ 0.86 in-run-retry "recovered" residue, reachable with NO
-                // abort at all, is handled entirely by the PIC-53 extraction fix,
-                // item 3 — no classification needed here, per §Out of scope).
+            // Keep PIC-78 relocation eligibility (recorded abort ONLY). Foreign
+            // attribution can fail once the existing completion waits clear; it
+            // cannot borrow a foreign ending or spend a recovery ride on it.
+            await this.#pollWhile(() => {
+              const own = readOwn(recorder.recorded);
+              return !own.settled && !own.foreign;
+            }, settleBound);
+            if (this.#thetaAbort.signal.aborted) return;
+            const own = readOwn(recorder.recorded);
+            const postSettleAbortObserved = !recorder.recorded && this.#ctx.signal?.aborted === true;
+            if (own.foreign) {
+              if (recorder.recorded) {
+                this.#thetaAbort.abort(recorder.reason);
                 return;
               }
-              turnSlice = this.#readMessages().slice(turnStart);
-            } else {
-              // The slice at `turnStart` never opened. Classify the compaction-
-              // relocated trailing turn instead, so a host recovery of the
-              // post-compaction run rides rather than cancels. No such turn (the
-              // pre-first-token ESC, a send that never landed, or a missing anchor
-              // no compaction of this attempt explains) is an expiry that cancels
-              // with the recorded reason.
-              const trailingSlice = trailingSettledSlice();
-              if (trailingSlice === undefined) {
-                this.#recordLifecycleExpiry("settle", settleBound * POLL_INTERVAL_MS, recorder);
+              if (postSettleAbortObserved) {
+                abortForAgentEnd(this.#thetaAbort);
                 return;
               }
-              this.#windowRelocated = true;
-              turnSlice = trailingSlice;
+              if (this.#respond !== undefined || !own.settled || own.messages === undefined) {
+                this.#transportFromThrow = mapPromptModeInterleaving(this.#provider, this.#respond !== undefined);
+                return;
+              }
             }
+            if (!own.settled || own.messages === undefined) {
+              this.#recordLifecycleExpiry("settle", settleBound * POLL_INTERVAL_MS, recorder);
+              return;
+            }
+            const turnSlice = own.messages;
+            this.#acceptedMessages = [...turnSlice];
+            if (own.relocated) this.#windowRelocated = true;
+            if (!recorder.recorded && !postSettleAbortObserved) return;
             // Bug 0483 §Fix item 1: classify the settled turn against the host's
             // OWN retry classifier.
             let finalAssistant: AssistantMessage | undefined;
@@ -1290,52 +1282,23 @@ class LivePromptQueryModel implements QueryModelDriver {
       // moment the turn settles, even on an error/abort path.
       if (bound) {
         this.#exhaustion = this.#governor.end();
+        if (this.#driveInterleaved && (this.#exhaustion.exhausted || this.#exhaustion.slotCount > 0) && !this.#thetaAbort.signal.aborted) {
+          this.#transportFromThrow = mapPromptModeInterleaving(this.#provider, this.#respond !== undefined);
+        }
       }
     }
   }
 
-  /**
-   * The session's trailing turn when it is this attempt's own turn and has
-   * settled on an assistant; `undefined` otherwise. The turn opens at PIC-51's
-   * last-user anchor; a trailing `user` message identical to the one that
-   * trailed before this attempt's send belongs to an earlier turn (this
-   * attempt's own entry never landed). A list with no `user` message at all is
-   * pi's split-turn compaction layout — the summary, then the turn's kept
-   * recent tool rounds, then the post-compaction run — so the turn is the list
-   * after the newest compaction summary, the same span PIC-51/PIC-53 read when no
-   * `user` message anchors them; only a compaction appended during this
-   * attempt (absent from `pathIdsBeforeSend`) explains the missing anchor. An
-   * unanswered trailing compaction means the post-compaction run produced
-   * nothing.
-   */
-  #ownTrailingTurnSlice(
-    userBeforeSend: Message | undefined,
-    pathIdsBeforeSend: ReadonlySet<string>,
-  ): readonly Message[] | undefined {
+  /** Sticky guard, rechecked at capture/replay/repair boundaries, not a filter. */
+  #typedInterleavingFailure(): TransportError | undefined {
+    if (this.#respond === undefined || this.#queryWindowStart === undefined) return undefined;
     const path = this.#readContextPath();
-    if (trailingCompactionUnanswered(path)) {
-      return undefined;
+    if (path.some((entry) => entry.type === "message" && entry.message.role === "user" &&
+      !this.#queryPathBefore?.has(entry.id) && !this.#ownedUserIds.has(entry.id))) this.#foreignWindow = true;
+    if (path.length === 0 && this.#readMessages().slice(this.#queryWindowStart).some((message) => message.role === "user" && !this.#ownedUsers.has(message))) {
+      this.#foreignWindow = true;
     }
-    const messages = this.#readMessages();
-    const anchor = trailingTurnUserIndex(messages);
-    let turnOpen: number;
-    if (anchor !== -1) {
-      if (messages[anchor] === userBeforeSend) {
-        return undefined;
-      }
-      turnOpen = anchor;
-    } else {
-      const compactedThisAttempt = path.some(
-        (entry) => entry.type === "compaction" && !pathIdsBeforeSend.has(entry.id),
-      );
-      const summary = compactedThisAttempt ? newestCompactionSummaryIndex(messages) : -1;
-      if (summary === -1) {
-        return undefined;
-      }
-      turnOpen = summary + 1;
-    }
-    const slice = messages.slice(turnOpen);
-    return slice.some((message) => message.role === "assistant") ? slice : undefined;
+    return this.#foreignWindow ? mapPromptModeInterleaving(this.#provider, true) : undefined;
   }
 
   /**

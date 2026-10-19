@@ -1,6 +1,10 @@
 # Bug 0503 — a foreign turn started while the driven turn settles is bound as this query's result: the settle read anchors on the LAST `user` entry, never on this attempt's OWN — on pi ≥ 0.87 an `agent_settled`-deferred `prompt()` starts the foreign run with microtask-only pre-run work, so the 10 ms end poll never sees the idle boundary and the driven query returns `Ok("<foreign reply>")`
 
-- **Status:** open — filed 2026-09-29 (0501 fix release review, round 2;
+- **Status:** fixed (unreleased - commit/push only). Independent fix review is
+  CLEAN; red/green witnesses and gates are recorded below. No new package
+  release is published. The existing package version does not contain this fix;
+  no resolving SHA is recorded here. The shipment commit will supply it.
+- **Filing context:** filed 2026-09-29 (0501 fix release review, round 2;
   pre-existing on main 0.494.0 in the anchored layout (probe D0); the
   0501 fix (targets 0.495.0) additionally reaches it in the drifted
   layout through its un-gated relocated read (probe D1) — a worsening
@@ -183,3 +187,154 @@ expiry on 0.494.0.
 - **0482/0483 (fixed)** — own the wait-through and relocated-read
   machinery the fix must thread through without re-binding their
   compaction shapes.
+
+## Closure record — fixed, unreleased
+
+The sections above preserve the original filing and historical branch probes.
+This closure concerns the scoped fix verified against current base HEAD
+`a21bd1b27b09efdd7f71c7484b3f6d1fcd1dd299`, with installed SDK host 1.3.0.
+That SHA identifies the **pre-fix baseline**, not a resolving commit. Package
+metadata remains unchanged; in particular, the existing 0.496.0 package is not
+credited with this new fix. **No new package release is published.**
+
+### Cause and actual fix
+
+The driver treated a lower-bound index as turn ownership. Settlement searched
+backward for the last user, then ordinary completion probed and extracted from
+the whole session tail. A foreign run could finish before an idle poll sampled
+the boundary, replacing a committed own reply with the foreign reply. This is
+an attribution defect, not a provider error or a reason to shorten polling.
+
+- `OwnedTurnAttempt` (`src/extension/owned-turn.ts:23–104`) correlates the first
+  enacted matching send with raw entry identity, retains that anchor, and ends
+  both projected messages and chronological compaction evidence before the next
+  foreign user. Unprovable or ambiguous interleaved evidence is refused.
+- `turnSliceSince` / `thisTurnSettled`
+  (`src/extension/turn-settlement.ts:108–142`) use first-user/next-user bounds.
+  The production driver additionally proves identity; an index alone is not
+  proof of ownership.
+- `LivePromptQueryModel` retains one accepted own snapshot after the existing
+  waits (`src/extension/live-prompt-query-driver.ts:1153–1200`). Failure probing,
+  text extraction, degraded fused parsing, recovery classification and exhaustion
+  narration use that snapshot, not a later session tail. An attributable
+  committed own reply remains usable after a foreign turn.
+- Ambiguous own-send/ending or governor attribution returns the approved
+  retryable transport error. A schema-bearing typed replay window with a foreign
+  user is refused before capture acceptance, replay or repair; contamination is
+  sticky (`#typedInterleavingFailure`, same file:1292–1302). Repair takes the
+  non-validation provider-failure path. Template-only `max_rounds: 0` is unchanged.
+- Cancellation takes precedence; an abort in an ambiguous foreign window cancels
+  rather than riding foreign recovery residue. Recorded-abort-only relocation
+  eligibility, completion waits and no-foreign recovery behavior remain intact.
+  No automatic retry, rollback, writer serialization or new host API is added.
+- `mapPromptModeInterleaving`
+  (`src/runtime/prompt-transport-mapping.ts:121–136`) supplies the two fixed
+  messages with null HTTP status, PIC-50 provider and `retryable: true`.
+
+The owner approved the exact proposal preserved in this run's `state.json`.
+The normative delta is limited to PIC-70/PIC-53/PIC-78 and
+[Driven-turn foreign-user interleaving](../spec_topics/pi-integration-contract/conversation-drive.md#driven-turn-foreign-user-interleaving),
+the QRY-14 exception in
+[query-tool-loop.md](../spec_topics/query/query-tool-loop.md#qry-14), and the
+[TransportError reference](../reference/errors-and-results.md#transporterror).
+The approval audits reconstruct all three pages exactly from the approved
+clauses; no further specification ruling is inferred by closure.
+
+### Red → green evidence, controls and gates
+
+All artifact names below are relative to this absolute run directory:
+
+`/home/thomasa/Projects/pi-theta/.pi/tmp/fix-bug-0503-94afcd27-a9bc-4326-8289-8c4a0545c474/`
+
+Commands ran from `/home/thomasa/Projects/pi-theta`. These are recorded earlier
+runs, inspected during closure, **not rerun by the docs-only close stage**.
+
+| Exact command | Pre-fix evidence | Post-fix evidence |
+|---|---|---|
+| `npx vitest run tests/b0503-foreign-turn-production-composition.test.ts` | Exit 1, `offline-witness.log`, `diagnose-e2e.log`, `red-0.json`: `B0503_OWN_TURN_RESULT`, received `foreign calculation: 222`, expected `driven calculation: 777`; 2 controls pass | Exit 0, `implement-e2e-final.log`, `green-1-0.json`: 3 tests pass |
+| `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/b0503-foreign-turn-live.test.ts` | Exit 1, `live-witness.log`, `diagnose-live.log`, `red-1.json`: `B0503_LIVE_OWN_TURN_RESULT`, persisted next query carries 222 instead of 777; 2 controls pass | Exit 0, `green-1-1.json`, `gate-1-initial-2.json`: 3 tests pass; next query carries own 777 |
+| `npx vitest run tests/b0503-owned-turn-settlement.test.ts` | Exit 1, `diagnose-unit.log`, `red-2.json`: `B0503_OWN_SETTLED` false instead of true; `B0503_NO_BORROWED_SETTLE` true instead of false; 10 controls pass | Exit 0, `implement-unit-final.log`, `green-1-2.json`: 12 tests pass |
+| `npm run typecheck` | — | Exit 0, `gate-1-initial-0.json`, `review-fix-typecheck.log` |
+| `npm test` | — | Exit 0, `implement-offline-suite-final.log`, `gate-1-initial-1.json`: 730 files / 12,228 tests pass, including parse/corpus gates |
+| `npm run lint` | — | Exit 0, `implement-lint-final.log`: no findings |
+| `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/b0503-foreign-turn-live.test.ts tests/live/b0503-typed-interleaving-live.test.ts tests/live/b0483-host-recovery-live.test.ts` | — | Exit 0, `implement-live-final.log`, independently `review-fix-live.log`: 3 files / 8 tests pass |
+
+Live runs use **openai/gpt-6.1-sol**, real SDK `AgentSession`, shipped extension
+registration, public deferred prompt and persisted session messages. Both own
+and foreign assistant endings are normal, failure notes are absent in the
+untyped successful case, and the final session is idle. The decisive assertion
+is the next persisted query's interpolation, **not** `prompt()` resolving.
+The typed live case records the exact named transport refusal and no next
+computation; its healthy control reaches the next query carrying score 777.
+Existing live recovery controls pass with retry off and on. Healthy and
+assertion-red-direction controls remain in both baseline witnesses.
+
+The deterministic composition test uses the real parser, producer, binder,
+executor, driver and SDK projection, with scripted host dispatch/timing. It is
+not alone a real-host witness. The live twin supplies real host/provider D0
+coverage; neither launches the CLI or a subagent child.
+
+Additional coverage: `tests/b0503-owned-turn-boundaries.test.ts` has 37 passing
+cases for ownership, projection edits, compaction boundaries, failure attribution,
+accepted-snapshot retention, typed capture/replay/repair refusal, governor
+uncertainty, cancellation and cleanup. Deterministic tests directly count zero
+forced dispatches on refusal; the live typed test does not instrument those
+internal calls. The independent targeted offline rerun passes 9 files / 140
+tests (`review-fix-offline.log`, exit 0).
+
+The recorded manifest and baseline unit/live files are unchanged. The composition
+witness changes only its inert source path from `/theta/b0503.theta` to
+`/fixtures/b0503.theta`, avoiding a new-fixture collision with the diagnostic
+corpus gate. Assertions, timing, commands and failure signatures are preserved;
+reverse normalization reproduces its red-stage hash. Intermediate test-authoring
+import/type errors and that corpus collision remain documented in `implement.md`
+and their logs; they are not counted as bug witnesses or waived gates.
+
+### Independent review and closure audit
+
+`reviews.md` reports **CLEAN — fix focus. No actionable in-scope must-fix
+findings.** It independently checks the original red, intended green observable,
+all consumers, typed/cancellation/governor boundaries, exact approved spec delta
+and witness preservation. `evidence-review.md` separately records the earlier
+clean pre-fix evidence review; it is not substituted for fix review.
+
+`close-entry-audit.log` (exit 0) confirms that reviewed and verified paths both
+still hash to `51d0b949838b5a03c2ca3c7f07240f8a8e320e4357caec1158f3a70664acaeab`.
+The close stage changes only this bug report and its index entry, plus run-local
+documentary evidence. `close.md` records exact close-stage commands, final
+checks, file inventory and uncertainties. No quality loop, commit, staging,
+push, tag, publication, dependency/version bump or implementation edit is part
+of closure. No resolving SHA is invented.
+
+### Residual scope
+
+- Related reports **0499–0502 remain open**: omitted recovery, own post-reply
+  compaction, no-abort anchor drift and pre-prompt lifecycle gaps are not fixed
+  by this change. The historical proposed-0501 D1 worsening is not claimed as a
+  current-HEAD live result or a newly live-proven fix.
+- Real-host D1/overflow timing, queued-follow-up and historical-host variants
+  are not newly proven. Recorded-abort relocation has deterministic coverage,
+  not a real overflow/provider claim.
+- Custom-triggered runs without a new user boundary are outside this rule;
+  ordinary custom messages remain within their surrounding turn.
+- Raw identity plus issued-text correlation is not universal caller
+  authentication. An observationally identical lone foreign send replacing a
+  dropped own send cannot be distinguished with the current void host API.
+- Foreign tools/provider calls may already have run while windows were armed.
+  This fix prevents wrong attribution/replay, not prior side effects or global
+  concurrency. No long-session performance benchmark is claimed.
+
+No new out-of-scope residual is filed without evidence; existing reports retain
+their histories and statuses.
+
+## Provenance
+
+- Original filing/probe history above is preserved; current-HEAD D0 red evidence
+  is in `reproduce.md`, `diagnose.md`, `red-0/1/2.json` and the cited witness logs.
+- Approved contract: run `state.json` / `spec-proposal.md`; PIC-70, PIC-51/51b,
+  PIC-53, PIC-78, foreign-user-interleaving clause, QRY-14 and TransportError
+  reference. Exact-delta proofs: `implement-approval-audit.log` and
+  `review-fix-audit.log`.
+- Actual fix and test boundaries: cited sources/tests, `implement.md`, `plan.md`
+  section 11 and final gate logs. Independent verdict: `reviews.md`; closure
+  integrity: `close-entry-audit.log` and `close.md` in the same run directory.

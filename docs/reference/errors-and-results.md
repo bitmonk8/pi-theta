@@ -265,6 +265,8 @@ No new diagnostic code is minted for these — they reuse the same
 `kind: "transport"` register PIC-50/PIC-51 already populate, distinguished only
 by the fixed message stem.
 
+**Prompt-mode foreign-user interleaving (bug 0503).** Ambiguous own-send, own-ending, or governor attribution after a foreign user boundary produces `kind: "transport"`, `http_status: null`, `retryable: true`, and the PIC-50 provider, with message exactly `on-session turn ownership unresolved: interleaving prevented attribution of the driven reply`. A schema-bearing typed query whose replay window contains a foreign user turn uses the same fields with message exactly `typed query not dispatched: a foreign turn interleaved with the driven query`. Neither outcome is a provider-error witness or a new diagnostic code, and neither authorizes automatic retry. Cancellation retains precedence. The full boundary, retained-own-reply and repair rules are at [Driven-turn foreign-user interleaving](../spec_topics/pi-integration-contract/conversation-drive.md#driven-turn-foreign-user-interleaving).
+
 ### `ModelToolError`
 
 Reserved: no theta 1.0-reachable input produces `ModelToolError`. The named tool

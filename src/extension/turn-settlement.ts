@@ -101,20 +101,18 @@ function isSettledTurnEnding(afterUser: readonly Message[]): boolean {
 }
 
 /**
- * Locate the slice after the LAST `user`-role message at or after
- * `fromIndex` in `messages` (bug 0288 §Fix item 1/3/4). `fromIndex` bounds the
- * search to a particular turn's own send: a `user` entry recorded BEFORE it
- * belongs to an earlier, already-settled turn and must never be mistaken for
- * this turn's own anchor — the exact silent failure P2 describes
- * (`extractTrailingTurnText` anchoring on the wrong turn's `user` entry).
+ * Positional no-drift boundary: the FIRST user at/after `fromIndex`, ending
+ * before the next user (0503). The driver additionally proves send identity;
+ * an integer lower bound alone is not proof of ownership.
  */
 function turnSliceSince(
   messages: readonly Message[],
   fromIndex: number,
 ): { readonly opened: boolean; readonly after: readonly Message[] } {
-  for (let i = messages.length - 1; i >= fromIndex; i -= 1) {
+  for (let i = fromIndex; i < messages.length; i += 1) {
     if (messages[i]?.role === "user") {
-      return { opened: true, after: messages.slice(i + 1) };
+      const next = messages.findIndex((message, index) => index > i && message.role === "user");
+      return { opened: true, after: messages.slice(i + 1, next === -1 ? messages.length : next) };
     }
   }
   return { opened: false, after: [] };
@@ -134,7 +132,11 @@ function thisTurnSettled(
   path: readonly SessionEntry[],
 ): boolean {
   const slice = turnSliceSince(messages, turnStart);
-  return slice.opened && isSettledTurnEnding(slice.after) && !trailingCompactionUnanswered(path);
+  const user = messages.find((message, index) => index >= turnStart && message.role === "user");
+  const rawStart = path.findIndex((entry) => entry.type === "message" && entry.message === user);
+  const rawEnd = rawStart === -1 ? -1 : path.findIndex((entry, index) => index > rawStart && entry.type === "message" && entry.message.role === "user");
+  const ownPath = rawStart === -1 ? path : path.slice(rawStart, rawEnd === -1 ? path.length : rawEnd);
+  return slice.opened && isSettledTurnEnding(slice.after) && !trailingCompactionUnanswered(ownPath);
 }
 
 /**
