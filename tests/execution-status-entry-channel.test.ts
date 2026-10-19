@@ -143,7 +143,7 @@ describe("T-ENT — B55: entry renderer byte-identical to the message renderer",
     );
     const messageComponent = messageRenderer(
       { customType: THETA_PROGRESS_ENTRY_TYPE, content: BATCH_NOTE.content, display: BATCH_NOTE.display, details: BATCH_NOTE.details } as never,
-      { expanded: false },
+      { expanded: false, outputPad: 0 },
       {} as never,
     );
 

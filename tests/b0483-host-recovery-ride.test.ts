@@ -2310,7 +2310,7 @@ describe("bug 0483 — a host-recovery abort must ride the host's retry, not can
     expect(out.thetaAbort.signal.aborted, `not a cancellation; observed ${disposition(out)}`).toBe(false);
   });
 
-  it("(39) two compaction summaries projected (a second split-turn compaction keeping the range that holds the first): the NEWEST summary opens the trailing turn, so the retry residue before the older summary is in it → \"recovered\", Ok — RED at 41f2fe88: Err(cancelled) with the watchdog reason", async () => {
+  it("(39) two split-turn compactions: the current host projects only the newest summary, preserving retry residue → recovered, Ok", async () => {
     expectTaggedMessageIsHostRetryable();
     const out = await driveLiveTheta(
       ONE_QUERY_THETA,
@@ -2339,10 +2339,13 @@ describe("bug 0483 — a host-recovery abort must ride the host's retry, not can
       "assistant",
       "toolResult",
       "assistant",
-      "compactionSummary",
       "assistant",
       "assistant",
     ]);
+    // pi 1.3.0 session-manager.js buildSessionProjection drops older
+    // compaction entries even when they lie in the kept range. Both raw
+    // compactions must still exist; this is not a single-compaction fixture.
+    expect(out.session.entries.filter((entry) => String(entry.type) === "compaction")).toHaveLength(2);
     expect(out.thetaAbort.signal.aborted, `the in-run core retry recovered the turn; observed ${disposition(out)}`).toBe(
       false,
     );

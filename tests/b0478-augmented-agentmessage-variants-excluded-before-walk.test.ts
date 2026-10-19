@@ -153,6 +153,16 @@ function renderBody(result: SessionContextWalkResult): string | undefined {
 // pi-integration-contract/host-interfaces-core.md#sessioncontext-shape
 
 describe("bug 0478 — the closed TranscriptMessage set", () => {
+  it("pi build-pin system messages are excluded before token counting and rendering", () => {
+    const system: AgentMessage = { role: "system", content: "PRIVATE SYSTEM PROMPT", timestamp: 0 };
+    const retained = [user("question"), assistant("answer")];
+    const messages = [system, retained[0]!, system, retained[1]!];
+    expect(isTranscriptMessage(system)).toBe(false);
+    const result = walk(messages, new FakeTokenEstimator(counts(messages, 10)));
+    expect(result.includedMessages).toEqual(retained);
+    expect(renderBody(result)).not.toContain("PRIVATE SYSTEM PROMPT");
+    expect(renderBody(result)).toBe(renderBody(walk(retained, new FakeTokenEstimator(counts(retained, 10)))));
+  });
   it("isTranscriptMessage admits exactly user / assistant / toolResult / custom and excludes the three pinned host augmentations", () => {
     expect(isTranscriptMessage(user("u"))).toBe(true);
     expect(isTranscriptMessage(assistant("a"))).toBe(true);

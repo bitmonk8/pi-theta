@@ -85,7 +85,7 @@ export type TranscriptMessage =
 /**
  * Closed-set membership guard (bug 0478): `true` iff `message` is one of the
  * four variants the compact transcript renders. The `switch` is exhaustive
- * over the PINNED `AgentMessage` union — the three excluded arms are named, and
+ * over the PINNED `AgentMessage` union — all excluded arms are named, and
  * the `default:` arm is typed `never` — so a variant pi adds at a later pin
  * fails `tsc` here, forcing an explicit admit-or-exclude decision at the bump
  * (host-interfaces-core.md#sessioncontext-shape) instead of throwing inside
@@ -99,6 +99,7 @@ export function isTranscriptMessage(message: AgentMessage): message is Transcrip
     case "toolResult":
     case "custom":
       return true;
+    case "system":
     case "bashExecution":
     case "branchSummary":
     case "compactionSummary":

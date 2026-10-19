@@ -37,6 +37,8 @@ import {
   SUBAGENT_PARENT_PID_ENV,
 } from "../../src/runtime/subagent-launcher";
 
+import { liveModelPreconditionMessage } from "../helpers/live-model-precondition";
+import { selectLiveModel } from "../helpers/live-model-selection";
 import { collectSystemNotes } from "../helpers/recording-system-note-channel";
 export { collectSystemNotes } from "../helpers/recording-system-note-channel";
 
@@ -100,8 +102,8 @@ export interface LiveProvider {
  * missing precondition (never a silent skip), per the leaf's *fails loudly when
  * its live-provider precondition is unmet*. Model selection is the ONE rule
  * every `npm run test:live` half shares (this resolver, the acceptance
- * harness, and the probe harness): prefer `claude-sonnet-5`, else the first
- * `sonnet` id, else the first available model.
+ * harness, and the probe harness): GPT Sol 6.1, else the configured OpenAI
+ * default if available, else the first available OpenAI model. Never Claude.
  */
 export async function requireLiveProvider(): Promise<LiveProvider> {
   // 0.80.x: `ModelRegistry.create` is gone and `AuthStorage` is no longer a
@@ -115,21 +117,10 @@ export async function requireLiveProvider(): Promise<LiveProvider> {
   await modelRegistry.refresh();
   const available = modelRegistry.getAvailable();
   if (available.length === 0) {
-    failLoudly(
-      "live-host precondition unmet: no live provider/model is configured " +
-        "(ModelRegistry.getAvailable() is empty). Configure a provider and " +
-        "credentials before running `npm run test:live`; this suite never " +
-        "silently skips.",
-    );
+    failLoudly(await liveModelPreconditionMessage(modelRuntime));
   }
-  const preferredFirst = ["claude-sonnet-5"];
   const idOf = (m: LiveModel): string => (m as { id?: string }).id ?? "";
-  const model =
-    preferredFirst
-      .map((id) => available.find((m) => idOf(m) === id))
-      .find((m): m is LiveModel => m !== undefined) ??
-    available.find((m): m is LiveModel => idOf(m).includes("sonnet")) ??
-    available[0];
+  const model = selectLiveModel(available);
   if (model === undefined) {
     failLoudly("live-host precondition unmet: no resolvable live model.");
   }

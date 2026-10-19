@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type {
   AssistantMessage,
   ImageContent,
+  JsonObject,
   TextContent,
   ThinkingContent,
   ToolCall,
@@ -78,7 +79,7 @@ function text(value: string): TextContent {
   return { type: "text", text: value };
 }
 
-function toolCall(name: string, args: Record<string, unknown>): ToolCall {
+function toolCall(name: string, args: JsonObject): ToolCall {
   return { type: "toolCall", id: "tc", name, arguments: args };
 }
 

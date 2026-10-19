@@ -230,6 +230,14 @@ describe("inventory-closure audit — family (4): non-exemptible out-of-scope sh
     );
   });
 
+  it("the build-pin ExtensionToolContext carrier is audited with the same canonical-name restrictions", () => {
+    const source = 'import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";\nexport function handler(ctx: ExtensionToolContext): void { void ctx.cwd; }\n';
+    const good = audit({ "src/tool-context.ts": source });
+    expect(recordsOfClass(good, "violation")).toEqual([]);
+    const bad = audit({ "src/tool-context.ts": source.replace("ctx: ExtensionToolContext", "context: ExtensionToolContext") });
+    expect(recordsOfClass(bad, "violation").some((record) => record.symbol.includes("context: ExtensionToolContext"))).toBe(true);
+  });
+
   it("an off-canonical-annotation ctx parameter (ctx: any) fires a family-(4) shape record", () => {
     // A parameter NAMED `ctx` whose annotation is not the ExtensionContext /
     // ExtensionCommandContext literal (here `any`) is a prohibited

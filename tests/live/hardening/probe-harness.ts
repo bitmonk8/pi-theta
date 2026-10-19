@@ -39,6 +39,8 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assert } from "vitest";
+import { liveModelPreconditionMessage } from "../../helpers/live-model-precondition";
+import { selectLiveModel } from "../../helpers/live-model-selection";
 import {
   DefaultResourceLoader,
   ModelRegistry,
@@ -122,17 +124,10 @@ async function resolveLiveProvider(): Promise<ResolvedProvider> {
   await modelRegistry.refresh();
   const available = modelRegistry.getAvailable();
   if (available.length === 0) {
-    failLoudly(
-      "live-host precondition unmet: no live provider/model is configured " +
-        "(ModelRegistry.getAvailable() is empty). Configure a provider and " +
-        "credentials; this harness never silently skips.",
-    );
+    failLoudly(await liveModelPreconditionMessage(modelRuntime));
   }
   const idOf = (m: unknown): string => (m as { id?: string }).id ?? "";
-  const model =
-    available.find((m) => idOf(m) === "claude-sonnet-5") ??
-    available.find((m) => idOf(m).includes("sonnet")) ??
-    available[0];
+  const model = selectLiveModel(available);
   if (model === undefined) failLoudly("no resolvable live model");
   return { modelRuntime, modelRegistry, model, modelId: idOf(model) };
 }

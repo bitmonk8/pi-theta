@@ -44,7 +44,7 @@ import type { SurfaceInventoryEntry } from "./sdk-inventory";
 const NA = "<n/a>";
 
 /** The canonical carrier-type literals (audit-target-categories.md (1)/(3)). */
-const CTX_TYPES: ReadonlySet<string> = new Set(["ExtensionContext", "ExtensionCommandContext"]);
+const CTX_TYPES: ReadonlySet<string> = new Set(["ExtensionContext", "ExtensionCommandContext", "ExtensionToolContext"]);
 const PI_TYPE = "ExtensionAPI";
 
 /**

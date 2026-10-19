@@ -8,8 +8,11 @@ afterEach(() => vi.restoreAllMocks());
 
 /** Supply only the registry fields the live-host resolver reads. */
 function availableModels(models: readonly { readonly id?: string; readonly provider: string }[]): void {
-  vi.spyOn(ModelRuntime, "create").mockResolvedValue({} as ModelRuntime);
-  vi.spyOn(ModelRegistry.prototype, "refresh").mockResolvedValue(undefined);
+  vi.spyOn(ModelRuntime, "create").mockResolvedValue({
+    listCredentials: async () => [],
+    getProvider: () => undefined,
+  } as unknown as ModelRuntime);
+  vi.spyOn(ModelRegistry.prototype, "refresh").mockResolvedValue({ aborted: false, errors: new Map() });
   vi.spyOn(ModelRegistry.prototype, "getAvailable").mockReturnValue(
     models as ReturnType<ModelRegistry["getAvailable"]>,
   );
@@ -17,13 +20,13 @@ function availableModels(models: readonly { readonly id?: string; readonly provi
 
 describe("requireLiveHost", () => {
   it("returns the configured model id", async () => {
-    availableModels([{ provider: "anthropic", id: "claude-sonnet-5" }]);
-    await expect(requireLiveHost()).resolves.toEqual({ modelId: "claude-sonnet-5" });
+    availableModels([{ provider: "openai", id: "gpt-6.1-sol" }]);
+    await expect(requireLiveHost()).resolves.toEqual({ modelId: "gpt-6.1-sol" });
   });
 
   it.each([
-    { provider: "anthropic", id: "" },
-    { provider: "anthropic" },
+    { provider: "openai", id: "" },
+    { provider: "openai" },
   ])("fails loudly when the available model has no usable id: %j", async (model) => {
     availableModels([model]);
     await expect(requireLiveHost()).rejects.toThrow(
@@ -34,7 +37,7 @@ describe("requireLiveHost", () => {
   it("retains the missing-provider failure", async () => {
     availableModels([]);
     await expect(requireLiveHost()).rejects.toThrow(
-      "live-host precondition unmet: no live provider/model configured (ModelRegistry.getAvailable() is empty).",
+      "live-host precondition unmet: no usable live provider/model (ModelRegistry.getAvailable() is empty).",
     );
   });
 });

@@ -7,8 +7,9 @@
 // (§Fix, §"Witnesses (red before → green after)", the Live paragraph). The
 // offline twin is tests/b0483-host-recovery-ride.test.ts; this file drives the
 // FULL host mechanics — a real run abort, a real `message_end` rewrite, a real
-// settle, and (cell B) pi 0.80.10's real in-run core retry — which a scripted
-// session double can only model.
+// settle, and recovery with core retry both disabled and enabled. The former
+// pre-0.87 in-run core-retry cell was converted at the current build pin:
+// extension abort now ends the host run even when core retry is enabled.
 //
 // MECHANISM. `bootShippedExtension` (tests/live/harness.ts) loads, beside the
 // shipped theta entry, the watchdog-mimic fixture
@@ -34,16 +35,12 @@
 //      after any extension abort). Fixed behaviour: theta rides with its own
 //      continuation re-drive (exactly one `PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT`
 //      user turn, exactly one `ride 1/3` note); the first query resolves Ok.
-//   B. `retry.enabled: true, baseDelayMs: 1`: on the pinned 0.80.10 dev host
-//      core retry re-runs the turn inside the same run (`_handlePostAgentRun`
-//      -> `_prepareRetry` -> `agent.continue()`), the session never reading
-//      idle: the in-run arm (the pi <= 0.86 shape). Fixed behaviour: theta
-//      waits the retry out (zero continuation turns, zero ride notes); the
-//      first query resolves Ok on the retried text. The in-run arm exists only
-//      below pi 0.87 (0.87 bails its post-run retry after an extension abort),
-//      so the cell fails loudly naming the host pin on a pi >= 0.87 host rather
-//      than accepting cell A's path in its place. RETIREMENT: retire or convert
-//      cell B when the dev pin crosses 0.87 (version-bump checklist item (av)).
+//   B. `retry.enabled: true, baseDelayMs: 1`: current pi bails its post-run
+//      retry after an extension abort. Theta must still ride with exactly one
+//      continuation and one ride note, without depending on host retry being
+//      disabled. This replaces the retired pre-0.87 in-run-retry live cell
+//      (version-bump checklist item (av)); the historical in-run layouts remain
+//      covered by tests/b0483-host-recovery-ride.test.ts.
 //
 // At HEAD both cells are RED for the bug's reason: the per-turn
 // `forwardSlashCommandCancel` in `LivePromptQueryModel.#driveUserVisibleTurn`
@@ -69,7 +66,7 @@
 
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { SettingsManager, VERSION } from "@earendil-works/pi-coding-agent";
+import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
 import {
   PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT,
@@ -300,15 +297,6 @@ function expectRodeThrough(turn: SettledDrive, stem: string): void {
   ).toMatch(new RegExp(`^${SECOND_QUERY_PREFIX}[\\s\\S]*\\b${SUM_SENTINEL}\\b`));
 }
 
-/** The pinned host's `major.minor` is below 0.87, where pi's post-run retry survives an extension abort. */
-function hostRunsInRunRetry(): boolean {
-  const [major, minor] = VERSION.split(".").map((part) => Number.parseInt(part, 10));
-  if (major === undefined || minor === undefined || Number.isNaN(major) || Number.isNaN(minor)) {
-    failLoudly(`bug 0483 live: cannot parse the @earendil-works/pi-coding-agent VERSION '${VERSION}'`);
-  }
-  return major === 0 && minor < 87;
-}
-
 describe("bug 0483 live: a host-recovery abort of a driven turn rides the host's retry instead of cancelling the theta", () => {
   it("(A) idle-recovery arm (retry.enabled off): the tagged error-stop settles idle; theta sends exactly one continuation turn with one ride note, and the first query resolves Ok with 777, no `theta /<name> cancelled` note", async () => {
     const stem = "b0483rideidle";
@@ -326,16 +314,8 @@ describe("bug 0483 live: a host-recovery abort of a driven turn rides the host's
     ).toEqual([rideNote(stem, 1)]);
   });
 
-  it("(B) in-run arm (retry.enabled on, pi < 0.87 host): core retry re-runs the turn inside the same run; the drive waits it out with zero continuation turns and zero ride notes, and the first query resolves Ok with 777, no `theta /<name> cancelled` note", async () => {
-    if (!hostRunsInRunRetry()) {
-      failLoudly(
-        `bug 0483 live cell B precondition unmet: the in-run core-retry arm exists only below pi 0.87 ` +
-          `(0.87 bails its post-run retry after an extension abort), but the host pin ` +
-          `@earendil-works/pi-coding-agent is ${VERSION}; retire or convert cell B when the dev pin ` +
-          `crosses 0.87 (version-bump checklist item (av))`,
-      );
-    }
-    const stem = "b0483rideinrun";
+  it("(B) retry.enabled on: extension abort settles the host run; theta still sends exactly one continuation and one ride note, and the first query resolves Ok with 777", async () => {
+    const stem = "b0483rideretryon";
     const turn = await driveRideCell(
       stem,
       SettingsManager.inMemory({ retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 } }),
@@ -343,12 +323,12 @@ describe("bug 0483 live: a host-recovery abort of a driven turn rides the host's
     expectRodeThrough(turn, stem);
     expect(
       turn.continuationTexts,
-      `the in-run arm ran: pi's own retry re-ran the turn, so theta sent NO continuation turn; ` +
+      `core retry does not survive extension abort on this host; theta must continue once; ` +
         `userTexts=${JSON.stringify(turn.userTexts)}`,
-    ).toEqual([]);
+    ).toEqual([PROMPT_MODE_HOST_RECOVERY_CONTINUE_TEXT]);
     expect(
       turn.rideNotes,
-      `the in-run arm emits no PIC-78 ride note; systemNotes=${JSON.stringify(turn.systemNotes)}`,
-    ).toEqual([]);
+      `exactly one PIC-78 ride note with core retry enabled; systemNotes=${JSON.stringify(turn.systemNotes)}`,
+    ).toEqual([rideNote(stem, 1)]);
   });
 });

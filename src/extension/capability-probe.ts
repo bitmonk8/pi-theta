@@ -137,7 +137,7 @@ const NODE_FLOOR = ">=22.19.0";
  * minimum-API-shape version, so any installed pi-coding-agent >=0.80.8 loads.
  * The open floor deliberately trades the former tilde minor-skew detection for
  * forward compatibility with newer minors, matching the install-time
- * `peerDependencies` contract. The dev/build target (`~0.80.10`) is a separate
+ * `peerDependencies` contract. The dev/build target (`~1.3.0`) is a separate
  * literal that does not gate runtime load.
  */
 const PI_SDK_PIN_RANGE = ">=0.80.8";

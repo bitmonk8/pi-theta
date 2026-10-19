@@ -1,0 +1,122 @@
+// Bug 0506: real pi -p discovery -> imported library fn -> production invoke
+// -> AJV return boundary. imports.md:16 and invocation.md:28 require the
+// annotation to resolve in its declaring library, independently of the caller.
+// No parser, loader, invoke driver, validator, provider, or child is mocked.
+// Every result is consumed in-body and exposed in the exact outbound user text;
+// assistant completion and fail-closed channels are checked separately.
+
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { requireLiveHost, resolveAcceptanceHost, spawnPiPrint } from "./harness";
+
+interface Cell {
+  readonly name: string;
+  readonly callerSchema: string;
+  readonly good: boolean;
+  readonly expected: "accepted-valid" | "return_validation";
+  readonly mode?: "prompt" | "subagent";
+  readonly importedSchema?: boolean;
+}
+
+const cells: readonly Cell[] = [
+  { name: "missing caller schema rejects wrong shape", callerSchema: "", good: false, expected: "return_validation" },
+  { name: "missing caller schema accepts library shape CONTROL", callerSchema: "", good: true, expected: "accepted-valid" },
+  { name: "conflicting caller schema accepts library shape", callerSchema: "schema ROut { other: boolean }", good: true, expected: "accepted-valid" },
+  { name: "conflicting caller schema rejects wrong shape CONTROL", callerSchema: "schema ROut { other: boolean }", good: false, expected: "return_validation" },
+  { name: "matching caller schema rejects wrong shape CONTROL", callerSchema: "schema ROut { tag: string }", good: false, expected: "return_validation" },
+  { name: "matching caller schema accepts library shape CONTROL", callerSchema: "schema ROut { tag: string }", good: true, expected: "accepted-valid" },
+  { name: "library imported schema rejects wrong shape", callerSchema: "", good: false, expected: "return_validation", importedSchema: true },
+  { name: "subagent child missing caller schema rejects wrong shape", callerSchema: "", good: false, expected: "return_validation", mode: "subagent" },
+  { name: "subagent child conflicting caller schema accepts library shape", callerSchema: "schema ROut { other: boolean }", good: true, expected: "accepted-valid", mode: "subagent" },
+];
+
+interface Message {
+  readonly role?: string;
+  readonly customType?: string;
+  readonly content?: string | readonly { readonly type?: string; readonly text?: string }[];
+  readonly stopReason?: string;
+  readonly errorMessage?: string;
+}
+
+function textOf(message: Message): string {
+  return typeof message.content === "string"
+    ? message.content
+    : (message.content ?? []).map((part) => part.text ?? "").join("");
+}
+
+function question(outcome: string): string {
+  return `Validation outcome: ${outcome}. What is 263 plus 514? Answer with the number only.`;
+}
+
+describe("H9a bug 0506 — library invoke annotation uses declaring scope", () => {
+  for (const cell of cells) {
+    it(cell.name, async () => {
+      // Missing credentials/models fail loudly; never skip or treat as a witness.
+      await requireLiveHost();
+      const host = await resolveAcceptanceHost();
+      const cwd = mkdtempSync(join(process.cwd(), ".pi", "tmp", "b0506-host-"));
+      const roots = join(cwd, "thetas");
+      const workers = join(roots, "workers");
+      mkdirSync(workers, { recursive: true });
+      try {
+        writeFileSync(join(workers, "types.thetalib"), "schema ROut { tag: string }\n");
+        writeFileSync(join(workers, "lib.thetalib"), [
+          cell.importedSchema ? 'import { ROut } from "./types.thetalib"' : "schema ROut { tag: string }",
+          'fn via_lib() { invoke<ROut>("./child.theta") }',
+          "",
+        ].join("\n"));
+        writeFileSync(join(workers, "child.theta"), [
+          "---",
+          `mode: ${cell.mode ?? "prompt"}`,
+          `model: ${host.provider}/${host.model}`,
+          "---",
+          ...(cell.good ? ["schema ROut { tag: string }", 'ROut { tag: "x" }'] : ['"not-an-ROut"']),
+          "",
+        ].join("\n"));
+        writeFileSync(join(roots, "b0506-probe.theta"), [
+          "---", "mode: prompt", "---",
+          'import { via_lib } from "./workers/lib.thetalib"',
+          cell.callerSchema,
+          "let result = via_lib()",
+          "let outcome = match result {",
+          // Prove the right payload crossed the boundary, not just any Ok.
+          `  Ok(v) => if ${cell.good ? 'v.tag == "x"' : 'v == "not-an-ROut"'} { "accepted-valid" } else { "accepted-unexpected" },`,
+          "  Err(e) => e.cause",
+          "}",
+          "@`Validation outcome: ${outcome}. What is 263 plus 514? Answer with the number only.`",
+          "",
+        ].join("\n"));
+
+        const result = await spawnPiPrint({
+          cwd,
+          thetaDir: roots,
+          // The non-recursive discovery walk must also discover the child.
+          extraThetaDirs: [workers],
+          slashInvocation: "/b0506-probe",
+          extraArgs: ["--mode", "json", "--no-session"],
+        });
+        // Capture the FULL real-host evidence in the invoking command's log.
+        // eslint-disable-next-line no-console
+        console.log("B0506 HOST", JSON.stringify({ cell: cell.name, host, ...result }));
+        expect(result.exitCode, "real host exits successfully; provider/infra errors are not bug evidence").toBe(0);
+        expect(result.stderr, "real host has no stderr failure/diagnostic").toBe("");
+        const events = result.stdout.trim().split(/\r?\n/).map((line) => JSON.parse(line) as {
+          readonly type?: string;
+          readonly message?: Message;
+        });
+        const messages = events.flatMap((event) => event.type === "message_end" && event.message !== undefined ? [event.message] : []);
+        const assistants = messages.filter((message) => message.role === "assistant");
+        expect(assistants.length, "a real provider turn completed, not merely prompt() resolving").toBeGreaterThan(0);
+        expect(assistants.map((message) => message.stopReason), "provider errors/aborts cannot witness schema scope").toEqual(["stop"]);
+        expect(textOf(assistants[0]!), "provider returned nonempty assistant text").not.toBe("");
+        expect(messages.filter((message) => message.customType === "theta-system-note").map(textOf), "no fail-closed theta ending").toEqual([]);
+        const userTexts = messages.filter((message) => message.role === "user").map(textOf);
+        expect(userTexts, "B0506 declaring-scope outcome in real-host user turn").toEqual([question(cell.expected)]);
+      } finally {
+        // Only this test's freshly-created scratch workspace is removed.
+        rmSync(cwd, { recursive: true, force: true });
+      }
+    });
+  }
+});

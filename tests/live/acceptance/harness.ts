@@ -23,6 +23,8 @@ import { basename, delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assert, expect } from "vitest";
 import { spawnCapturedNodeProcess } from "../../helpers/real-subagent-spawn";
+import { liveModelPreconditionMessage } from "../../helpers/live-model-precondition";
+import { selectLiveModel } from "../../helpers/live-model-selection";
 import { type LoweredSchema } from "../../../src/seams/schema-validator";
 import { AjvSchemaValidator } from "../../../src/seams/ajv-schema-validator";
 import {
@@ -68,7 +70,8 @@ export const EXTENSION_ENTRY = fileURLToPath(
  * against — the ONE model-selection rule every `npm run test:live` half shares
  * (`tests/live/harness.ts` `requireLiveProvider`, this resolver, and
  * `tests/live/hardening/probe-harness.ts`): `ModelRegistry.getAvailable()`,
- * preferring `claude-sonnet-5`. `pi -p` inherits `process.env`, so a missing
+ * preferring `openai/gpt-6.1-sol`, with no automatic Claude fallback.
+ * `pi -p` inherits `process.env`, so a missing
  * credential surfaces as the live-host precondition failure (never a silent
  * skip).
  */
@@ -86,20 +89,15 @@ export async function resolveAcceptanceHost(): Promise<{
   await modelRegistry.refresh();
   const available = modelRegistry.getAvailable();
   if (available.length === 0) {
-    failLoudly(
-      "live-host precondition unmet: no live provider/model configured " +
-        "(ModelRegistry.getAvailable() is empty). Configure a provider and " +
-        "credentials before running `npm run test:live`; this suite never " +
-        "silently skips.",
-    );
+    failLoudly(await liveModelPreconditionMessage(modelRuntime));
   }
   const idOf = (m: unknown): string => (m as { id?: string }).id ?? "";
   const providerOf = (m: unknown): string =>
     (m as { provider?: string }).provider ?? "";
-  const model =
-    available.find((m) => idOf(m) === "claude-sonnet-5") ??
-    available.find((m) => idOf(m).includes("sonnet")) ??
-    available[0];
+  const model = selectLiveModel(available);
+  if (model === undefined) {
+    failLoudly("live-host precondition unmet: no OpenAI model available for the live-suite model policy.");
+  }
   return { provider: providerOf(model), model: idOf(model) };
 }
 

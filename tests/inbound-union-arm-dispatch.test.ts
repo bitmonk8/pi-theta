@@ -1303,6 +1303,9 @@ async function driveRootChild(input: {
     // fail-closed and the assertions report loudly, instead of the test and a
     // live process tree hanging to the outer timeout.
     watchdogMs: 60_000,
+    // This witness asserts the host's natural exit below. Do not let the
+    // helper's finally-reap kill a successful child just after its envelope.
+    awaitNaturalExit: true,
     onExit: (info) => {
       exit = info;
     },

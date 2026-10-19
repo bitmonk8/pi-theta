@@ -29,8 +29,8 @@ export const EXTENSION_ENTRY = fileURLToPath(new URL("../../extensions", import.
  * The marshalled model reference riding the child argv (`--provider`/`--model`,
  * PIC-62). Never contacted by a witness whose fixtures issue no query.
  */
-export const CHILD_MODEL_PROVIDER = "anthropic";
-export const CHILD_MODEL_ID = "claude-fable-5";
+export const CHILD_MODEL_PROVIDER = "openai";
+export const CHILD_MODEL_ID = "gpt-6.1-sol";
 
 /** Require both pinned entries, failing loudly with the witness's context — never a silent skip. */
 export function requireRealSubagentPathsFor(requirement: string): () => void {
@@ -65,6 +65,18 @@ export function launchRealSubagentChild(
     Partial<Pick<SubagentLaunchRequest, "parentEnv">> &
     Pick<SubagentLaunchRequest["argv"], "slug" | "thetaDirs" | "provider" | "model">,
 ) {
+  // These launch helpers drive query-free offline fixtures, not live turns.
+  // Give each launch its own credential/lock domain rather than requiring the
+  // operator to have Anthropic credentials (or racing their auth.json lock).
+  // Grandchildren inherit this directory; the caller owns and removes cwd.
+  const agentDir = input.parentEnv === undefined
+    ? mkdtempSync(join(input.cwd, ".offline-agent-"))
+    : undefined;
+  if (agentDir !== undefined) {
+    writeFileSync(join(agentDir, "auth.json"), JSON.stringify({
+      [input.provider]: { type: "api_key", key: "pi-theta-offline-no-provider-access" },
+    }), { mode: 0o600 });
+  }
   const diagnostics: Diagnostic[] = [];
   const emitDiagnostic = (d: Diagnostic): void => {
     diagnostics.push(d);
@@ -83,7 +95,12 @@ export function launchRealSubagentChild(
         projectTrust: false,
       },
       cwd: input.cwd,
-      parentEnv: input.parentEnv ?? { ...process.env, [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY },
+      parentEnv: input.parentEnv ?? {
+        ...process.env,
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_OFFLINE: "1",
+        [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY,
+      },
       ...(input.controlPlaneEnv !== undefined ? { controlPlaneEnv: input.controlPlaneEnv } : {}),
       parentPid: process.pid,
       invokeDepth: 0,
@@ -198,7 +215,7 @@ export type RealSubagentRootDrive =
  * root `<thetaDir>/<slug>.theta`, through the REAL production spawn path. A
  * failed launch is RETURNED (with its drained diagnostics) so each caller keeps
  * its own failure policy. `onChild` subscribes line taps before driving;
- * `onExit` observes the exit; `awaitNaturalExit` waits (unbounded) for the
+ * `onExit` observes the exit; `awaitNaturalExit` waits up to 5s for the
  * child's own exit before the reap, so its exit record is the self-exit rather
  * than the reap's kill. The child is reaped (bounded) on every path.
  */
@@ -235,7 +252,17 @@ export async function driveRealSubagentRoot(input: {
       child, join(input.thetaDir, `${input.slug}.theta`), emitDiagnostic, input.watchdogMs,
     );
     if (input.awaitNaturalExit === true) {
-      await exited;
+      let exitTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          exited,
+          new Promise<never>((_resolve, reject) => {
+            exitTimer = setTimeout(() => reject(new Error("subagent did not naturally exit within 5000ms after its envelope")), 5000);
+          }),
+        ]);
+      } finally {
+        clearTimeout(exitTimer);
+      }
     }
     return { ok: true, result, killedByWatchdog, diagnostics, exited };
   } finally {

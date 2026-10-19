@@ -9,7 +9,7 @@ import {
   createReadToolDefinition,
   createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import type { ResolvedPiTool } from "../parser/callable-set";
 import {
   normalizeToolSnapshot,
@@ -22,7 +22,7 @@ type HostToolExecute = (
   params: never,
   signal: AbortSignal | undefined,
   onUpdate: undefined,
-  ctx: ExtensionContext,
+  ctx: ExtensionToolContext,
 ) => Promise<{ readonly content: readonly { readonly type: string }[] }>;
 
 /**
@@ -142,7 +142,19 @@ export function resolvePiTool(
     // there.
     parameters: definition.parameters,
     execute: async (id, params, signal) => {
-      const result = await definition.execute(id, params as never, signal, undefined, ctx);
+      // Direct built-in dispatch has no host-owned parent tool-call scope.
+      // Preserve the real context (cwd/model/image settings), but do not
+      // invent permission-bearing nested dispatch. The built-ins do not use
+      // these two fields; if that changes, fail closed rather than bypass the
+      // host's validation/hooks with a fabricated executeTool implementation.
+      const directContext = {
+        ...ctx,
+        tools: [],
+        executeTool: async () => {
+          throw new Error("Nested tool execution is unavailable in direct built-in dispatch");
+        },
+      };
+      const result = await definition.execute(id, params as never, signal, undefined, directContext);
       return { content: result.content };
     },
   };

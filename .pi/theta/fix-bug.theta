@@ -23,6 +23,10 @@ fn control(command: string): boolean {
   }
   output.trim() == "PASS"
 }
+// Keep application outcomes as values inside the workflow, then explicitly
+// display the settled outcome below. Prompt-mode Ok return values are private
+// programmatic results, not user-facing output (including "STOP: ...").
+fn workflow(arguments: string) {
 // A single defaultless string bypasses the model binder. Listing is now
 // entirely deterministic, not merely free of an output-echo query.
 let mut bug = ""
@@ -30,11 +34,13 @@ let mut ship = true
 let mut review_rounds = 5
 if arguments.trim() != "" {
   write({ path: ".pi/tmp/bugfix-request.txt", content: arguments })?
-  let parsed = bash({ command: "node tools/bugfix/run.mjs parse-file .pi/tmp/bugfix-request.txt" })?
+  let parsed = match bash({ command: "node tools/bugfix/run.mjs parse-file .pi/tmp/bugfix-request.txt" }) {
+    Ok(text) => text,
+    Err(error) => "INVALID: " + error.message,
+  }
   let fields = parsed.trim().split("\n")
   if fields.length != 4 || fields[0] != "FIX" {
-    theta_print({ text: "Invalid /fix-bug arguments. " + parsed })?
-    return "STOP: invalid arguments"
+    return "STOP: invalid arguments. " + parsed
   }
   bug = fields[1]
   ship = fields[2] == "true"
@@ -46,7 +52,6 @@ if arguments.trim() != "" {
 }
 if bug.trim() == "" {
   let listing = bash({ command: "node tools/bugfix/run.mjs list" })?
-  theta_print({ text: listing })?
   return listing
 }
 if review_rounds < 1 || review_rounds > 5 {
@@ -64,6 +69,7 @@ if !run.startsWith("/") || !run.includes("/.pi/tmp/fix-bug-") || run.includes("\
 }
 let prefix = "node tools/bugfix/run.mjs "
 let quoted = "\"" + run + "\""
+theta_print({ text: "Bug " + bug + ": reproduction started. Artifacts: " + run })?
 let reproduce = bugfix_stage(run, "reproduce", "")?
 if reproduce.status != "pass" {
   return "STOP: " + reproduce.summary + " — artifacts: " + run
@@ -151,3 +157,11 @@ let ship_answer = question({ question: "Commit and push this verified fix on the
 write({ path: run + "/ship-answer.txt", content: ship_answer })?
 if !control(prefix + "ship " + quoted) { return "STOP: shipment refused or failed - inspect shipment.json before retrying. Artifacts: " + run }
 "COMMITTED AND PUSHED - reports and SHA in " + run + "/shipment.json"
+}
+
+// One deterministic completion surface for EVERY normal terminal branch:
+// blocked stages, refused gates/approval, local verification, and shipment.
+// Actual tool/query Err outcomes still propagate to the runtime's Err surface.
+let summary = workflow(arguments)?
+theta_print({ text: summary })?
+summary

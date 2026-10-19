@@ -30,6 +30,8 @@ import {
   driveWatchedSubagentChild,
   reapSubagentChildren,
   EXTENSION_ENTRY,
+  CHILD_MODEL_PROVIDER,
+  CHILD_MODEL_ID,
 } from "./helpers/real-subagent-spawn";
 import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -44,9 +46,6 @@ import {
 
 /** The canonical-form respond-tool name for `@<"low" | "high">` (bug 0488 cell 4; bug 0099). */
 const RESPOND_LOW_HIGH = "__theta_respond_1aae0990d53b3485";
-
-const CHILD_MODEL_PROVIDER = "anthropic";
-const CHILD_MODEL_ID = "claude-fable-5";
 
 /** Fail loudly on a missing precondition — never a silent skip (*No silent test skipping*). */
 const requireRealSubagentPaths = requireRealSubagentPathsFor(
@@ -84,6 +83,11 @@ describe("bug 0488 — real subagent child spawn carries the respond name on --t
       const scratchDir = mkdtempSync(join(tmpdir(), "pi-theta-bug0488-"));
       const thetaDir = join(scratchDir, "thetas");
       mkdirSync(thetaDir, { recursive: true });
+      const agentDir = join(scratchDir, "agent");
+      mkdirSync(agentDir);
+      writeFileSync(join(agentDir, "auth.json"), JSON.stringify({
+        [CHILD_MODEL_PROVIDER]: { type: "api_key", key: "pi-theta-offline-no-provider-access" },
+      }), { mode: 0o600 });
       writeFileSync(
         join(thetaDir, "min-child.theta"),
         ["---", "mode: subagent", "---", '"MIN OK"', ""].join("\n"),
@@ -114,7 +118,7 @@ describe("bug 0488 — real subagent child spawn carries the respond name on --t
             projectTrust: false,
           },
           cwd: scratchDir,
-          parentEnv: { ...process.env, [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY },
+          parentEnv: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY },
           parentPid: process.pid,
           invokeDepth: 0,
           host,

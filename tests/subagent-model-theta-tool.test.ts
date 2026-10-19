@@ -53,7 +53,7 @@ import type {
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, JsonObject } from "@earendil-works/pi-ai";
 import {
   createProductionProducerDeps,
   lowerModelDrivenThetaCall,
@@ -258,7 +258,7 @@ function textReply(text: string): AssistantMessage {
   };
 }
 
-function toolCallReply(name: string, id: string, args: Record<string, unknown>): AssistantMessage {
+function toolCallReply(name: string, id: string, args: JsonObject): AssistantMessage {
   return {
     role: "assistant",
     content: [{ type: "toolCall", id, name, arguments: args }],

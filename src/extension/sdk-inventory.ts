@@ -364,6 +364,7 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     // category (2); resolved by leftmost-segment against the imported name).
     { id: "ExtensionAPI", kind: "peer-named-import" },
     { id: "ExtensionContext", kind: "peer-named-import" },
+    { id: "ExtensionToolContext", kind: "peer-named-import" },
     { id: "ExtensionCommandContext", kind: "peer-named-import" },
     // STAGE B (ceiling #2): the prompt-mode tool-loop governor bounds pi's
     // native agentic loop through the `tool_call` interception hook, whose

@@ -24,11 +24,11 @@ const pkg = JSON.parse(readFileSync(manifestPath, "utf8")) as {
 // peer floor and a TILDE dev/build pin. The four @earendil-works/*
 // peerDependencies entries MUST literally equal the open floor `>=0.80.8` (the
 // minimum-API-shape version; forward-compatible with newer minors); the four
-// devDependencies entries MUST literally equal the dev/build pin `~0.80.10`
+// devDependencies entries MUST literally equal the dev/build pin `~1.3.0`
 // (the ported build target). The two literals are distinct and no single value
 // satisfies both gates.
 const PEER_FLOOR = ">=0.80.8";
-const DEV_PIN = "~0.80.10";
+const DEV_PIN = "~1.3.0";
 const PI_SDK_PACKAGES = [
   "@earendil-works/pi-coding-agent",
   "@earendil-works/pi-agent-core",

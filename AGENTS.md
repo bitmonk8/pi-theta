@@ -1,5 +1,15 @@
 # AGENTS.md — working notes for coding agents in this repo
 
+## Model policy
+
+The operator uses an OpenAI ChatGPT Pro subscription, not Anthropic:
+- GPT Luna for fast, low-risk work (verify the specific API supports subscription auth).
+- `openai/gpt-6.1-sol`, Medium, for default programming; High/XHigh for harder programming.
+- `openai/gpt-6-astra`, Medium by default, for design-heavy work and general reviews;
+  High/XHigh according to difficulty.
+- Do not select Claude for live work. Historical provider-specific fixtures are
+  not model selections and should not be renamed indiscriminately.
+
 ## Test suites
 
 Two groups (see `package.json` scripts):
@@ -48,11 +58,12 @@ as a reason to skip verification:
 
 - The suite is deliberately **token-bounded**: fixtures pin tiny deterministic
   turns; a whole H8a test file runs in ~15–20 s wall.
-- Model selection prefers **`claude-sonnet-5`** (one shared rule across the
-  H8a resolver, the H9a acceptance harness, and the probe harness: prefer
-  `claude-sonnet-5`, else the first `sonnet` id, else the first available
-  model) — cheap relative to the models typically driving the development
-  session itself.
+- Live model selection uses **`openai/gpt-6.1-sol`** (one shared rule in
+  `tests/helpers/live-model-selection.ts` across H8a, H9a, and hardening):
+  prefer GPT Sol 6.1, else the configured OpenAI default if available, else
+  the first available OpenAI model. Never automatically fall back to Claude.
+  Model availability is not proof that a ChatGPT subscription supports every
+  historical OpenAI catalog entry; prefer the known-supported programming model.
 - Credentials come from the operator's configured pi install; if you are
   developing inside pi against a live model, they are already in effect.
 
