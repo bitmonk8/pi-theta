@@ -6,6 +6,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added
+- **Repository workflow: `/fix-bug resume`.** Continue the paused lease-owning
+  run with durable stage checkpoints, original red evidence, saved options and
+  fresh verification/reviews. Refuse ambiguous/legacy state and active workers;
+  preserve review history and require a fresh shipment decision. See
+  `docs/how-to/fix-a-numbered-bug.md` for recovery and safety boundaries.
+
+### Changed
+- **Repository workflow stop reports are now labeled, at-a-glance cards:**
+  stage, reason, environment involvement, bug validity/fixability, progress,
+  required owner action, recommendation and artifact location.
+
 ## [0.497.0]
 
 ### Fixed

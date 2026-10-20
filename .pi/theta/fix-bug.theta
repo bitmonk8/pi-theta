@@ -1,6 +1,6 @@
 ---
-description: List open bugs with no arguments, or prove, plan, fix, verify, review and ship ONE numbered bug
-argument-hint: "[bug number (omit to list open bugs)] [ship true/false] [review_rounds 5]"
+description: List open bugs, fix ONE numbered bug, or resume a paused bug-fix run in this checkout
+argument-hint: "[bug number | resume [bug number]] [ship true/false] [review_rounds 5]"
 mode: prompt
 tools:
   - bash
@@ -14,6 +14,56 @@ params:
   arguments: string
 ---
 schema OwnerOption { label: string, description: string }
+fn shell_path(path: string): string {
+  "'" + path.replace("'", "'\\''") + "'"
+}
+// theta_print renders plain text, not Markdown. Keep labels and line breaks
+// deterministic; workers provide concise evidence-based answers, not a wall of text.
+fn stop_report(bug: string, stage: string, reason: string, environment: string,
+  validity: string, fixability: string, progress: string, action: string,
+  recommendation: string, artifacts: string): string {
+  "STOP — Bug " + bug + "\n"
+    + "Stopped at:     " + stage + "\n"
+    + "Reason:         " + reason + "\n"
+    + "Environment:    " + environment + "\n"
+    + "Bug valid:      " + validity + "\n"
+    + "Fixable:        " + fixability + "\n"
+    + "Progress:       " + progress + "\n"
+    + "You need to:    " + action + "\n"
+    + "Recommendation: " + recommendation + "\n"
+    + "Artifacts:      " + artifacts
+}
+// A failed mechanical checkpoint cannot diagnose an environment or code bug.
+// Be explicit about that uncertainty instead of interpreting a nonzero exit.
+fn checkpoint_stop(bug: string, stage: string, reason: string, action: string,
+  recommendation: string, artifacts: string): string {
+  stop_report(bug, stage, reason,
+    "Unknown — this checkpoint does not classify the cause.",
+    "Not reassessed at this checkpoint; see the reproduction/diagnosis reports.",
+    "Not determined by this stop; a blocked gate does not mean unfixable.",
+    "Halted at this checkpoint; subsequent stages did not run. No completion is claimed.",
+    action, recommendation, artifacts)
+}
+// Same wire shape as the stage worker; fallback values keep transport failures
+// on the same card surface and preserve the orchestrator's known stage.
+schema StageFailure {
+  status: "pass" | "blocked" | "not_reproduced" | "needs_spec",
+  summary: string, environment: string, bug_validity: string, fixability: string,
+  progress: string, next_action: string, recommendation: string
+}
+fn error_reason(error: QueryError): string {
+  if error.kind == "invoke_callee" { return error.inner.message }
+  error.message
+}
+fn worker_failure(message: string): StageFailure {
+  StageFailure { status: "blocked", summary: message,
+    environment: "Unknown — worker execution failed; no stage verdict was returned.",
+    bug_validity: "Unknown from this failure; retain earlier reproduction evidence.",
+    fixability: "Unknown from this failure; not evidence that the bug cannot be fixed.",
+    progress: "Worker did not return a verdict; partial edits may exist. Later stages did not run.",
+    next_action: "Inspect this stage's report and checkout before continuing.",
+    recommendation: "Resolve the worker failure and preserve partial work; do not restart blindly." }
+}
 // Do not infer shell success from tool Ok: some hosts render a nonzero exit
 // as ordinary text. Every control-plane operation must return the exact PASS.
 fn control(command: string): boolean {
@@ -22,6 +72,30 @@ fn control(command: string): boolean {
     Err(_) => "CONTROL_ERROR",
   }
   output.trim() == "PASS"
+}
+// Cache only durably recorded successful stages. Blocked/interrupted stages
+// rerun; original red proof and fresh verification/reviews stay controller-owned.
+fn run_stage(run: string, phase: string, feedback: string) {
+  let command = "node tools/bugfix/run.mjs "
+  let quoted = shell_path(run)
+  let cached = bash({ command: command + "cached " + quoted + " " + phase })?
+  if cached.trim() == "PASS" {
+    let fields = read({ path: run + "/stage-" + phase + "-result.txt" })?.split("\n")
+    return StageFailure { status: fields[0] == "needs_spec" ? "needs_spec" : "pass",
+      summary: fields.slice(1).join("\n"), environment: "Not applicable — recorded completed stage.",
+      bug_validity: "See preserved reproduction/diagnosis evidence.", fixability: "See the recorded plan.",
+      progress: "Reused validated stage checkpoint; gates and reviews still run fresh.",
+      next_action: "Continue the recorded workflow.", recommendation: "Preserve the original evidence." }
+  }
+  if cached.trim() != "RUN" { return worker_failure("Checkpoint validation failed: " + cached) }
+  if !control(command + "begin " + quoted + " " + phase) { return worker_failure("Could not begin stage checkpoint: " + phase) }
+  let result = match bugfix_stage(run, phase, feedback) {
+    Ok(value) => value,
+    Err(error) => worker_failure(error_reason(error)),
+  }
+  write({ path: run + "/stage-" + phase + "-result.txt", content: result.status + "\n" + result.summary })?
+  if !control(command + "record " + quoted + " " + phase) { return worker_failure("Could not record stage result: " + phase) }
+  result
 }
 // Keep application outcomes as values inside the workflow, then explicitly
 // display the settled outcome below. Prompt-mode Ok return values are private
@@ -32,67 +106,139 @@ fn workflow(arguments: string) {
 let mut bug = ""
 let mut ship = true
 let mut review_rounds = 5
+let mut resumed = false
+let mut request_path = ""
 if arguments.trim() != "" {
-  write({ path: ".pi/tmp/bugfix-request.txt", content: arguments })?
-  let parsed = match bash({ command: "node tools/bugfix/run.mjs parse-file .pi/tmp/bugfix-request.txt" }) {
+  // Allocate before writing: overlapping invocations must never share a handoff file.
+  request_path = bash({ command: "node tools/bugfix/run.mjs request" })?.trim()
+  write({ path: request_path, content: arguments })?
+  let parsed = match bash({ command: "node tools/bugfix/run.mjs parse-file " + shell_path(request_path) }) {
     Ok(text) => text,
     Err(error) => "INVALID: " + error.message,
   }
   let fields = parsed.trim().split("\n")
-  if fields.length != 4 || fields[0] != "FIX" {
-    return "STOP: invalid arguments. " + parsed
+  if fields.length != 4 || (fields[0] != "FIX" && fields[0] != "RESUME") {
+    return stop_report("(not selected)", "Argument validation (before reproduction)",
+      "Invalid arguments. " + parsed, "No — invalid command arguments.",
+      "Unknown — no bug examined.", "Unknown — no fix attempted.",
+      "No worker launched or fix applied.",
+      "Use /fix-bug NUMBER or /fix-bug resume [NUMBER], with optional ship/review_rounds.",
+      "Correct the arguments and retry.", "No run directory created.")
   }
+  resumed = fields[0] == "RESUME"
   bug = fields[1]
   ship = fields[2] == "true"
-  review_rounds = 0
-  for value in ["1", "2", "3", "4", "5"] {
-    review_rounds += 1
-    if value == fields[3] { break }
+  if !resumed {
+    review_rounds = 0
+    for value in ["1", "2", "3", "4", "5"] {
+      review_rounds += 1
+      if value == fields[3] { break }
+    }
   }
 }
-if bug.trim() == "" {
+if bug.trim() == "" && !resumed {
   let listing = bash({ command: "node tools/bugfix/run.mjs list" })?
   return listing
 }
 if review_rounds < 1 || review_rounds > 5 {
-  return "review_rounds must be between 1 and 5"
+  return checkpoint_stop(bug, "Argument validation", "review_rounds must be between 1 and 5",
+    "Choose a review_rounds value from 1 to 5.", "Correct the arguments and retry.", "No run directory created.")
 }
 // Pass the untrusted slash argument through a file, never shell interpolation.
-write({ path: ".pi/tmp/bugfix-request.txt", content: bug })?
-let initial: string = match bash({ command: "node tools/bugfix/run.mjs init-file .pi/tmp/bugfix-request.txt" }) {
+let initial: string = match bash({ command: resumed
+  ? "node tools/bugfix/run.mjs resume-file " + shell_path(request_path) + " \"$PPID\""
+  : "node tools/bugfix/run.mjs start-file " + shell_path(request_path) + " \"$PPID\"" }) {
   Ok(text) => text,
-  Err(_) => "INIT_ERROR",
+  Err(error) => error.message,
 }
 let run = initial.trim()
 if !run.startsWith("/") || !run.includes("/.pi/tmp/fix-bug-") || run.includes("\n") || run.includes("BLOCKED:") {
-  return "STOP: checkout preflight failed: " + initial
+  return checkpoint_stop(bug.trim() == "" ? "(lease owner)" : bug,
+    resumed ? "Resume validation (before continuation)" : "Checkout preflight (before reproduction)", initial,
+    "Resolve the reported preflight condition without discarding existing work.",
+    "Preserve local changes; if a prior run owns the checkout, inspect its handoff before starting another run.",
+    "No new run initialized; inspect .pi/tmp/fix-bug.lock/owner.json if present.")
 }
 let prefix = "node tools/bugfix/run.mjs "
-let quoted = "\"" + run + "\""
-theta_print({ text: "Bug " + bug + ": reproduction started. Artifacts: " + run })?
-let reproduce = bugfix_stage(run, "reproduce", "")?
+let quoted = shell_path(run)
+let info_text = match bash({ command: prefix + "info " + quoted }) {
+  Ok(text) => text,
+  Err(error) => "INFO_ERROR: " + error.message,
+}
+let info = info_text.trim().split("\n")
+if info.length != 3 {
+  let paused = control(prefix + "pause " + quoted)
+  return checkpoint_stop(bug, "Saved run settings", "Could not read saved bug/options.", "Inspect state.json and the active marker.", "Reconcile the saved run rather than starting over.", run)
+}
+bug = info[0]
+ship = info[1] == "true"
+review_rounds = 0
+for value in ["1", "2", "3", "4", "5"] {
+  review_rounds += 1
+  if value == info[2] { break }
+}
+theta_print({ text: "Bug " + bug + (resumed ? ": resuming recorded checkpoints. Artifacts: " : ": reproduction started. Artifacts: ") + run })?
+let outcome = match drive(run, bug, ship, review_rounds) {
+  Ok(value) => value,
+  Err(error) => checkpoint_stop(bug, "Workflow execution", error_reason(error),
+    "Inspect the latest stage report and checkout.", "Preserve partial work; use /fix-bug resume only after resolving the stop reason.", run),
+}
+if !control(prefix + "pause " + quoted) {
+  return checkpoint_stop(bug, "Execution handoff", "Could not clear the active-run marker. " + outcome,
+    "Confirm the workflow stopped before manually pausing its marker.", "Do not start a concurrent resume.", run)
+}
+outcome
+}
+fn drive(run: string, bug: string, ship: boolean, review_rounds: integer) {
+let prefix = "node tools/bugfix/run.mjs "
+let quoted = shell_path(run)
+let reproduce = match run_stage(run, "reproduce", "") {
+  Ok(value) => value,
+  Err(error) => worker_failure(error_reason(error)),
+}
 if reproduce.status != "pass" {
-  return "STOP: " + reproduce.summary + " — artifacts: " + run
+  return stop_report(bug, "Reproduction", reproduce.summary, reproduce.environment,
+    reproduce.bug_validity, reproduce.fixability, reproduce.progress,
+    reproduce.next_action, reproduce.recommendation, run)
 }
-let diagnosis = bugfix_stage(run, "diagnose", "")?
+let diagnosis = match run_stage(run, "diagnose", "") {
+  Ok(value) => value,
+  Err(error) => worker_failure(error_reason(error)),
+}
 if diagnosis.status != "pass" {
-  return "STOP: " + diagnosis.summary + " — artifacts: " + run
+  return stop_report(bug, "Diagnosis", diagnosis.summary, diagnosis.environment,
+    diagnosis.bug_validity, diagnosis.fixability, diagnosis.progress,
+    diagnosis.next_action, diagnosis.recommendation, run)
 }
-if !control(prefix + "red " + quoted) { return "STOP: red evidence gate failed. Artifacts: " + run }
-if !control(prefix + "snapshot " + quoted) { return "STOP: plan snapshot failed. Artifacts: " + run }
-let plan = bugfix_stage(run, "plan", "")?
-if !control(prefix + "review-check " + quoted) { return "STOP: plan changed checkout files. Artifacts: " + run }
+if !control(prefix + "red " + quoted) { return checkpoint_stop(bug, "Pre-fix evidence gate", "Red witness evidence gate failed.",
+  "Inspect red-*.json for the failing command and assertion signature.", "Establish a correct-reason red before implementing; do not waive the evidence gate.", run) }
+if !control(prefix + "snapshot " + quoted) { return checkpoint_stop(bug, "Plan snapshot", "Plan snapshot failed.",
+  "Check HEAD, branch, scope and specification approval against state.json.", "Resolve checkout drift before planning; preserve existing work.", run) }
+let plan = match run_stage(run, "plan", "") {
+  Ok(value) => value,
+  Err(error) => worker_failure(error_reason(error)),
+}
+if !control(prefix + "review-check " + quoted) { return checkpoint_stop(bug, "Planning — read-only check", "Plan changed checkout files or checkpoint validation failed.",
+  "Compare the checkout with the saved snapshot.", "Review unexpected changes before authorizing implementation.", run) }
 if plan.status != "pass" && plan.status != "needs_spec" {
-  return "STOP: " + plan.summary + " — artifacts: " + run
+  return stop_report(bug, "Planning (before implementation)", plan.summary, plan.environment,
+    plan.bug_validity, plan.fixability, plan.progress, plan.next_action, plan.recommendation, run)
 }
-if !control(prefix + "snapshot " + quoted) { return "STOP: evidence snapshot failed. Artifacts: " + run }
-let evidence = bugfix_review(run, "evidence")?
-if !control(prefix + "review-check " + quoted) { return "STOP: evidence reviewer changed files. Artifacts: " + run }
+if !control(prefix + "snapshot " + quoted) { return checkpoint_stop(bug, "Evidence review snapshot", "Evidence snapshot failed.",
+  "Check checkout drift and approval against state.json.", "Resolve the snapshot failure before independent review.", run) }
+let evidence_result = bugfix_review(run, "evidence")
+let evidence_error = match evidence_result { Ok(_) => "", Err(error) => error_reason(error) }
+if evidence_error != "" { return checkpoint_stop(bug, "Evidence/plan review — worker execution", evidence_error,
+  "Inspect the reviewer failure and preserve the existing evidence/plan.", "Resolve the reviewer failure before implementation; it is not a verdict on bug validity.", run) }
+let evidence = evidence_result?
+if !control(prefix + "review-check " + quoted) { return checkpoint_stop(bug, "Evidence review — read-only check", "Evidence reviewer changed files or checkpoint validation failed.",
+  "Compare the checkout with the saved snapshot.", "Review unexpected changes; do not accept a compromised read-only review.", run) }
 write({ path: run + "/evidence-review.md", content: evidence.findings })?
 if !evidence.ok {
-  return "STOP: evidence/plan review failed: " + evidence.findings + " — artifacts: " + run
+  return checkpoint_stop(bug, "Evidence/plan review (before implementation)", "Independent evidence/plan review did not pass.",
+    "Address the blocking findings in evidence-review.md.", "Repair the evidence or plan before implementation; do not treat this review failure as proof the bug is invalid.", run)
 }
-if plan.status == "needs_spec" {
+if plan.status == "needs_spec" && !control(prefix + "approved " + quoted) {
   let proposal = read({ path: run + "/spec-proposal.md" })?
   let presentation = @`Explain the proposed specification change below to the project owner:
 ${proposal}
@@ -101,21 +247,37 @@ ${plan.summary}
 Do not use tools or change files. A separate dialog will request approval.`?
   let answer = question({ question: "Approve the exact specification proposal in " + run + "/spec-proposal.md, as discussed above?", options: [OwnerOption { label: "Stop without spec changes", description: "Keep evidence and plan for discussion - no implementation." }, OwnerOption { label: "Approve proposed spec changes", description: "Authorize only the presented clauses - new spec decisions require another pause." }] })?
   write({ path: run + "/spec-answer.txt", content: answer })?
-  if !control(prefix + "approval " + quoted) { return "STOP: specification proposal not approved. Artifacts: " + run }
+  if !control(prefix + "approval " + quoted) { return stop_report(bug, "Specification approval (before continuing implementation)",
+    "Exact specification proposal was not approved or approval validation failed.", "Not established — approval is a separate checkpoint.",
+    "See reproduction and evidence-review.md; approval does not determine validity.", "Pending an approved contract; not shown to be unfixable.",
+    "No implementation is authorized under this proposal. Earlier partial work, if any, is retained.", "Decide on the exact proposal in spec-proposal.md.",
+    "Discuss unresolved semantics before approving; do not implement an unapproved contract.", run) }
 }
-let implemented = bugfix_stage(run, "implement", "")?
+let implemented = match run_stage(run, "implement", "") {
+  Ok(value) => value,
+  Err(error) => worker_failure(error_reason(error)),
+}
 if implemented.status != "pass" {
-  return "STOP: " + implemented.summary + " — artifacts: " + run
+  return stop_report(bug, "Implementation / worker verification (before independent fix review)",
+    implemented.summary, implemented.environment, implemented.bug_validity,
+    implemented.fixability, implemented.progress, implemented.next_action, implemented.recommendation, run)
 }
-if !control(prefix + "gate " + quoted + " initial") { return "STOP: initial verification failed. Artifacts: " + run }
+if !control(prefix + "gate " + quoted + " initial") { return checkpoint_stop(bug, "Initial verification (before independent fix review)", "Initial verification gate failed.",
+  "Find the failed command in green-*.json or gate-*-initial-*.json and resolve its cause.", "Keep the local fix; require green gates before review, without weakening assertions.", run) }
 let mut clean = false
 let mut round = 0
 let mut reviews: array<string> = []
 while round < review_rounds {
   round += 1
-  if !control(prefix + "snapshot " + quoted) { return "STOP: review snapshot failed. Artifacts: " + run }
-  let review = bugfix_review(run, "fix")?
-  if !control(prefix + "review-check " + quoted) { return "STOP: reviewer changed files. Artifacts: " + run }
+  if !control(prefix + "snapshot " + quoted) { return checkpoint_stop(bug, "Independent fix review — snapshot", "Review snapshot failed.",
+    "Check checkout drift and approval against state.json.", "Resolve the snapshot failure before review.", run) }
+  let review_result = bugfix_review(run, "fix")
+  let review_error = match review_result { Ok(_) => "", Err(error) => error_reason(error) }
+  if review_error != "" { return checkpoint_stop(bug, "Independent fix review — worker execution", review_error,
+    "Inspect the reviewer failure; retain the current fix and prior review evidence.", "Resolve the reviewer failure before proceeding; do not repair code based on a missing review.", run) }
+  let review = review_result?
+  if !control(prefix + "review-check " + quoted) { return checkpoint_stop(bug, "Independent fix review — read-only check", "Reviewer changed files or checkpoint validation failed.",
+    "Compare the checkout with the saved snapshot.", "Review unexpected changes; do not accept a compromised read-only review.", run) }
   reviews = reviews.concat([review.findings])
   write({ path: run + "/reviews.md", content: reviews.join("\n\n--- next review ---\n\n") })?
   if review.ok {
@@ -123,29 +285,48 @@ while round < review_rounds {
     break
   }
   if round >= review_rounds { break }
-  let repair = bugfix_stage(run, "repair", review.findings)?
-  if repair.status != "pass" {
-    return "STOP: " + repair.summary + " — artifacts: " + run
+  let repair = match run_stage(run, "repair", review.findings) {
+    Ok(value) => value,
+    Err(error) => worker_failure(error_reason(error)),
   }
-  if !control(prefix + "gate " + quoted + " repair") { return "STOP: repair verification failed. Artifacts: " + run }
+  if repair.status != "pass" {
+    return stop_report(bug, "Review repair / worker verification", repair.summary, repair.environment,
+      repair.bug_validity, repair.fixability, repair.progress, repair.next_action, repair.recommendation, run)
+  }
+  if !control(prefix + "gate " + quoted + " repair") { return checkpoint_stop(bug, "Repair verification", "Repair verification gate failed.",
+    "Find the failed command in green-*.json or gate-*-repair-*.json and resolve its cause.", "Reverify the repair before another review; do not waive gates.", run) }
 }
 if !clean {
-  return "STOP: review budget exhausted - no shipment. Artifacts: " + run
+  return checkpoint_stop(bug, "Independent fix review — round limit", "Review budget exhausted with unresolved blocking findings.",
+    "Resolve the remaining findings in reviews.md before another verification/review pass.", "Keep the fix local; do not ship with unresolved must-fix findings.", run)
 }
-let closed = bugfix_stage(run, "close", "Independent fix review is clean - prepare factual closure record, no release claims.")?
+let closed = match run_stage(run, "close", "Independent fix review is clean - prepare factual closure record, no release claims.") {
+  Ok(value) => value,
+  Err(error) => worker_failure(error_reason(error)),
+}
 if closed.status != "pass" {
-  return "STOP: " + closed.summary + " — artifacts: " + run
+  return stop_report(bug, "Closure record (before final verification)", closed.summary, closed.environment,
+    closed.bug_validity, closed.fixability, closed.progress, closed.next_action, closed.recommendation, run)
 }
-if !control(prefix + "gate " + quoted + " final") { return "STOP: final verification failed. Artifacts: " + run }
-if !control(prefix + "snapshot " + quoted) { return "STOP: final snapshot failed. Artifacts: " + run }
-let final_review = bugfix_review(run, "final")?
-if !control(prefix + "review-check " + quoted) { return "STOP: final reviewer changed files. Artifacts: " + run }
+if !control(prefix + "gate " + quoted + " final") { return checkpoint_stop(bug, "Final verification", "Final verification gate failed.",
+  "Find the failed command in green-*.json or gate-*-final-*.json and resolve its cause.", "Do not ship until the final diff passes verification.", run) }
+if !control(prefix + "snapshot " + quoted) { return checkpoint_stop(bug, "Final review snapshot", "Final snapshot failed.",
+  "Check checkout drift and approval against state.json.", "Resolve the snapshot failure before final review.", run) }
+let final_result = bugfix_review(run, "final")
+let final_error = match final_result { Ok(_) => "", Err(error) => error_reason(error) }
+if final_error != "" { return checkpoint_stop(bug, "Final verification review — worker execution", final_error,
+  "Inspect the reviewer failure; do not assume final approval.", "Obtain a completed final review before shipment.", run) }
+let final_review = final_result?
+if !control(prefix + "review-check " + quoted) { return checkpoint_stop(bug, "Final review — read-only check", "Final reviewer changed files or checkpoint validation failed.",
+  "Compare the checkout with the saved snapshot.", "Review unexpected changes before shipment.", run) }
 write({ path: run + "/final-review.md", content: final_review.findings })?
 if !final_review.ok {
-  return "STOP: final verification review failed: " + final_review.findings + " — artifacts: " + run
+  return checkpoint_stop(bug, "Final verification review", "Final independent review did not pass.",
+    "Address the blocking findings in final-review.md and reverify the changed diff.", "Keep the fix local until the final review is clean.", run)
 }
 if !ship {
-  if !control(prefix + "release " + quoted) { return "STOP: lease release failed. Artifacts: " + run }
+  if !control(prefix + "release " + quoted) { return checkpoint_stop(bug, "Local handoff — lease release", "Checkout lease release failed after verification.",
+    "Inspect .pi/tmp/fix-bug.lock/owner.json before releasing the stopped run's lease.", "Preserve the verified local fix; do not start an overlapping run.", run) }
   return "VERIFIED, NOT SHIPPED: inspect the diff and reports in " + run + ". No commit, push, tag or package publication performed."
 }
 let shipment_context = @`Summarize the verified fix for bug ${bug}, its evidence and residuals,
@@ -155,13 +336,24 @@ but does not bump a version, tag, or publish npm. Reports: ${run}.
 ${final_review.findings}`?
 let ship_answer = question({ question: "Commit and push this verified fix on the current branch to origin?", options: [OwnerOption { label: "Keep local for inspection", description: "No commit or push - preserve verified changes and evidence." }, OwnerOption { label: "Commit and push this fix", description: "Stage scoped src/tests/docs changes, commit, then push current branch - no force or publication." }] })?
 write({ path: run + "/ship-answer.txt", content: ship_answer })?
-if !control(prefix + "ship " + quoted) { return "STOP: shipment refused or failed - inspect shipment.json before retrying. Artifacts: " + run }
+if !control(prefix + "ship " + quoted) { return stop_report(bug, "Shipment approval / commit / push",
+  "Shipment was declined or the shipment command failed.", "Unknown — inspect approval and shipment evidence.",
+  "Confirmed by the reviewed evidence.", "Fix verified; shipment state is a separate question.",
+  "Final verification/review passed. A commit or push MAY have occurred; do not assume either outcome.",
+  "Inspect ship-answer.txt, shipment.json if present, and git status/log before retrying.",
+  "Keep a declined shipment local; if shipping failed, establish commit/push state before any retry.", run) }
 "COMMITTED AND PUSHED - reports and SHA in " + run + "/shipment.json"
 }
 
 // One deterministic completion surface for EVERY normal terminal branch:
 // blocked stages, refused gates/approval, local verification, and shipment.
-// Actual tool/query Err outcomes still propagate to the runtime's Err surface.
-let summary = workflow(arguments)?
+// Stage-worker Err outcomes are handled at their known phase above. Unexpected
+// setup/review/tool errors still get an honest card instead of a bare runtime Err.
+let summary = match workflow(arguments) {
+  Ok(value) => value,
+  Err(error) => checkpoint_stop("(see request)", "Workflow tool/query execution (exact checkpoint unavailable)",
+    error.message, "Inspect the latest run reports and runtime error before continuing.",
+    "Preserve partial work; do not infer bug validity or shipment state from a tool error.", ".pi/tmp/fix-bug-* (latest run, if initialized)"),
+}
 theta_print({ text: summary })?
 summary

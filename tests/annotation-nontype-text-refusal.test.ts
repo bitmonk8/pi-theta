@@ -2626,9 +2626,10 @@ describe("bug 0124 (x) — the committed corpus declares no annotation in this c
       `x1: the inventory at the three positions this report owns. Observed lets ` +
         `${JSON.stringify([...lets].sort())}, params ${JSON.stringify([...params].sort())}, ` +
         `returns ${JSON.stringify([...returns].sort())}`,
-    // /fix-bug adds five let annotations, two fn parameters (control/workflow)
-    // and one fn return annotation; the workflow's return remains inferred.
-    ).toEqual([43, 10, 8]);
+    // /fix-bug's stop-card helpers add 18 annotated parameters and four
+    // returns; resume adds seven parameters and path quoting adds one of each.
+    // Workflow returns remain inferred.
+    ).toEqual([43, 36, 13]);
     expect(
       offenders,
       `x1: ZERO offenders — no committed fixture changes disposition when the refusal lands, so ` +
