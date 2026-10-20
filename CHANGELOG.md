@@ -6,6 +6,17 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.497.0]
+
+### Fixed
+- **Bug 0512: discarded statement-block tails no longer count as function or
+  theta return values.** Return inference now combines only the owning body's
+  tail and explicit `return` operands, while preserving nested `?` wrapping.
+  This removes false `return-no-common-type` refusals and restores the correct
+  null/payload checks at the annotated subagent and inferred callee boundaries.
+  Parser promotion and runtime behavior are unchanged. Covered by 58 focused
+  regression tests plus the related controls.
+
 ### Changed
 - **Pi 1.3.0 is now the minimum supported host.** All four Pi SDK peer
   dependencies and the runtime startup probe enforce the new floor; the

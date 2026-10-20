@@ -201,8 +201,7 @@ function promoteTrailingExprToTail(block: Block): Block {
  *     and for the `StmtBlock` bodies of `if` / `else` / `while` / `for`,
  *     whose value the executor discards (grammar.md §Blocks) but whose
  *     promoted tail the static checks read as a value position
- *     (return-type inference, `type-as-value`, the QRY-19 discarded-query
- *     judgment).
+ *     (`type-as-value`, the QRY-19 discarded-query judgment).
  */
 type TailPromotion = "final-form" | "line-start";
 

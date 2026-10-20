@@ -1,6 +1,9 @@
 # Bug 0512 — `collectReturnContributions` counts the tail of every nested `if` / `else` / `while` / `for` body as a return contribution, so a legal annotation-less `fn` whose if-body ends in a value of another type than the fn's own tail draws a spurious `theta/parse/return-no-common-type`; FN-3 reconciles only the body's own tail and its `return` operands
 
-- **Status:** open — filed 2026-10-03 as residual 2 of the bug-0510 fix
+- **Status:** fixed (0.497.0 - version bump and commit/push only). No npm
+  publication or tag is claimed; the existing 0.496.0 package does not contain
+  this fix. Originally
+  filed 2026-10-03 as residual 2 of the bug-0510 fix
   ([0510](./0510-block-trailing-call-value-discarded.md), `## Fix (0.496.0)`
   Residuals item 2; round-1 probe P3b). The defect predates that fix.
 - **Owning repo:** pi-theta
@@ -219,6 +222,102 @@ ruling ([0511](./0511-qry19-stmtblock-tail-single-vs-multi.md)), a
 `type-as-value` decision for a `StmtBlock` tail read by `walkIdentBlock`
 (`src/parser/ident-resolution.ts:240`), and a re-measure of
 `rewriteReturnAwareBlock` (`src/parser/query-schema-resolve.ts:315`).
+
+## Fix (0.497.0 - version bump and commit/push only)
+
+### What changed
+
+`src/parser/type-layer-walk.ts`, `collectReturnContributions`, now uses its
+recursive block walk only to discover explicit `return` operands. After that
+walk, it appends the initial owning body's tail once, if present. The existing
+if/else/else-if/while/for recursion and explicit-return ordering are retained;
+nested function declarations remain separate owners. The owning tail remains
+last in contribution order.
+
+The question scan, Result contribution projection, LUB/compatibility, null
+fallback, diagnostics and all three consumers are unchanged. A discarded
+nested success value no longer contaminates the fn/theta payload, while a
+nested `?` still forces wrapping. Genuine conflicting explicit nested returns
+still draw the registered diagnostic. The annotated subagent declaration
+check and callee-payload inference inherit the correction without adapter or
+runtime changes.
+
+`src/parser/body-parser.ts` changes only its TailPromotion comment, removing
+return inference from the list of static readers of a discarded statement
+block tail. No parser-promotion behavior, executor behavior, normative spec,
+diagnostic code or dependency changes. After the scoped fix and final review,
+the owner explicitly requested a version bump before commit/push:
+`package.json` and the two root package-lock version fields are now 0.497.0,
+and `CHANGELOG.md` records this fix and the already-committed host-floor change.
+This is version metadata, not an npm publication or a tag.
+
+### Evidence and verification
+
+Run artifacts:
+`.pi/tmp/fix-bug-0512-d67a6b29-11c8-4c4b-a0da-0345907b434d/`.
+Base HEAD: `6226073675c951d03e6ffab71e606f3a1e56306e`.
+
+| Evidence | Actual result |
+|---|---|
+| Original frontend E2E, `red-0.json` / `diagnose-e2e-red.log` | 7 correct-reason failures / 4 controls pass |
+| Original collector units, `red-1.json` / `diagnose-unit-final-red.log` | 22 correct-reason failures / 16 controls pass |
+| Supplemental pre-fix, `implement-boundaries-final-red.log` | 6 collector failures / 3 controls pass |
+| E2E post-fix, `green-1-0.json` | 11/11 pass, exit 0 |
+| Units post-fix, `green-1-1.json` | 38/38 pass, exit 0 |
+| Focused coverage, `continue-focused.log` | 9 files / 236 tests pass, exit 0: all 58 b0512 tests plus 178 controls |
+| Typecheck, `gate-1-initial-0.json` | `npm run typecheck`, exit 0 |
+| Default suite, `gate-1-initial-1.json` | `npm test`, 738 files / 12,417 tests pass, exit 0 |
+| Lint, `continue-lint.log` | `npm run lint`, exit 0 |
+| Independent scoped fix review, `reviews.md` | CLEAN, no in-scope must-fix findings; read-only snapshot check passes |
+
+Witness commands are `npx vitest run` on
+`tests/b0512-stmtblock-return-contributions-e2e.test.ts` and
+`tests/b0512-stmtblock-return-contributions-unit.test.ts` (the latter with
+`--reporter=verbose`). The focused command additionally runs
+`tests/b0512-stmtblock-return-contributions-boundaries.test.ts`,
+`tests/b0510-block-trailing-call-tail.test.ts`,
+`tests/type-layer-diagnostics-production.test.ts`,
+`tests/functions-and-return.test.ts`,
+`tests/subagent-fn-return-annotation.test.ts`,
+`tests/fn-return-void-query-sink.test.ts` and
+`tests/committed-fixture-parse-gate.test.ts`. Exact command/capture ledgers are
+in `implement.md` and `continue.md`; controller JSON records retain full argv,
+output and actual exit codes. No original red log or witness manifest was
+replaced. The default-suite count includes separately requested workflow
+reporting tests; those reporting changes are not part of this fix or its
+scoped review verdict.
+
+Implementation initially stopped on TS2345 in two test helpers: they passed a
+Map where the `TypeEnv` constructor argument requires a record. The owner
+explicitly approved replacing only those second arguments with `{}` in the
+unit and supplemental helpers. `fixture-correction-approval.md` amends the
+plan's byte-for-byte test freeze for this exact exception, and
+`continue-fixture-check.log` verifies complete file bytes differ only at the
+authorized argument. Assertions, original E2E bytes, witness commands and
+signatures remain unchanged. Typecheck is green after this correction; its
+prior red is preserved, not waived or classified as infrastructure.
+
+### Boundary and residuals
+
+The E2E drives real source bytes through the production frontend to public
+diagnostics; units isolate the collector with real inference/resolution, and
+supplements exercise null payloads, annotated boundaries, promotion escape
+shapes and wrapping ownership. This is static frontend/inference evidence,
+not proof of provider turns, runtime Result carriage or filesystem cross-file
+execution. No live-exercised implementation path changed;
+`live_required: false` remains justified and no live-provider pass is claimed
+for this bug.
+
+The committed-fixture gate passes, and no shipped theta source was changed
+for 0512. Independent review recomputed matching checkout, witness and
+specification digests. The owner approved the version bump and commit/push after review; no resolving
+SHA, npm publication or tag is invented here.
+
+The QRY-19/sink ruling (0511), call static types (0513), runtime fn Result
+carriage (0514), depth-zero unreachable-tail warning (0515), statement-position
+`par for` ruling (0516), and depth-zero promotion ruling (0517) remain outside
+scope. This fix removes 0513's collector prerequisite, but does not authorize
+broader statement-block promotion or resolve those other bugs.
 
 ## Related
 

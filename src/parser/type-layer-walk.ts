@@ -847,8 +847,8 @@ class TypeLayerWalk implements TypeWalkContext {
   }
 
   /**
-   * Collect the return contributions of a `fn` body: every `return` operand and
-   * the body's tail expression, each projected to a `plain` or `result`
+   * Collect the return contributions of a fn/theta body: every `return` operand and
+   * only the owning body's tail expression, each projected to a `plain` or `result`
    * contribution. `?`-bearing and `Result`-constructor operands contribute a
    * `result` (their success payload), everything else a `plain` type.
    */
@@ -860,9 +860,6 @@ class TypeLayerWalk implements TypeWalkContext {
     const visitBlock = (b: Block): void => {
       for (const s of b.statements) {
         visitStmt(s);
-      }
-      if (b.tail !== null) {
-        out.push(this.contributionOf(b.tail, bindings));
       }
     };
     const visitStmt = (s: Stmt): void => {
@@ -894,6 +891,10 @@ class TypeLayerWalk implements TypeWalkContext {
       }
     };
     visitBlock(block);
+    // Nested StmtBlock tails are discarded; only this body owns an implicit return.
+    if (block.tail !== null) {
+      out.push(this.contributionOf(block.tail, bindings));
+    }
     return out;
   }
 
