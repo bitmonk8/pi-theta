@@ -36,7 +36,7 @@ function witnesses(run: string, argv = [process.execPath, "-e", "console.error('
 }
 
 describe("numbered bug workflow control plane", () => {
-  it.each([join(".pi", "theta", "fix-bug.theta"), join(".pi", "theta", "workers", "bugfix-stage.theta"), join(".pi", "theta", "workers", "bugfix-review.theta")])("%s parses cleanly", path => {
+  it.each([join(".pi", "theta", "fix-bug.theta"), join(".pi", "theta", "workers", "bugfix-stage.theta"), join(".pi", "theta", "workers", "bugfix-review.theta"), join(".pi", "theta", "workers", "bugfix-rank.theta")])("%s parses cleanly", path => {
     const doc = parseThetaDocument({ path, bytes: new Uint8Array(readFileSync(path)) }, parseDeps());
     expect(doc.diagnostics).toEqual([]);
   });

@@ -1151,13 +1151,14 @@ const SEEDED_INVALID_DIR = "tests/fixtures/h7b-invalid/";
  * 204 -> 214 interpolations. Re-measured at the already-resolved-lane commit
  * (operator item 12): review-fix.theta's brief gains one interpolation
  * (already_claimed), 214 -> 215; files and templates unchanged. */
-const EXPECTED_SHIPPED_THETA = 55;
+const EXPECTED_SHIPPED_THETA = 56;
 const EXPECTED_SHIPPED_THETALIB = 3;
 /** Measured at the D1-lens commit: the corpus's own count of `@`-templates and interpolations. */
 // /fix-bug adds three theta files, four query templates and seventeen interpolations.
-// The open-bug listing uses theta_print, not a query template.
-const EXPECTED_TEMPLATES = 68;
-const EXPECTED_INTERPOLATIONS = 232;
+// Ranked listing adds one read-only worker, one template and one interpolation;
+// its validated display still uses theta_print without an output-echo query.
+const EXPECTED_TEMPLATES = 69;
+const EXPECTED_INTERPOLATIONS = 233;
 
 /**
  * The token classes expressions.md:25–40 refuses, as raw substrings. A committed

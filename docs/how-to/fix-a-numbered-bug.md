@@ -17,13 +17,33 @@ Run from this repository's root in an interactive Pi session:
 /fix-bug resume 0499 ship false
 ```
 
-With no arguments, `/fix-bug` lists current open reports, one line per bug:
-four-digit number first, followed by a short description derived from the report
-filename. `theta_print` displays it directly: no output-echo query or model
-argument-binding call is made. The list is sorted by number and reads each report's current status,
-not a hardcoded inventory. Listing is read-only, works with a dirty checkout,
-and does not acquire the checkout lease or start a fix. The deterministic list
-is also available without Pi: `node tools/bugfix/run.mjs list`.
+With no arguments, `/fix-bug` displays **all current open bugs ranked by reported
+impact, most severe first**. Each entry has its canonical number/title, an
+estimated severity and one short sentence explaining that estimate. Conditional
+judgments are marked **provisional**. A separate **fix-order guidance** section
+covers real prerequisites, already-resolved blockers, decisions needed before
+coding and upstream coordination. Severity rank is not implementation order;
+filed S-labels and fix difficulty are not blindly used as severity.
+
+This uses one read-only GPT-6 Astra assessment over complete immutable snapshots
+of the current reports, plus current status/snapshots of referenced reports.
+It is therefore model-assisted and takes longer than a numeric inventory; it is
+not a proof that each open bug still reproduces. In particular, a stale 'blocked
+on' sentence does not requeue a prerequisite whose report now says fixed.
+
+Inventory, canonical titles, final formatting and validation are deterministic.
+Every open bug must appear exactly once; unknown/closed ids, missing rows,
+invalid severity order, malformed/overlong responses and cyclic prerequisite
+edges are rejected instead of displaying a partial ranking. Reports changing
+during assessment also stop with a fresh-assessment request. `theta_print`
+displays the validated result without an output-echo query; the raw-string
+argument binder remains bypassed.
+
+Ranking does not edit reports/source, acquire the checkout lease, start a fixer,
+request approval or ship anything. It works with a dirty checkout and creates
+only ignored `.pi/tmp/bugfix-ranking-<uuid>/` input/assessment artifacts. An empty
+inventory prints `No open bugs.` without a model request. For an instant,
+model-free, number-sorted inventory, use `node tools/bugfix/run.mjs list`.
 
 The command accepts the bug number with or without leading zeros. Arguments
 are parsed deterministically: `number`, optionally followed by `ship true|false`
@@ -46,8 +66,8 @@ Prerequisites:
   Resolve existing changes intentionally before starting; no auto-stash or reset.
 - Installed dependencies (`npm ci`), working Git and Node, and the relevant
   real-host/live-test prerequisites from `AGENTS.md`.
-- OpenAI access to GPT-6.1 Sol (stage workers) and GPT-6 Astra (independent
-  reviews). The command's deterministic argument parsing needs no model.
+- OpenAI access to GPT-6.1 Sol (stage workers) and GPT-6 Astra (ranking and
+  independent reviews). The command's deterministic argument parsing needs no model.
 - The pi-config `question` tool for owner decisions. In noninteractive mode,
   missing UI never counts as approval; spec decisions and shipping stop.
 
@@ -197,14 +217,15 @@ assertion, the diagnosis is sound, all necessary live coverage was declared, or
 spec edits match the approved proposal still requires substantive model review
 and owner inspection. A schema-valid model report is not proof by itself.
 
-Workers have ordinary coding tools, including bash. Their read/write scope and
-no-shipment rules are workflow instructions, **not an OS sandbox**. The helper
+Fix/review workers have ordinary coding tools, including bash; the ranking
+worker admits only `read`. Coding-worker read/write scope and no-shipment rules
+are workflow instructions, **not an OS sandbox**. The helper
 checks accidental violations at stage boundaries; it is not designed to contain
 malicious code or a hostile worker modifying the control plane itself.
 
 ## Development verification
 
-`tests/bugfix-workflow.test.ts` parses all three sources and exercises the helper
+`tests/bugfix-workflow.test.ts` parses all four sources and exercises the helper
 against scratch Git repositories: correct-reason red capture, green gates,
 missing e2e/live prerequisites, early production edits, owner-decision refusal,
 review mutations, HEAD drift, checkout lease, post-gate drift, and a real local
@@ -219,3 +240,14 @@ and real child processes with deterministic workers, including a blocked
 implementation followed by `/fix-bug resume` through fresh gates/reviews and a
 local handoff. These tests make no provider requests; they do not substitute for
 live testing of a real model's diagnosis or repair.
+
+`tests/bugfix-ranking.test.ts` verifies full snapshots, current/open eligibility,
+resolved-status context, read-only inventory behavior, stale-input detection,
+complete/unique coverage, severity sorting, provisional labels and prerequisite
+cycle checks. The real-host reporting tests cover rendered ranking/guidance,
+rejected model responses, stale data and a model-free empty inventory.
+`tests/live/acceptance/bugfix-severity-ranking.test.ts` drives the actual ranking
+prompt through a real provider: demonstrated silent corruption must outrank a
+cosmetic defect even when their filed S-labels are reversed, and a fixed
+prerequisite must not be queued again. Its observable is the validated rendered
+list/guidance, not merely a resolved prompt.

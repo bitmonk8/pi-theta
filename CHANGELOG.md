@@ -14,6 +14,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   `docs/how-to/fix-a-numbered-bug.md` for recovery and safety boundaries.
 
 ### Changed
+- **Bare `/fix-bug` now ranks all open bugs by reported impact**, with a short
+  severity rationale for each and separate fix-order guidance. A read-only
+  model assessment uses full report snapshots and current prerequisite status;
+  deterministic gates reject missing/duplicate/stale rows or contradictory
+  dependency edges. The numeric inventory helper remains model-free.
 - **Repository workflow stop reports are now labeled, at-a-glance cards:**
   stage, reason, environment involvement, bug validity/fixability, progress,
   required owner action, recommendation and artifact location.

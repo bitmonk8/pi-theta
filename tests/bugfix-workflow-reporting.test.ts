@@ -91,7 +91,29 @@ function worker(scenario: Scenario) {
     ] : [asTheta(scenario === "not-reproduced" ? verdicts["not-reproduced"] : verdicts.environment)]), "",
   ].join("\n");
 }
-function probe(args: string, options: { workflow?: string; scenario?: Scenario } = {}) {
+type RankingCase = "one" | "two" | "missing" | "duplicate" | "backwards" | "cycle" | "stale" | "empty";
+function rankingWorker(kind: RankingCase) {
+  const source = readFileSync(join(root, ".pi", "theta", "workers", "bugfix-rank.theta"), "utf8");
+  const schemas = source.match(/schema RankItem[\s\S]*?(?=\nlet assessment:)/)?.[0];
+  if (!schemas) throw new Error("Missing ranking schemas");
+  const item = (id: string, severity = "medium") => `RankItem { id: "${id}", severity: "${severity}", provisional: false, reason: "A reported runtime failure needs attention." }`;
+  let items = [item("0001")];
+  if (["two", "cycle"].includes(kind)) items = [item("0002", "high"), item("0001", "low")];
+  if (kind === "duplicate") items = [item("0001"), item("0001")];
+  if (kind === "backwards") items = [item("0001", "low"), item("0002", "high")];
+  const edges = kind === "cycle" ? [
+    'RankEdge { before: "0001", after: "0002", reason: "First prerequisite." }',
+    'RankEdge { before: "0002", after: "0001", reason: "Conflicting prerequisite." }',
+  ] : kind === "two" ? ['RankEdge { before: "0001", after: "0002", reason: "Resolve the prerequisite first." }'] : [];
+  return [
+    "---", "mode: subagent", "tools: read, write", "params:", "  catalog_path: string", "---", schemas,
+    // A test-only stand-in for an external edit during the model assessment.
+    ...(kind === "stale" ? ['write({ path: "docs/bugs/0001-example.md", content: "- **Status:** fixed" })?'] : []),
+    ...(kind === "empty" ? ['let missing = read({ path: "RANKER_MUST_NOT_RUN" })?'] : []),
+    `BugRanking { bugs: [${items.join(", ")}], ordering: [${edges.join(", ")}], guidance: ["Severity is not fix order; inspect actual prerequisites before implementation."] }`, "",
+  ].join("\n");
+}
+function probe(args: string, options: { workflow?: string; scenario?: Scenario; ranking?: RankingCase } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), options.scenario === "resume" ? "bugfix-report-'quoted-" : "bugfix-report-"));
   const theta = join(cwd, ".pi/theta");
   const agent = join(cwd, "agent");
@@ -106,7 +128,10 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario }
   writeFileSync(join(agent, "auth.json"), JSON.stringify({ openai: { type: "api_key", key: "pi-theta-no-network" } }));
   writeFileSync(join(agent, "settings.json"), JSON.stringify({ defaultProvider: "openai", defaultModel: "gpt-5.5", defaultProjectTrust: "always", theta: { binderModel: "openai/gpt-5.5" } }));
   writeFileSync(join(cwd, ".gitignore"), "agent/\n.pi/tmp/\n");
-  writeFileSync(join(cwd, "docs/bugs/0001-example.md"), "# Example\n- **Status:** open\n");
+  writeFileSync(join(cwd, "docs/bugs/0001-example.md"), "# Example\n- **Status:** " + (options.ranking === "empty" ? "fixed" : "open") + "\n");
+  if (["two", "missing", "duplicate", "backwards", "cycle"].includes(options.ranking ?? "one")) {
+    writeFileSync(join(cwd, "docs/bugs/0002-higher-impact.md"), "# More impact\n- **Status:** open\n");
+  }
   if (options.scenario === "resume" || options.scenario === "replan-refusal") {
     mkdirSync(join(cwd, "src"));
     writeFileSync(join(cwd, "package.json"), JSON.stringify({ scripts: { typecheck: 'node -e "process.exit(0)"', test: 'node -e "process.exit(0)"' } }));
@@ -121,13 +146,14 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario }
   writeFileSync(join(theta, "fix-bug.theta"), workflow);
   copyFileSync(join(root, "tools/bugfix/run.mjs"), join(cwd, "tools/bugfix/run.mjs"));
   writeFileSync(join(theta, "workers/bugfix-stage.theta"), worker(options.scenario ?? "environment"));
+  writeFileSync(join(theta, "workers/bugfix-rank.theta"), rankingWorker(options.ranking ?? "one"));
   writeFileSync(join(theta, "workers/bugfix-review.theta"), '---\nmode: subagent\ntools: read\nparams:\n  run_dir: string\n  focus: string\n---\nschema Review { ok: boolean, findings: string }\n'
     + (options.scenario === "reviewer-error" ? 'let missing = read({ path: "missing-reviewer-input.txt" })?\n' : "")
     + 'Review { ok: true, findings: "CLEAN — reporting fixture" }\n');
   try {
     // A refused slash command can fall back to a natural-language provider turn.
     // Catch syntax regressions before spawning, rather than reaching fake auth.
-    for (const path of [join(theta, "fix-bug.theta"), join(theta, "workers/bugfix-stage.theta"), join(theta, "workers/bugfix-review.theta")]) {
+    for (const path of [join(theta, "fix-bug.theta"), join(theta, "workers/bugfix-stage.theta"), join(theta, "workers/bugfix-review.theta"), join(theta, "workers/bugfix-rank.theta")]) {
       const doc = parseThetaDocument({ path, bytes: new Uint8Array(readFileSync(path)) }, parseDeps());
       expect(doc.diagnostics, path).toEqual([]);
     }
@@ -292,9 +318,36 @@ describe("fix-bug completion reporting through the real host", () => {
     expect(result.stdout).not.toContain("reproduction started");
   }, 120000);
 
-  it("prints the listing exactly once", () => {
+  it("prints the severity ranking and fix-order guidance exactly once", () => {
     const result = probe("");
     cleanHost(result);
-    expect(result.stdout).toBe("0001 example\n");
+    expect(result.stdout).toContain("1. 0001 — example [MEDIUM]");
+    expect(result.stdout).toContain("A reported runtime failure needs attention.");
+    expect(result.stdout).toContain("FIX-ORDER GUIDANCE");
+    expect(result.stdout.match(/OPEN BUGS — SEVERITY RANKING/g)).toHaveLength(1);
+    expect(result.stdout).not.toContain("reproduction started");
+  }, 120000);
+
+  it("shows impact order separately from the prerequisite order", () => {
+    const result = probe("", { ranking: "two" });
+    cleanHost(result);
+    expect(result.stdout).toContain("1. 0002 — higher impact [HIGH]");
+    expect(result.stdout).toContain("2. 0001 — example [LOW]");
+    expect(result.stdout).toContain("0001 before 0002: Resolve the prerequisite first.");
+  }, 120000);
+
+  it.each(["missing", "duplicate", "backwards", "cycle", "stale"] as const)("does not display a %s model assessment as a valid ranking", kind => {
+    const result = probe("", { ranking: kind });
+    cleanHost(result);
+    expect(result.stdout).toContain("STOP — Bug (listing)");
+    expect(result.stdout).toContain("Open-bug severity / fix-order assessment");
+    expect(result.stdout).not.toContain("OPEN BUGS — SEVERITY RANKING");
+    expect(result.stdout).not.toContain("reproduction started");
+  }, 120000);
+
+  it("keeps an empty inventory model-free", () => {
+    const result = probe("", { ranking: "empty" });
+    cleanHost(result);
+    expect(result.stdout).toBe("No open bugs.\n");
   }, 120000);
 });

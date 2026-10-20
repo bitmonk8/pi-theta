@@ -1,5 +1,5 @@
 ---
-description: List open bugs, fix ONE numbered bug, or resume a paused bug-fix run in this checkout
+description: Rank open bugs with fix-order guidance, fix ONE numbered bug, or resume a paused run
 argument-hint: "[bug number | resume [bug number]] [ship true/false] [review_rounds 5]"
 mode: prompt
 tools:
@@ -10,6 +10,7 @@ tools:
   - theta_print
   - ./workers/bugfix-stage.theta
   - ./workers/bugfix-review.theta
+  - ./workers/bugfix-rank.theta
 params:
   arguments: string
 ---
@@ -97,12 +98,54 @@ fn run_stage(run: string, phase: string, feedback: string) {
   if !control(command + "record " + quoted + " " + phase) { return worker_failure("Could not record stage result: " + phase) }
   result
 }
+schema RankItem {
+  id: string, severity: "critical" | "high" | "medium" | "low",
+  provisional: boolean, reason: string
+}
+schema RankEdge { before: string, after: string, reason: string }
+fn ranking_line(value: string): string {
+  value.trim().replace("\r", " ").replace("\n", " ").replace("\t", " ")
+}
+fn ranking_stop(reason: string, artifacts: string): string {
+  stop_report("(listing)", "Open-bug severity / fix-order assessment", reason,
+    "Unknown — inspect the assessment failure; no fix was attempted.",
+    "Not evaluated — ranking is triage, not reproduction.", "Not evaluated — no implementation started.",
+    "No fix started or checkout lease acquired; incomplete rankings are not displayed.",
+    "Resolve the reported issue and rerun /fix-bug.", "Use a fresh, complete assessment rather than stale or partial priorities.", artifacts)
+}
+fn ranked_list() {
+  let catalog = bash({ command: "node tools/bugfix/run.mjs rank-start" })?.trim()
+  if catalog == "EMPTY" { return "No open bugs." }
+  if !catalog.startsWith("/") || !catalog.includes("/.pi/tmp/bugfix-ranking-") || !catalog.endsWith("/catalog.json") || catalog.includes("\n") {
+    return ranking_stop("Could not prepare ranking input: " + catalog, ".pi/tmp/bugfix-ranking-*")
+  }
+  theta_print({ text: "Assessing current open bugs by severity and fix dependencies..." })?
+  let assessment = bugfix_rank(catalog)?
+  // Local array sinks keep iteration truthful across the imported-schema type
+  // gap tracked by bug 0518. The worker's typed return validates the wire shape.
+  let items: array<RankItem> = assessment.bugs
+  let edges: array<RankEdge> = assessment.ordering
+  let guidance: array<string> = assessment.guidance
+  let mut wire = "RANK1\n"
+  for item in items {
+    wire += "BUG\t" + ranking_line(item.id) + "\t" + ranking_line(item.severity) + "\t"
+      + (item.provisional ? "true" : "false") + "\t" + ranking_line(item.reason) + "\n"
+  }
+  for edge in edges {
+    wire += "EDGE\t" + ranking_line(edge.before) + "\t" + ranking_line(edge.after) + "\t" + ranking_line(edge.reason) + "\n"
+  }
+  for note in guidance { wire += "GUIDE\t" + ranking_line(note) + "\n" }
+  write({ path: catalog + ".ranking.tsv", content: wire })?
+  let listing = bash({ command: "node tools/bugfix/run.mjs rank-render " + shell_path(catalog) })?
+  if !listing.startsWith("OPEN BUGS — SEVERITY RANKING") { return ranking_stop(listing, catalog) }
+  listing
+}
 // Keep application outcomes as values inside the workflow, then explicitly
 // display the settled outcome below. Prompt-mode Ok return values are private
 // programmatic results, not user-facing output (including "STOP: ...").
 fn workflow(arguments: string) {
-// A single defaultless string bypasses the model binder. Listing is now
-// entirely deterministic, not merely free of an output-echo query.
+// A single defaultless string bypasses the model binder. Inventory and display
+// are deterministic; no-argument severity/fix-order assessment uses a read-only worker.
 let mut bug = ""
 let mut ship = true
 let mut review_rounds = 5
@@ -137,7 +180,10 @@ if arguments.trim() != "" {
   }
 }
 if bug.trim() == "" && !resumed {
-  let listing = bash({ command: "node tools/bugfix/run.mjs list" })?
+  let listing = match ranked_list() {
+    Ok(value) => value,
+    Err(error) => ranking_stop(error_reason(error), ".pi/tmp/bugfix-ranking-*"),
+  }
   return listing
 }
 if review_rounds < 1 || review_rounds > 5 {

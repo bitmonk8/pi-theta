@@ -77,21 +77,93 @@ export function parseBugRequest(text) {
   return [resume ? 'RESUME' : 'FIX', id ? id.padStart(4, '0') : '', ship, rounds].join('\n');
 }
 export function listOpenBugs(root) {
-  const directory = join(root, 'docs/bugs');
-  return readdirSync(directory).sort().flatMap(name => {
-    const match = /^(\d{4})-(.+)\.md$/.exec(name);
+  return bugReports(root).filter(r => r.open).map(r => `${r.id} ${r.title}`).join('\n') || 'No open bugs.';
+}
+function bugReports(root) {
+  return readdirSync(join(root, 'docs/bugs')).sort().flatMap(filename => {
+    const match = /^(\d{4})-(.+)\.md$/.exec(filename);
     if (!match) return [];
-    const report = readFileSync(join(directory, name), 'utf8');
-    if (!/^- \*\*Status:\*\* open\b/m.test(report)) return [];
-    // The report filenames carry concise stable descriptions, unlike the often
-    // paragraph-long headings. Do not ask a model to invent a summary or status.
-    const description = match[2].replaceAll('-', ' ');
-    return [`${match[1]} ${description}`];
-  }).join('\n') || 'No open bugs.';
+    const path = 'docs/bugs/' + filename;
+    const bytes = readFileSync(join(root, path));
+    const text = bytes.toString('utf8');
+    const status = /^- \*\*Status:\*\*[ \t]*([^\r\n]+)/m.exec(text)?.[1].trim() ?? 'unknown';
+    return [{ id: match[1], title: match[2].replaceAll('-', ' '), filename, path, bytes, text, status, open: /^open\b/.test(status) }];
+  });
+}
+function rankingInput(root) {
+  const reports = bugReports(root);
+  const open = reports.filter(r => r.open);
+  if (!open.length) return 'EMPTY';
+  if (new Set(open.map(r => r.id)).size !== open.length) throw new Error('Open bug numbers are ambiguous; reconcile duplicate reports before ranking');
+  const referenced = new Set(open.flatMap(r => [...r.text.matchAll(/\b\d{4}\b/g)].map(m => m[0])));
+  const selected = reports.filter(r => r.open || referenced.has(r.id));
+  const folder = join(root, '.pi/tmp', 'bugfix-ranking-' + randomUUID());
+  mkdirSync(join(folder, 'reports'), { recursive: true });
+  const entries = selected.map(r => {
+    const snapshot = join(folder, 'reports', r.filename);
+    writeFileSync(snapshot, r.bytes);
+    return { id: r.id, title: r.title, path: r.path, status: r.status, snapshot };
+  });
+  // Hash exactly the captured bytes, not a second read that could race a change.
+  const sourceDigest = createHash('sha256').update(selected.map(r => r.path + '\0' + r.bytes.toString('base64')).join('\0')).digest('hex');
+  const catalog = join(folder, 'catalog.json');
+  save(catalog, { version: 1, root, open: entries.filter(e => open.some(r => r.path === e.path)), related: entries.filter(e => !open.some(r => r.path === e.path)), sourcePaths: selected.map(r => r.path), sourceDigest });
+  return catalog;
+}
+function renderRanking(root, catalogPath) {
+  const catalog = json(catalogPath);
+  if (catalog.version !== 1 || catalog.root !== root || !Array.isArray(catalog.open) || !catalog.open.length) throw new Error('Invalid ranking input snapshot');
+  const current = bugReports(root).filter(r => r.open).map(r => [r.id, r.path]);
+  if (JSON.stringify(current) !== JSON.stringify(catalog.open.map(r => [r.id, r.path])) || digest(root, catalog.sourcePaths) !== catalog.sourceDigest) throw new Error('Bug reports changed during ranking; rerun /fix-bug for a fresh assessment');
+  const text = readFileSync(catalogPath + '.ranking.tsv', 'utf8');
+  const [version, ...lines] = text.trimEnd().split('\n');
+  if (version !== 'RANK1') throw new Error('Invalid ranking response version');
+  const bugs = []; const edges = []; const guidance = [];
+  const short = (value, limit) => typeof value === 'string' && value.trim().length > 0 && value.length <= limit && !/[\x00-\x1f\x7f]/.test(value);
+  for (const line of lines) {
+    const fields = line.split('\t');
+    if (fields[0] === 'BUG' && fields.length === 5 && ['true', 'false'].includes(fields[3]) && short(fields[4], 260)) bugs.push({ id: fields[1], severity: fields[2], provisional: fields[3] === 'true', reason: fields[4] });
+    else if (fields[0] === 'EDGE' && fields.length === 4 && short(fields[3], 260)) edges.push({ before: fields[1], after: fields[2], reason: fields[3] });
+    else if (fields[0] === 'GUIDE' && fields.length === 2 && short(fields[1], 360)) guidance.push(fields[1]);
+    else throw new Error('Malformed or overlong ranking response; no partial list displayed');
+  }
+  const byId = new Map(catalog.open.map(r => [r.id, r]));
+  if (bugs.length !== byId.size || new Set(bugs.map(r => r.id)).size !== byId.size || bugs.some(r => !byId.has(r.id))) throw new Error('Ranking must include every current open bug exactly once, and no closed or invented bugs');
+  const severity = ['critical', 'high', 'medium', 'low'];
+  let previous = -1;
+  for (const bug of bugs) {
+    const level = severity.indexOf(bug.severity);
+    if (level < 0 || level < previous) throw new Error('Ranking severity order is invalid');
+    previous = level;
+  }
+  if (!guidance.length || guidance.length > 8) throw new Error('Ranking must include concise fix-order guidance');
+  const pairs = new Set();
+  for (const edge of edges) {
+    const pair = edge.before + ':' + edge.after;
+    if (!byId.has(edge.before) || !byId.has(edge.after) || edge.before === edge.after || pairs.has(pair)) throw new Error('Invalid or duplicate prerequisite edge; resolved prerequisites belong in guidance, not the work queue');
+    pairs.add(pair);
+  }
+  const done = new Set();
+  while (done.size < byId.size) {
+    let progress = false;
+    for (const id of byId.keys()) if (!done.has(id) && edges.every(e => e.after !== id || done.has(e.before))) { done.add(id); progress = true; }
+    if (!progress) throw new Error('Fix-order prerequisites contain a cycle; no contradictory guidance displayed');
+  }
+  const listing = [
+    'OPEN BUGS — SEVERITY RANKING (most severe first)',
+    'Impact-based estimates from current reports, not a reproduction verdict or a sort of filed S-labels.',
+    '',
+    ...bugs.flatMap((bug, index) => [`${index + 1}. ${bug.id} — ${byId.get(bug.id).title} [${bug.severity.toUpperCase()}${bug.provisional ? '; provisional' : ''}]`, `   ${bug.reason}`]),
+    '', 'FIX-ORDER GUIDANCE (severity order is not necessarily implementation order)',
+    ...edges.map(e => `- ${e.before} before ${e.after}: ${e.reason}`),
+    ...guidance.map(note => '- ' + note),
+  ].join('\n');
+  if (Buffer.byteLength(listing, 'utf8') > 60000) throw new Error('Ranked list exceeds the display budget; inspect the ranking artifacts instead');
+  return listing;
 }
 const PHASES = new Set(['reproduce', 'diagnose', 'plan', 'implement', 'repair', 'close']);
 function controlPaths(root) {
-  return ['tools/bugfix/run.mjs', '.pi/theta/fix-bug.theta', '.pi/theta/workers/bugfix-stage.theta', '.pi/theta/workers/bugfix-review.theta'].filter(p => existsSync(join(root, p)));
+  return ['tools/bugfix/run.mjs', '.pi/theta/fix-bug.theta', '.pi/theta/workers/bugfix-stage.theta', '.pi/theta/workers/bugfix-review.theta', '.pi/theta/workers/bugfix-rank.theta'].filter(p => existsSync(join(root, p)));
 }
 function stagePaths(phase) { return [`stage-${phase}-result.txt`, `${phase}.md`, ...(phase === 'plan' ? ['spec-proposal.md'] : [])]; }
 function redEvidence(run, state) {
@@ -198,6 +270,10 @@ export function main(args, cwd = process.cwd()) {
   }
   if (op === 'resume-file') { console.log(resumeRun(cwd, readFileSync(resolve(cwd, arg), 'utf8'), phase)); return; }
   if (op === 'parse-file') { console.log(parseBugRequest(readFileSync(resolve(cwd, arg), 'utf8'))); return; }
+  if (op === 'rank-start' || op === 'rank-render') {
+    const root = git(cwd, 'rev-parse', '--show-toplevel');
+    console.log(op === 'rank-start' ? rankingInput(root) : renderRanking(root, resolve(cwd, arg))); return;
+  }
   if (op === 'list') {
     const root = git(cwd, 'rev-parse', '--show-toplevel');
     console.log(listOpenBugs(root)); return;
