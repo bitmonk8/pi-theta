@@ -133,14 +133,14 @@ const NODE_FLOOR = ">=22.19.0";
  * The Pi-SDK peer-dependency floor (host-prerequisites.md #pi-sdk-pin), the
  * `details.required` for the `peer-dep-*` kinds and the open range Step 0 (d)
  * satisfies each lock-step peer's installed version against. The floor is
- * OPEN (`>=0.80.8`), not a tilde: it admits any host at or above the
- * minimum-API-shape version, so any installed pi-coding-agent >=0.80.8 loads.
- * The open floor deliberately trades the former tilde minor-skew detection for
- * forward compatibility with newer minors, matching the install-time
- * `peerDependencies` contract. The dev/build target (`~1.3.0`) is a separate
- * literal that does not gate runtime load.
+ * OPEN (`>=1.3.0`), not a tilde: older hosts refuse even if their API shape
+ * passes, while newer hosts remain eligible subject to the capability checks.
+ * The supported minimum includes the host lifecycle that keeps pre-prompt
+ * preparation active (bug 0502); it is not merely an API-presence floor.
+ * The dev/build target (`~1.3.0`) is a separate literal that does not gate
+ * runtime load.
  */
-const PI_SDK_PIN_RANGE = ">=0.80.8";
+const PI_SDK_PIN_RANGE = ">=1.3.0";
 
 /**
  * The four lock-step `@earendil-works/*` peer-dep packages, in the fixed

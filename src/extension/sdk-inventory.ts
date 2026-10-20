@@ -450,7 +450,7 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
       kind: "peer-dep-range",
       // The open `peerDependencies` floor (host-prerequisites.md #pi-sdk-pin):
       // the operand the step-4 peer-dep gate reconciles the four peers against.
-      payload: { range: ">=0.80.8" },
+      payload: { range: ">=1.3.0" },
     },
     {
       id: "strict-capability-probe",

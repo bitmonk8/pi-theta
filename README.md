@@ -25,6 +25,16 @@ theta is allowed to call (its
 `.thetalib` files are library modules that share Theta's grammar and types and are
 imported by `.theta` files; they are never run directly.
 
+## Requirements
+
+- **Pi 1.3.0 or newer.** Older hosts are unsupported and refused by the
+  extension's startup capability probe. The four Pi SDK peer packages share
+  this minimum; development and live verification target Pi 1.3.x.
+- **Node.js 22.19.0 or newer.**
+
+See [Host prerequisites](./docs/spec_topics/pi-integration-contract/host-prerequisites.md#pi-sdk-pin)
+for the supported-version floor and the separate development/build pin.
+
 ## The problem
 
 Pi's built-in `prompt` and `subagent` features are just Markdown with some

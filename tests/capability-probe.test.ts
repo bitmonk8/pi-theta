@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   FACTORY_PROBABLE_CAPABILITIES,
+  PEER_DEP_PACKAGES,
   runCapabilityProbe,
   type ProbeFailureDetails,
   type ProbeHost,
@@ -58,8 +59,8 @@ function makePassingHost(overrides: Partial<ProbeHost> = {}): ProbeHost {
     abortSignal: AbortSignal,
     pi: makePiNamespace(),
     typeboxType: { Unsafe: () => {} },
-    // All four lock-step peers report an in-range version (>=0.80.8).
-    readPeerVersion: () => "0.80.10",
+    // All four lock-step peers report the supported minimum host version.
+    readPeerVersion: () => "1.3.0",
     ...overrides,
   };
 }
@@ -380,13 +381,13 @@ describe("V9a capability probe — host-incompatible details.kind discriminator"
       runCapabilityProbe(
         makePassingHost({
           readPeerVersion: (pkg: string): string =>
-            pkg === "@earendil-works/pi-coding-agent" ? "0.75.5" : "0.80.10",
+            pkg === "@earendil-works/pi-coding-agent" ? "0.75.5" : "1.3.0",
         }),
       ),
     );
     expect(details.kind).toBe("peer-dep-out-of-range");
     expect(details.observed).toBe("0.75.5");
-    expect(details.required).toContain(">=0.80.8");
+    expect(details.required).toBe(">=1.3.0");
     expect(details.package).toBe("@earendil-works/pi-coding-agent");
   });
 
@@ -397,7 +398,7 @@ describe("V9a capability probe — host-incompatible details.kind discriminator"
           readPeerVersion: (pkg: string): string =>
             pkg === "@earendil-works/pi-coding-agent"
               ? "not.a.semver"
-              : "0.80.10",
+              : "1.3.0",
         }),
       ),
     );
@@ -411,7 +412,7 @@ describe("V9a capability probe — host-incompatible details.kind discriminator"
       runCapabilityProbe(
         makePassingHost({
           readPeerVersion: (pkg: string): string | undefined =>
-            pkg === "@earendil-works/pi-coding-agent" ? undefined : "0.80.10",
+            pkg === "@earendil-works/pi-coding-agent" ? undefined : "1.3.0",
         }),
       ),
     );
@@ -454,6 +455,37 @@ describe("V9a capability probe — host-incompatible details.kind discriminator"
     );
     expect(details.kind).toBe("node-floor");
   });
+});
+
+// Owner-approved support floor: old hosts must refuse even if their API shape
+// passes every capability check. Test each peer independently to catch a partial
+// four-package bump, and keep the open floor distinct from the tilde build pin.
+describe("minimum Pi 1.3.0 — Step 0 (d) support policy", () => {
+  describe.each(PEER_DEP_PACKAGES)("%s", (outdatedPackage) => {
+    it.each(["0.80.8", "0.80.10", "0.87.1", "1.2.99", "1.3.0-rc.1"])(
+      "refuses unsupported %s with the exact required floor",
+      (version) => {
+        const details = expectFailure(runCapabilityProbe(makePassingHost({
+          readPeerVersion: (pkg) => pkg === outdatedPackage ? version : "1.3.0",
+        })));
+        expect(details).toEqual({
+          kind: "peer-dep-out-of-range",
+          observed: version,
+          required: ">=1.3.0",
+          package: outdatedPackage,
+        });
+      },
+    );
+  });
+
+  it.each(["1.3.0", "1.3.1", "1.4.0", "2.0.0"])(
+    "admits %s under the open peer floor (subject to capability checks)",
+    (version) => {
+      expectOk(runCapabilityProbe(makePassingHost({
+        readPeerVersion: () => version,
+      })));
+    },
+  );
 });
 
 // ── Bug 0001 / PIC-64 fail-closed guard — `pi.getAllTools` joins Step 0 (c) ──

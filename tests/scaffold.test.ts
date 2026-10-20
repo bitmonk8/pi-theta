@@ -22,12 +22,12 @@ const pkg = JSON.parse(readFileSync(manifestPath, "utf8")) as {
 // The Pi-SDK pin, transcribed inline from host-prerequisites.md §#pi-sdk-pin.
 // The decided design splits the former single range into two literals: an OPEN
 // peer floor and a TILDE dev/build pin. The four @earendil-works/*
-// peerDependencies entries MUST literally equal the open floor `>=0.80.8` (the
-// minimum-API-shape version; forward-compatible with newer minors); the four
+// peerDependencies entries MUST literally equal the open floor `>=1.3.0` (the
+// supported host lifecycle; forward-compatible with newer minors); the four
 // devDependencies entries MUST literally equal the dev/build pin `~1.3.0`
 // (the ported build target). The two literals are distinct and no single value
 // satisfies both gates.
-const PEER_FLOOR = ">=0.80.8";
+const PEER_FLOOR = ">=1.3.0";
 const DEV_PIN = "~1.3.0";
 const PI_SDK_PACKAGES = [
   "@earendil-works/pi-coding-agent",
@@ -77,6 +77,21 @@ describe("H1a scaffold — Pi SDK peer-dep lock-step (PIC-33)", () => {
     const peers = pkg.peerDependencies ?? {};
     for (const name of PI_SDK_PACKAGES) {
       expect(peers[name]).toBe(PEER_FLOOR);
+    }
+  });
+});
+
+describe("H1a scaffold — Pi SDK manifest/spec/lockfile agreement", () => {
+  it("keeps the supported floor in the canonical spec and root lockfile aligned with all four peers", () => {
+    const spec = readFileSync(new URL("../docs/spec_topics/pi-integration-contract/host-prerequisites.md", import.meta.url), "utf8");
+    const floor = /\*\*floor\*\* `@earendil-works\/pi-coding-agent ([^`]+)`/.exec(spec)?.[1];
+    expect(floor).toBe(PEER_FLOOR);
+    const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url), "utf8")) as {
+      packages: Record<string, { peerDependencies?: Record<string, string> }>;
+    };
+    for (const name of PI_SDK_PACKAGES) {
+      expect(pkg.peerDependencies?.[name], name).toBe(floor);
+      expect(lock.packages[""]?.peerDependencies?.[name], name).toBe(floor);
     }
   });
 });

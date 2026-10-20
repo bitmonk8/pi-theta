@@ -110,7 +110,7 @@ describe("version-bump gate — step 4 peerDependencies literal-read (PIC-34)", 
   it("PIC-34: reds unless all four @earendil-works/* entries byte-equal the Pi-SDK pin and typebox is '*'", () => {
     // The pin literal is operand of the peer-dep-range inventory row.
     const pin = inventoryPayload("peer-dep-range").range as string;
-    expect(pin).toBe(">=0.80.8");
+    expect(pin).toBe(">=1.3.0");
 
     // Conformant peerDependencies: all four aligned to the pin, typebox '*'.
     const conformant = {

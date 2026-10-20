@@ -4,6 +4,16 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Pi 1.3.0 is now the minimum supported host.** All four Pi SDK peer
+  dependencies and the runtime startup probe enforce the new floor; the
+  development/build pin remains `~1.3.0`. This drops older-host compatibility
+  rather than changing the prompt driver. Bug 0502 is closed for the supported
+  host range: Pi 1.3.0 keeps pre-prompt compaction/preparation active, and its
+  real-host compatibility test does not exhibit the historical idle gap.
+
 ## [0.496.0]
 
 ### Fixed

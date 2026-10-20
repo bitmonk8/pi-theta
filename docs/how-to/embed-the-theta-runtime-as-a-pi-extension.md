@@ -7,7 +7,7 @@ need this — it is the wiring a host does once.
 
 ## Prerequisites
 
-- A Pi host at or above the pinned SDK floor (`@earendil-works/pi-coding-agent >=0.80.8`;
+- A Pi host at or above the supported SDK floor (`@earendil-works/pi-coding-agent >=1.3.0`;
   the four `@earendil-works/*` packages move together). See the host prerequisites
   in spec `docs/spec_topics/pi-integration-contract/host-prerequisites.md`.
 - Non-bypass thetas need a binder model resolvable via the `theta.binderModel`

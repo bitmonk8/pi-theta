@@ -1,10 +1,57 @@
-# Bug 0502 — on pi ≥ 0.87 a driven send's PRE-PROMPT compaction reads non-idle before any run exists, then idle again before the run starts: the start poll takes the compaction for the run, the end poll exits in the gap, and the whole driven run is covered by the 10 s settle bound instead of the 30-min end bound — mid-run settle reads bind partial answers silently (0.494.0) or expire falsely (0.495.0), and a user ESC during that run is never observed as a cancellation
+# Bug 0502 — historical pre-prompt compaction idle gap sends the driven run through the settle bound and misses its cancellation
 
-- **Status:** open — filed 2026-09-29 (0501 fix release review, round 2;
-  pre-existing on main 0.494.0; interacts with the 0501 fix targeting
-  0.495.0 — its idle guard trades this bug's silent binds for loud false
-  expiries, recorded there as the accepted trade)
+- **Status:** closed — unsupported-host compatibility case; the owner approved
+  Pi 1.3.0 as the minimum host (unreleased support-policy change). No theta
+  prompt-driver fix is claimed.
 - **Owning repo:** pi-theta
+
+## Resolution — minimum supported host, not a driver repair
+
+The owner explicitly approved: “I am perfectly fine with 1.3.0 being the minimum
+Pi version for pi-theta”. All four Pi SDK peers and the startup capability probe
+now enforce the [supported host floor](../spec_topics/pi-integration-contract/host-prerequisites.md#pi-sdk-pin).
+Older hosts are refused even if their API shapes pass the capability checks;
+the existing development/build pin is unchanged.
+
+The 2026-10-20 investigation measured Pi 1.3.0 keeping the session non-idle
+through genuine automatic pre-prompt threshold compaction and yielding
+`before_agent_start` handlers. Its `_startRun` sets the active flag before
+preparation, so the historical compaction-to-run idle gap is absent. The retained
+real-host control, `tests/live/b0502-pre-prompt-compaction-live.test.ts`, exercises
+shipped theta discovery/registration and the production prompt driver with a real
+provider: one automatic compaction precedes the own user entry, preparation stays
+non-idle, active work lasts at least 11 seconds, and the completed own answer reaches the
+next query with no fail-closed notes. This is a compatibility control, not an
+old-host reproduction or a live ESC test.
+
+The blocked `/fix-bug` run's evidence review remains **failed**: the modeled
+lifecycle tests prove the driver's conditional failure, but an actual affected
+older-host end-to-end reproduction was not obtained. This policy change does not
+waive that gate, approve the old driver/spec proposal, or turn its evidence into
+a passing runtime fix. The two untracked modeled-topology red drafts were archived
+unchanged outside test discovery; their assertions were not weakened and no
+committed baseline tests were removed. Original reports, logs, state and witness
+manifest remain under
+`.pi/tmp/fix-bug-0502-fc1e4da2-f65e-45c9-9850-9df6e0938e8c/`; the owner decision,
+original-path/SHA-256 archive and follow-up verification are under
+`.pi/tmp/pi-minimum-1.3.0/`.
+
+**Limits.** The old report's unqualified “pi ≥0.87” range was too broad: Pi 1.3.0
+is measured healthy for this trigger. The first upstream release that removed the
+gap and the exact historical affected range remain unverified. No cancellation or
+busy-settle recovery behavior was changed in theta. If an actual supported host
+produces the reported topology, reopen this issue with that host's lifecycle
+observations and end-to-end failure; the conditional driver concern is not proven
+impossible for all future hosts. No package version bump or publication is
+implied by this closure.
+
+## Historical report — retained, not current affected-range claims
+
+Filed 2026-09-29 during the 0501 fix release review (round 2), pre-existing on
+main 0.494.0. The then-proposed 0501 idle guard traded silent partial binds for
+loud false expiries. Version ranges, source locations and fix proposals below
+record that historical investigation; they do not override the resolution above.
+
 - **Sev/Diff estimate:** S2/D2 — S2: on shipped 0.494.0 the mid-run
   settle read binds SILENTLY WRONG values on any ≥ 0.87 host: a driven
   turn with tool rounds binds the FIRST round's narration as the query's
