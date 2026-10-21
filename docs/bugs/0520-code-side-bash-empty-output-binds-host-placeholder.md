@@ -4,8 +4,11 @@
   `docs/process/pi-theta-incidents/20261005T071616Z-lane-incidents-S-001.md`,
   run r-20261004T132829, step S-001; incident text under "Observed",
   offline repro under "Repro" below)
+- **Decision:** Option A approved — document rendered-text pass-through;
+  no placeholder normalization. See §Approved ruling. Open pending the
+  documentation/test fix; exact-output capture is separate future work.
 - **Owning repo:** pi-theta
-- **Sev/Diff estimate:** S2/D2. S2: a silent wrong value that drives control
+- **Sev/Diff estimate (at filing, before ruling):** S2/D2. S2: a silent wrong value that drives control
   flow. A command that prints nothing yields the 11-byte string
   `(no output)`. `.trim()` keeps it, so `out == ""` is `false` and
   `out != ""` is `true`. Nothing fails: no `Err`, no note, no diagnostic. In
@@ -105,7 +108,24 @@ without change. The spec defines the value by the envelope shape
 (`content` → joined text) and never says that the text is presentation, not
 data.
 
-## Options
+## Approved ruling
+
+The operator approved Option A: code-side Pi-tool calls bind the host's
+model-facing rendered text verbatim, not exact command output. Document this
+contract prominently, including bash's empty-output placeholder and truncation
+text, and pin pass-through in a witness test. Do not normalize `(no output)`:
+the envelope cannot distinguish the placeholder from genuine command output.
+
+The supported immediate mitigation is explicit caller-generated sentinels or
+structured markers for machine decisions. In particular, do not decide whether
+to run destructive cleanup by comparing rendered bash text to `""`.
+
+Exact-output capture is a separate future capability, not authorized runtime
+work under this ruling. Option C remains worth designing if that capability is
+wanted, with backend compatibility, truncation, and resource limits verified.
+This ruling authorizes the documentation/test fix, not placeholder matching.
+
+## Options (historical analysis; A approved)
 
 - **A — spec only (D1).** State in `tool-calls.md` (*Return type*) and
   `host-interfaces-core.md` (*Tool execution from theta code*) that a
@@ -135,8 +155,9 @@ data.
   bash-specific, and it is unverified that every operator-configured bash
   backend (spawn hooks, remote operations) can be wrapped this way.
 
-Tentative recommendation: A now, because it is the honest contract at no
-cost, with C as the follow-up if an exact-output code-side `bash` is wanted.
+Approved recommendation: A now, because it is the honest contract without a
+runtime behavior change, with C a separate follow-up if an exact-output
+code-side `bash` is wanted.
 B is listed for completeness. It is the smallest change that fixes the
 common case, but it is the only option that breaks the no-host-wording
 stance.

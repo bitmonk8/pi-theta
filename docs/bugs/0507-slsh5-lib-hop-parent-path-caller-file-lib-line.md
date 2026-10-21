@@ -5,8 +5,10 @@
   (0.495.0)` → Residuals 3; bug-0504 review round 1, R3). Pre-existing:
   `#recordInvokeHop` has passed the calling theta as `parentPath` since bug
   0088; the 0504 fix corrected `<callee_path>` only.
+- **Decision:** ruling approved — library file + library invocation line; see
+  §Approved ruling. Open pending implementation, not awaiting adjudication.
 - **Owning repo:** pi-theta
-- **Sev/Diff estimate:** S2/D3 — S2: a wrong failure text. The top-level
+- **Sev/Diff estimate (at filing, before ruling):** S2/D3 — S2: a wrong failure text. The top-level
   `Err` note's chain suffix cites a `file:line` pair that is no call site in
   either file. The `Err` value, its `kind`, the leaf row and `<callee_path>`
   are correct. D3: the fix needs a spec ruling first. SLSH-5 does not say
@@ -145,12 +147,25 @@ comments state the single-theta assumption: `InvokeHopInput.parentPath` is
 (`invoke-provenance.ts:73`) is "The parent theta's **post-`realpath`**
 absolute path".
 
+## Approved ruling
+
+The operator approved candidate (b): report the library file and the library
+line containing the actual invocation token. Carry the realpath-normalised
+executing residence to the hop ledger, keeping the existing invocation line.
+Apply the same actual-site rule through library-to-library chains rather than
+selecting a caller frame. Ordinary `.theta`-body hops retain their current
+bytes, and callee resolution is unchanged.
+
+Amend SLSH-5 and the carrier comments alongside the implementation, including
+a library-body worked example and a witness asserting the complete file/line
+pair. Caller-only and two-segment renderings are not selected. The report
+remains open pending implementation; the specification ruling is no longer a
+blocker.
+
 ## Fix direction
 
-Blocked on a spec ruling that amends SLSH-5 (`slash-invocation.md:64`) to
-say what a hop renders when its call-site token is in a `.thetalib` fn body.
-This report does not choose the ruling. It lists the candidates and the
-constraints that apply to whichever one is adopted.
+Implement candidate (b) under the ruling above, including the constraints
+below. The candidate list retains the original alternatives for context.
 
 Candidate renderings:
 

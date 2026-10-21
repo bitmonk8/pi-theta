@@ -4,8 +4,11 @@
   ([0510](./0510-block-trailing-call-value-discarded.md), `## Fix
   (0.496.0)` Residuals, item 6). The divergence predates 0510; the 0510
   witness pins the observed value as a control.
+- **Decision:** option (a) approved — retain final values with required
+  structural-tail/static-inference alignment; see §Approved ruling.
+  Open pending implementation.
 - **Owning repo:** pi-theta
-- **Sev/Diff estimate:** S4/D3 — S4: the spec contradicts itself on this
+- **Sev/Diff estimate (at filing, before ruling):** S4/D3 — S4: the spec contradicts itself on this
   shape (grammar.md's `FnBody`/`ThetaBody` productions and FN-4's closed
   statement list admit a trailing `par for` as the tail `Expr`;
   control-flow.md:70 discards a standalone `par for`'s value), and the
@@ -126,7 +129,25 @@ rows discard as control-flow.md:70 states. The `FnBody`, `ThetaBody` and
 payload an `invoke` parent receives (FN-5), so the divergence crosses the
 invoke boundary.
 
-## Expected (spec citations)
+## Approved ruling
+
+The operator approved option (a): a final `par for` supplies the value of a
+`FnBody`, `ThetaBody`, `ParForBody`, or `BlockExpr`, like other tail expressions.
+Non-final uses and `StmtBlock` uses discard the value; `void` retains its
+existing discard behavior.
+
+Represent the value-producing use as a real structural tail and align static
+return inference with runtime behavior. The parse-shape alignment described
+as optional in the original analysis below is required by this ruling; merely
+updating prose while leaving inference blind to the returned value is not a
+complete fix. Coordinate depth-0 promotion with the approved final-form rule
+in bug 0517, without expanding statement-block return contributions. Bug 0512
+is fixed in 0.497.0 and is no longer an outstanding collector blocker.
+
+The competing readings below document the pre-ruling ambiguity; option (b)
+was not selected. The report remains open pending implementation.
+
+## Expected (pre-ruling spec analysis)
 
 The spec does not settle one value. Under control-flow.md:70 ("stand alone as
 an expression statement with its value discarded") the `FnBody`, `ThetaBody`
@@ -164,7 +185,8 @@ closed list.
 
 ## Fix direction
 
-Adjudication required: one of the two surfaces moves.
+Option (a) is approved, with structural-tail/static-inference alignment
+required as stated above. Option (b) is retained only as historical analysis.
 
 - **(a) Admit the trailing value (spec moves to the runtime).**
   - Spec: `docs/spec_topics/control-flow.md:70` — restrict "stand alone as an
@@ -179,7 +201,8 @@ Adjudication required: one of the two surfaces moves.
     (`body-parser.ts:603-607`), `parseForms` (`:495-498`),
     `promoteTrailingExprToTail`'s doc (`:160-166`, which also misquotes
     grammar.md).
-  - Optional parse-shape alignment: dropping the `par-for` exclusion at
+  - Required parse-shape alignment under the approved ruling: dropping the
+    `par-for` exclusion at
     `body-parser.ts:608` makes the `par for` the structural `Block.tail`, so
     `collectReturnContributions` (`type-layer-walk.ts:864-866`) sees it. That
     step re-pins `tests/par-for.test.ts:166-178` and the shape pin at

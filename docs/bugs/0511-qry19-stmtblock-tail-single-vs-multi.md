@@ -6,8 +6,10 @@
   predates that fix and is unchanged by it: the fix keeps the `StmtBlock`
   bodies of `if` / `else` / `while` / `for` on `"line-start"` promotion
   (0510 §Fix (0.496.0), "Why the scope is narrower").
+- **Decision:** Resolution A approved — QRY-19 for both forms, no enclosing
+  return-type sink; see §Approved ruling. Open pending implementation.
 - **Owning repo:** pi-theta
-- **Sev/Diff estimate:** S2/D3 — S2: one of the two forms is wrong under
+- **Sev/Diff estimate (at filing, before ruling):** S2/D3 — S2: one of the two forms is wrong under
   either reading of the spec. Under "both draw QRY-19" the single form accepts
   a dropped must-use `Result` with no diagnostic; under "both are silent" the
   multi-statement form refuses conformant input with an error. No runtime
@@ -128,7 +130,23 @@ Both sides are pinned in the tree:
 
 No cell pins the single-form `if c { @`q` }` outside a `void` fn.
 
-## Expected
+## Approved ruling
+
+The operator approved Resolution A: a bare query at the tail of a `StmtBlock`
+raises QRY-19 regardless of form count, line packing, or the preceding form.
+A `StmtBlock` tail is not an enclosing-function return-type sink. Require `?`
+to propagate failure or `let _ = …` to deliberately discard the result.
+
+Implement Resolution A below, including its spec amendments and authorized
+re-pins. Preserve postfix-`?` early return and the existing value-producing
+`FnBody`, `ParForBody`, and `BlockExpr` rules. This ruling does not authorize
+broader statement-block tail promotion. Bug 0512 is fixed in 0.497.0; its
+historical blocker is no longer outstanding.
+
+The competing readings below document the pre-ruling ambiguity; Resolution B
+was not selected. The report remains open pending implementation.
+
+## Expected (pre-ruling analysis)
 
 One verdict for a bare query that is the final form of a `StmtBlock`,
 whatever the block's form count. Which verdict is not settled by the spec:
@@ -178,10 +196,10 @@ correct.
 
 ## Fix direction
 
-The verdict is a spec adjudication. Two resolutions are admissible; this
-document selects neither. Each must yield one verdict for a bare-query
-`StmtBlock` tail independent of form count, including the postfix-`?`- and
-`}`-preceded shapes.
+Resolution A is approved by the ruling above. The alternatives below retain
+the original analysis; only A is authorized. It must yield one verdict for a
+bare-query `StmtBlock` tail independent of form count, including the
+postfix-`?`- and `}`-preceded shapes.
 
 - **Resolution A — both forms draw QRY-19.**
   - Spec: QRY-19 (`query-escapes-stringification.md:53`) states that a bare

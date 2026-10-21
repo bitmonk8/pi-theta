@@ -1,12 +1,14 @@
-# Bug 0517 — a depth-0 final expression form that shares a logical line with the previous form is not promoted to the `ThetaBody` tail: `parseBody` keeps the `"line-start"` promotion test, so `schema X = array<integer>⏎pure("a")` (the trailing `>` joins the two lines) and `42 pure("a")` load clean and return `null` where the same call on its own line returns its value, and ``schema X = array<integer>⏎@`q` `` draws QRY-19; whether `ThetaBody ::= Stmt* Expr?` ranges over logical lines or over forms is unadjudicated, and 14 bug-0033/0042 cells pin the logical-line reading
+# Bug 0517 — a depth-0 final expression form that shares a logical line with the previous form is not promoted to the `ThetaBody` tail: `parseBody` keeps the `"line-start"` promotion test, so `schema X = array<integer>⏎pure("a")` (the trailing `>` joins the two lines) and `42 pure("a")` load clean and return `null` where the same call on its own line returns its value, and ``schema X = array<integer>⏎@`q` `` draws QRY-19; whether `ThetaBody ::= Stmt* Expr?` ranges over logical lines or over forms was unadjudicated at filing (forms reading now approved), and 14 bug-0033/0042 cells pin the logical-line reading
 
 - **Status:** open — filed 2026-10-03 as residual 7 of the bug-0510 fix
   ([0510](./0510-block-trailing-call-value-discarded.md), `## Fix
   (0.496.0)` Residuals, item 7). The 0510 fix excluded depth 0 from
   final-form promotion on purpose; this report needs a spec adjudication
-  before a fix.
+  before a fix (now approved below).
+- **Decision:** forms reading approved — final expression form determines the
+  tail; see §Approved ruling. Open pending implementation.
 - **Owning repo:** pi-theta
-- **Sev/Diff estimate:** S1/D3 — S1 under the forms reading: a clean-loading
+- **Sev/Diff estimate (at filing, before ruling):** S1/D3 — S1 under the forms reading: a clean-loading
   theta whose final bare call shares a logical line with the previous form
   returns `null` with no diagnostic (measured below); S4 if the logical-lines
   reading lands (prose only). D3: needs adjudication, and either outcome
@@ -134,7 +136,26 @@ The 0510 fix's first, unscoped attempt flipped the same 14 cells
 (`.pi/tmp/fixes/0510-report.md` §Review rounds, "First implementation").
 The depth-0 change alone accounts for all 14.
 
-## Expected
+## Approved ruling
+
+The operator approved the forms reading: the `ThetaBody` tail is its final
+expression form, regardless of line packing or newline continuation. Once a
+distinct final expression is accepted, an earlier continuation trigger must
+not silently change its return semantics. Implement final-form promotion at
+depth 0, update the spec, and authorize the 14 re-pins listed below.
+
+Preserve malformed-declaration diagnostics. This ruling does not authorize
+accepting additional same-line syntax or changing residue recovery. Nested
+value-producing blocks retain their final-form behavior; statement-block
+query discard/sink semantics are governed separately by bug 0511's approved
+ruling. Bug 0516 separately authorizes structural tail handling for a final
+`par for`.
+
+The competing readings below document the pre-ruling ambiguity; the
+logical-lines reading was not selected. The report remains open pending
+implementation.
+
+## Expected (pre-ruling analysis)
 
 The spec does not settle it. Two readings of `ThetaBody ::= Stmt* Expr?`
 (`grammar.md:280`) fit the text:
@@ -180,9 +201,9 @@ comments describe it as the parser's rule, not as a spec rule.
 
 ## Fix direction
 
-Adjudicate between the two readings in §Expected. Whichever lands, the
-depth-0 behaviour, the grammar.md prose and the 14 cells move together in
-one commit.
+The forms reading is approved by the ruling above. The depth-0 behaviour,
+the grammar.md prose and the 14 cells move together in one commit. The
+logical-lines alternative below is retained only as historical analysis.
 
 - **Logical-lines reading.** No source change. `grammar.md` §Blocks gains
   one bullet under the production block (`:277-290`): at the top level the tail `Expr` is an
