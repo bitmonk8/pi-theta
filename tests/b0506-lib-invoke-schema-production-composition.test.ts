@@ -100,9 +100,14 @@ describe("bug 0506 — declaring schema at production composition boundary", () 
           'fn via_lib() { invoke<ROut>("./child.theta") }',
           "",
         ].join("\n"));
+        // B0508 now refuses statically decidable bad library invokes at load.
+        // These cells must still reach the RUNTIME 0506 boundary, in both
+        // directions. A plain function call has an undecidable return summary
+        // in the current static engine (0513); no load gate is bypassed and
+        // all original registration, dispatch and exact-note assertions remain.
         writeFileSync(join(workers, "child.theta"), FRONTMATTER + (cell.good
-          ? 'schema ROut { tag: string }\nROut { tag: "x" }\n'
-          : '"not-an-ROut"\n'));
+          ? 'schema ROut { tag: string }\nfn payload() { ROut { tag: "x" } }\npayload()\n'
+          : 'fn payload() { "not-an-ROut" }\npayload()\n'));
         if (cell.route !== undefined) {
           writeFileSync(join(workers, "facade.thetalib"), cell.route === "nested"
             ? 'import { via_lib as inner } from "./lib.thetalib"\nschema ROut { facade: boolean }\nfn via_lib() { inner() }\n'

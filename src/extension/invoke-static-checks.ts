@@ -106,6 +106,7 @@ import {
 } from "../runtime/invoke-depth-cycle";
 import { canonicalizePath } from "../runtime/invocation";
 import { normalizePath } from "../normalize-path";
+import { collectLibraryInvokeScopes } from "./invoke-source-contexts";
 import type { FileSystem } from "../seams/file-system";
 import type { ThetaCompositionInput } from "./theta-composition-producer";
 // Bug 0072: the two static tool-argument TYPE checks reuse the existing `V20b`
@@ -241,10 +242,11 @@ function resolveCalleeAbsolute(callerPath: string, literalPath: string): string 
  * Build the per-load-pass static-resolution invoke graph across the discovered,
  * successfully-parsed thetas (invocation.md §Static resolution / §Cycle
  * detection). Nodes are discovered slash names; an edge `A → B` exists when
- * `A.theta` has a literal `invoke("./B.theta")` resolving to a discovered theta
- * `B`. Edges to non-discovered callees are dropped — a cycle routed only through
- * undiscovered files is not detected until they are discovered (the spec's
- * leaf-termination rule).
+ * `A.theta` or its materialised library function-scope closure has a literal
+ * invoke resolving to discovered theta `B`. Library paths use their declaring
+ * residence and contribute on behalf of `A`, never as independent graph nodes.
+ * This builder retains its existing discovered-target boundary: it does not
+ * expand discovery to find cycles routed only through undiscovered files.
  *
  * The returned graph's `unresolvable` set is always empty here. `InvokeGraph`'s
  * own doc (`../runtime/invoke-depth-cycle.ts`) treats a member as a LEAF
@@ -290,11 +292,17 @@ export async function buildInvokeGraph(
   for (const input of inputs) {
     if (input.sourcePath === undefined) continue;
     const targets: string[] = [];
-    for (const invoke of collectInvokeExprs(input.body)) {
-      if (invoke.path.length === 0 || !invoke.path.endsWith(".theta")) continue;
-      const abs = await canonical(resolveCalleeAbsolute(input.sourcePath, invoke.path));
-      const targetName = byPath.get(abs);
-      if (targetName !== undefined) targets.push(targetName);
+    const contexts = [
+      { body: input.body, residence: input.sourcePath },
+      ...collectLibraryInvokeScopes(input),
+    ];
+    for (const context of contexts) {
+      for (const invoke of collectInvokeExprs(context.body)) {
+        if (invoke.path.length === 0 || !invoke.path.endsWith(".theta")) continue;
+        const abs = await canonical(resolveCalleeAbsolute(context.residence, invoke.path));
+        const targetName = byPath.get(abs);
+        if (targetName !== undefined && !targets.includes(targetName)) targets.push(targetName);
+      }
     }
     edges.set(input.slashName, targets);
   }
@@ -750,8 +758,39 @@ export async function checkInvokeStaticResolution(
     );
   }
 
-  // INV-4 (invocation.md §Cycle detection): walk the static-resolution graph
-  // from this theta; a back-edge un-registers it.
+  // A library has no caller-scoped tools: snapshot. Check only its literal
+  // invoke surface, using its declaration residence and own type closure.
+  for (const scope of collectLibraryInvokeScopes(input)) {
+    const statements = [
+      ...scope.body.statements,
+      ...(scope.importedTypeDecls?.schemas ?? []),
+      ...(scope.importedTypeDecls?.enums ?? []),
+    ];
+    const typeEnv = collectTypeEnv(statements);
+    const typePass = new StaticTypeInferencePass({
+      checkCompatible,
+      enumNames: collectEnumNames(statements),
+    });
+    diagnostics.push(...await checkInvokeExprCallSurface(
+      collectCallSites(scope.body).invokeExprs,
+      scope.residence,
+      typeEnv,
+      typePass,
+      {
+        fs: deps.fs,
+        activeRoots: deps.activeRoots,
+        resolveCalleeArity: deps.resolveCalleeArity,
+        resolveCalleeAbsolute,
+        checkWithClause: checkWithClauseAtCallSurface,
+        buildInvokeArgSlot,
+        resolveCalleeReturnType:
+          deps.resolveCalleeReturnType ?? ((): Promise<CompatType | undefined> => Promise.resolve(undefined)),
+      },
+    ));
+  }
+
+  // Invocation cycle: walk the complete static-resolution graph from this
+  // importing theta; libraries contribute edges, never slash-command nodes.
   const cycle = detectInvocationCycle(input.slashName, deps.graph);
   if (cycle !== undefined) {
     diagnostics.push(cycle);

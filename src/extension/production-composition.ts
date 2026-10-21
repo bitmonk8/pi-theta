@@ -201,6 +201,7 @@ import {
   collectSubagentFns,
 } from "./subagent-fn-static-checks";
 import { checkThetaImports, type ThetaImportCheck } from "./import-static-checks";
+import { createLibraryInvokeDiagnosticClaim } from "./invoke-source-contexts";
 import type { ThetaMode } from "../parser/frontmatter";
 import type { SystemTemplate } from "../parser/system-interpolation";
 import {
@@ -1176,11 +1177,6 @@ async function runComposePass(
     parsedInputs.push(parsed.fixture);
   }
 
-  // INV-4 (invocation.md §Cycle detection): build the per-load-pass
-  // static-resolution invoke graph across the parsed thetas once, so the cycle
-  // walk below runs per entry against a shared graph.
-  const invokeGraph = await buildInvokeGraph(parsedInputs, fileSystem);
-
   // capability-probe.md Step 0 (f): the subagent-executable-resolution probe.
   // Run the executable-resolution ladder ONCE per pass (the host snapshot is
   // constant for the pass — filesystem-existence only, no spawn) and refuse
@@ -1197,15 +1193,13 @@ async function runComposePass(
   // per-theta import walks reach — collected for every theta whose import
   // WALK RUNS, whatever its registration outcome AFTER that walk. An import-
   // diagnostic refusal does not retract coverage: fixing the refused lib must
-  // still fire the reload. A theta refused EARLIER — by one of the six gates
-  // that `continue` BEFORE `checkThetaImports` (unresolvable subagent
-  // executable, `tools:` rejection, extension-tool reachability, invoke
-  // static resolution, `subagent fn` static resolution, `subagent fn` model
-  // override) — never ran its walk, resolved nothing, and contributes nothing.
+  // still fire the reload. Only the early preparation gates (executable,
+  // placement, tools/session availability and extension-tool reachability)
+  // can refuse before the import walk and contribute nothing.
   // Unioned into `watchRoots` below (excluding a dir already nested under
   // `discoveryWatchRoots`) after the loop, once every walk that ran has run.
   const importClosureDirs = new Set<string>();
-  const composeDeps: ComposeOneThetaDeps = {
+  const preparationDeps: ComposePreparationDeps = {
     pi,
     ctx,
     fileSystem,
@@ -1214,7 +1208,6 @@ async function runComposePass(
     registrySnapshot,
     activeRoots,
     inProcessToolNames,
-    invokeGraph,
     dispatchLadderProbe,
     subagentExecutableProbe,
     placementAtLoad,
@@ -1226,8 +1219,26 @@ async function runComposePass(
     producerDeps,
     importClosureDirs,
   };
+  // Materialise once per eligible importer, without claiming delivery. Every
+  // library edge must exist before ANY per-entry cycle decision is made.
+  const prepared = new Map<ThetaCompositionInput, PreparedTheta>();
   for (const input of parsedInputs) {
-    const composed = await composeOneTheta(input, composeDeps);
+    const result = await prepareOneTheta(input, preparationDeps);
+    if (result !== undefined) prepared.set(input, result);
+  }
+  const invokeGraph = await buildInvokeGraph(parsedInputs.map(input => {
+    const result = prepared.get(input);
+    return result === undefined || result.importCheck.diagnostics.some(d => d.severity === "error")
+      ? input
+      : { ...input, imports: result.importCheck.imports };
+  }), fileSystem);
+  const composeDeps: ComposeOneThetaDeps = {
+    ...preparationDeps,
+    invokeGraph,
+    claimLibraryInvokeDiagnostics: createLibraryInvokeDiagnosticClaim(),
+  };
+  for (const result of prepared.values()) {
+    const composed = await composeOneTheta(result, composeDeps);
     if (composed !== undefined) {
       thetas.push(composed);
     }
@@ -1836,10 +1847,9 @@ function buildProducerDeps({
 
 /**
  * The pass-shared context `composeOneTheta` reads — every member is a
- * `runComposePass` local shared across the per-theta registration loop's
- * iterations (PTQ-1438 seam B). `importClosureDirs` is the loop's one
- * MUTATED member: every resolved `.thetalib` closure dir a theta's import
- * walk reaches is added whether or not that theta registers (bug 0312).
+ * `runComposePass` local shared across preparation and finalisation.
+ * `importClosureDirs` retains every resolved library directory (bug 0312);
+ * the library diagnostic claim is display-only, never an admission cache.
  */
 interface ComposeOneThetaDeps {
   readonly pi: ExtensionAPI;
@@ -1851,6 +1861,7 @@ interface ComposeOneThetaDeps {
   readonly activeRoots: string[];
   readonly inProcessToolNames: ReadonlySet<string>;
   readonly invokeGraph: Awaited<ReturnType<typeof buildInvokeGraph>>;
+  readonly claimLibraryInvokeDiagnostics: ReturnType<typeof createLibraryInvokeDiagnosticClaim>;
   readonly dispatchLadderProbe: DispatchLadderProbe;
   readonly subagentExecutableProbe: ReturnType<typeof probeSubagentExecutable>;
   readonly placementAtLoad: PlacementSelection;
@@ -1865,42 +1876,22 @@ interface ComposeOneThetaDeps {
   readonly importClosureDirs: Set<string>;
 }
 
-/**
- * Compose ONE parsed theta through the per-theta load gates — the Step 0 (f)
- * executable probe, the RFC-0012 §6 placement verdict, the V20a `tools:`
- * resolution, the RFC 0011 §3.3 session-tool availability check, the PIC-64
- * rung-3 reachability refusal, the INV / FN / IMP static checks, the
- * Erratum B imported-clause classification, and the binder-model resolution —
- * returning the runnable `ParsedTheta`, or `undefined` when a gate refused
- * registration (each gate's diagnostics are already delivered to the pass
- * sink before it refuses). Extracted verbatim from `runComposePass`'s
- * registration loop (PTQ-1438 seam B); each former `continue` is a
- * `return undefined`.
- */
-async function composeOneTheta(
+/** Early refusal gates and observing import preparation need no invoke graph. */
+type ComposePreparationDeps = Omit<ComposeOneThetaDeps, "invokeGraph" | "claimLibraryInvokeDiagnostics">;
+interface PreparedTheta {
+  readonly input: ThetaCompositionInput;
+  readonly toolResult: Awaited<ReturnType<typeof resolveThetaToolsAtLoad>>;
+  readonly importCheck: ThetaImportCheck;
+}
+
+async function prepareOneTheta(
   input: ThetaCompositionInput,
-  deps: ComposeOneThetaDeps,
-): Promise<ParsedTheta | undefined> {
+  deps: ComposePreparationDeps,
+): Promise<PreparedTheta | undefined> {
   const {
-    pi,
-    ctx,
-    fileSystem,
-    sink,
-    parseDeps,
-    registrySnapshot,
-    activeRoots,
-    inProcessToolNames,
-    invokeGraph,
-    dispatchLadderProbe,
-    subagentExecutableProbe,
-    placementAtLoad,
-    modelMatcher,
-    settingsBinderModel,
-    probeStrictCapable,
-    subagentRootRegime,
-    controlPlane,
-    producerDeps,
-    importClosureDirs,
+    pi, ctx, fileSystem, sink, parseDeps, registrySnapshot, activeRoots,
+    inProcessToolNames, dispatchLadderProbe, subagentExecutableProbe,
+    placementAtLoad, importClosureDirs,
   } = deps;
   // Step 0 (f): a subagent-mode theta cannot register when the child `pi`
   // executable is unresolvable — refuse fail-closed here rather than at first
@@ -1991,13 +1982,39 @@ async function composeOneTheta(
     return undefined;
   }
 
+  const importCheck = await checkThetaImports(input, {
+    fs: fileSystem, parseDeps, claimDelivery: false,
+  });
+  // Retain watch coverage even when a later library invoke/FN/import gate
+  // refuses the importer. Observing preparation never consumes display budget.
+  for (const libPath of importCheck.resolvedLibs) {
+    importClosureDirs.add(normalizePath(dirname(libPath)));
+  }
+  return { input, toolResult, importCheck };
+}
+
+/** Finalise against the complete graph, using the single prepared import result. */
+async function composeOneTheta(
+  prepared: PreparedTheta,
+  deps: ComposeOneThetaDeps,
+): Promise<ParsedTheta | undefined> {
+  const { input, toolResult, importCheck } = prepared;
+  const {
+    pi, ctx, fileSystem, sink, parseDeps, activeRoots, invokeGraph,
+    modelMatcher, settingsBinderModel, probeStrictCapable, subagentRootRegime,
+    controlPlane, producerDeps,
+  } = deps;
+  sink.emitGroup(parseDeps.passParseCache?.claimUndelivered(importCheck.diagnostics) ?? importCheck.diagnostics);
+  if (importCheck.diagnostics.some(d => d.severity === "error")) return undefined;
+
+  const invokeInput = { ...input, imports: importCheck.imports };
   // INV-3 / INV-4 / INV-1 (invocation.md §Resolution): run the invoke static
   // checks against the resolved callees and the shared invoke graph, over BOTH
   // the `invoke(...)` call surface and the `.theta`-callable call surface
   // (tool-calls.md §"Argument shape" binds INV-3 arity to both by name; bug
   // 0071). An error-severity diagnostic (an arity error, a discovery-root
   // escape, or an invocation cycle) un-registers the theta.
-  const invokeDiagnostics = await checkInvokeStaticResolution(input, {
+  const invokeDiagnostics = await checkInvokeStaticResolution(invokeInput, {
     fs: fileSystem,
     activeRoots,
     graph: invokeGraph,
@@ -2014,7 +2031,7 @@ async function composeOneTheta(
       ? { callableSet: toolResult.callableSet }
       : {}),
   });
-  sink.emitGroup(invokeDiagnostics);
+  sink.emitGroup(deps.claimLibraryInvokeDiagnostics(invokeInput, invokeDiagnostics));
   if (invokeDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     return undefined;
   }
@@ -2049,36 +2066,6 @@ async function composeOneTheta(
   );
   sink.emitGroup(subagentFnModelDiagnostics);
   if (subagentFnModelDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-    return undefined;
-  }
-
-  // IMP-1 / IMP-3 / IMP-4 / IMP-5 (imports.md): resolve each `.thetalib` import,
-  // parse it, and run the unresolvable-path / unknown-symbol / thetalib-top-level /
-  // cycle checks. An error-severity diagnostic un-registers the theta. The
-  // resolved exports are materialised into the theta's runtime environment so an
-  // imported `fn` is callable (IMP-6) and its query body drives the caller's
-  // conversation (IMP-7).
-  const importCheck = await checkThetaImports(input, {
-    fs: fileSystem,
-    parseDeps,
-  });
-  // Bug 0312: fold this theta's resolved `.thetalib` closure into the
-  // pass-wide dir set before the registration decision below — the walk has
-  // now RUN and resolved these paths, so watch coverage does not depend on
-  // whether THIS theta's own import diagnostics un-register it AFTER the
-  // walk (fixing the refused lib must still fire the reload). A theta refused
-  // before this point never reached the walk and contributes nothing.
-  for (const libPath of importCheck.resolvedLibs) {
-    importClosureDirs.add(normalizePath(dirname(libPath)));
-  }
-  // Bug 0264: emit only the UNDELIVERED remainder — `importCheck.undelivered`
-  // already excludes rows the pass cache saw `lexTheta` deliver for this
-  // library earlier in the same pass (route 1). The registration decision
-  // below still tests the FULL, unfiltered `importCheck.diagnostics`
-  // (§Fix: filtering the decision input would change a registration
-  // outcome, which this report does not license).
-  sink.emitGroup(importCheck.undelivered);
-  if (importCheck.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     return undefined;
   }
 

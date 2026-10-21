@@ -1,6 +1,7 @@
 # Bug 0508 — no load-time invoke check walks the body of an imported `.thetalib` `fn`: an `invoke(...)` written there gets no cycle detection, no INV-1 load-time escape refusal, no argument-arity or argument-type check and no `invoke<Schema>` return-type check, so the importing theta registers clean and the site either fails at runtime or runs with its arguments silently dropped or nulled
 
-- **Status:** open — filed 2026-10-02 as residual 4 of the bug-0504 fix
+- **Status:** fixed (unreleased - commit/push only). No new package release is
+  published. Filed 2026-10-02 as residual 4 of the bug-0504 fix
   ([0504](./0504-thetalib-invoke-resolves-caller-relative.md), `## Fix
   (0.495.0)` → Residuals, item 4; review round 1, R4)
 - **Owning repo:** pi-theta
@@ -58,6 +59,13 @@
   functions too." The per-site checks in invocation.md are stated for every
   literal `invoke(...)` with a statically resolvable callee; none exempts a
   site written in a `.thetalib` `fn`.
+
+> **Historical evidence:** the original symptom, source/spec line numbers,
+> runtime observations and proposed direction below describe the pre-fix state.
+> They are preserved rather than rewritten as current behavior. See
+> [Fix (unreleased - commit/push only)](#fix-unreleased---commitpush-only)
+> for the implemented contract, verification and remaining limits. In particular,
+> 0506 is now fixed but unreleased, not pending as the historical text says.
 
 ## Symptom
 
@@ -264,3 +272,172 @@ observable that the preceding `if` branch was taken.
 - [0473](./0473-cross-file-invoke-return-type-check-unimplemented.md) —
   fixed (0.484.0). The cross-file `invoke<Schema>` return-type check, implemented for direct
   sites only.
+
+## Fix (unreleased - commit/push only)
+
+**Disposition:** the scoped load-time defect is fixed in this working tree,
+with green verification and an independent **CLEAN — fix focus** review.
+**No new package release is published.** This fix is not in the existing
+published package version. No resolving commit SHA is assigned here: the
+shipment commit will supply it. Closure records completion of the reviewed
+patch, not a commit, push, tag, npm publication or shipment.
+
+### Cause and actual repair
+
+The graph and per-site checker formerly consumed only the discovered theta's
+body, before imports were materialised. Merely moving the old checker later
+would still miss the library bodies; walking them against importer paths or
+schemas would judge the wrong file or namespace.
+
+The repair uses one shared declaring-function-scope closure:
+
+- `src/extension/invoke-source-contexts.ts:9-27` starts from materialised
+  function imports, follows their declaring scopes' function imports, and
+  visits each canonical residence once per importer. All function bodies in
+  an included scope participate, including unused imports, plain/subagent
+  siblings and conditional sites. Re-exports select the terminal declaration;
+  forwarding-only and schema/enum-only imports do not independently introduce
+  function scopes. Unrelated libraries are not scanned.
+- `src/extension/invoke-static-checks.ts:292-309` combines direct-body and
+  library edges, resolving against each declaring residence and attributing
+  library edges to the importing theta. Libraries are not slash graph nodes.
+  `:763-790` sends library invokes through the existing expression checker
+  using the declaring library's own declarations and imported type closure.
+  Existing codes, severities, arity-before-type ordering, multiple argument
+  diagnostics, unknown-type deferrals and callee namespaces are retained.
+- `src/extension/production-composition.ts:1224-1245` prepares imports before
+  building the shared graph and finalising registrations. `:1985-1993`
+  materialises once for preparation, without claiming diagnostic delivery,
+  and retains resolved library watch directories even on subsequent refusal.
+  `:2008-2037` decides admission from complete import/invoke results, not the
+  display remainder. Shared library errors therefore refuse every affected
+  importer; warnings alone do not refuse. Pass-local display accounting in
+  `invoke-source-contexts.ts:35-53` retains diagnostic multiplicity while
+  suppressing duplicate delivery across importers. Reload makes fresh
+  decisions and re-emits still-broken diagnostics.
+
+Located site diagnostics name the actual declaring library and invoke range;
+whole-cycle diagnostics remain location-less. The existing expression checker
+(`src/extension/invoke-expr-call-surface.ts:225-365`), runtime invoke machinery,
+materialiser and generic AST collector were not changed.
+
+The owner explicitly approved the exact seven-clause proposal preserved in
+the run's `spec-proposal.md`, recorded in `state.json.approvedProposal` and
+`specApproved: true`. The earlier blocked diagnosis and needs-spec PLAN remain
+historical records, not missing approval. The applied clauses are
+`docs/spec_topics/invocation.md:10,24-36,106,108`,
+`docs/spec_topics/imports.md:17` and the invocation mirror in
+`docs/reference/discovery-cli.md:305` onward. They define the precise closure,
+declaring path/type context, every-importer refusal and syntactic cycle policy.
+Unused siblings/conditional calls/fresh conversations do not exempt cycles;
+ordinary plain-function recursion and the independent runtime depth cap remain
+distinct. The approved two path-prose corrections overlap 0509; its separate
+status is deliberately unchanged.
+
+### Preserved red and post-fix green evidence
+
+All artifact names below are relative to this absolute run directory:
+
+```text
+/home/thomasa/Projects/pi-theta/.pi/tmp/fix-bug-0508-39c6f13d-3b04-40ec-a659-bafad5c4f67d
+```
+
+The pre-fix checkout base was
+`7e6ad47bf39dda12c4496a2897bbbfacb10a6e0e` (a base, **not** a resolving SHA).
+The original three witness files and `witnesses.json` retain their recorded
+hashes; commands, assertions and red signatures were not weakened.
+
+| Exact command from the checkout root | Pre-fix artifact / exit | Post-fix controller artifact / exit |
+|---|---|---|
+| `npx vitest run tests/b0508-thetalib-invoke-static-production.test.ts` | `red-0.json`, exit 1; also `diagnose-a2-offline-red-01.log` | `green-1-0.json`, exit 0 |
+| `npx vitest run tests/b0508-thetalib-invoke-static-unit.test.ts` | `red-2.json`, exit 1; also `diagnose-a2-unit-red-01.log` | `green-1-2.json`, exit 0 |
+| `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/b0508live-thetalib-invoke-static-registration.test.ts` | `red-1.json`, exit 1; also `diagnose-a2-live-red-01.log` | `green-1-1.json`, exit 0 |
+
+- Production red: all six bad library sites registered with `codes: []`,
+  `callerRegistered: true`, instead of their existing diagnostic and refusal.
+  Thirteen direct/healthy/residence controls passed. Post-fix all 19 pass.
+- Unit red: nine omitted site verdicts and six graph-edge/cycle omissions;
+  fifteen correct-reason failures and twenty passing supplied-document/healthy
+  controls. Post-fix all 35 pass. This isolates missing orchestration rather
+  than assuming the underlying emitters or cycle detector are broken.
+- Real-host red: the invalid importer was actually registered
+  (`b0508-library=true` rather than required `false`); direct invalid was
+  refused and healthy direct/library controls registered. Post-fix both cases
+  pass with the invalid library false and the healthy library true. The oracle
+  is user text derived from the public command registry in a real `pi -p`
+  loading this checkout, not merely `prompt()` resolving or arithmetic output.
+  Raw streams show host exit 0, empty stderr, completed `openai/gpt-6.1-sol`
+  turns with stop reason `stop`, and no outer `theta_result` envelopes.
+
+Additional tests in `tests/b0508-thetalib-invoke-static-coverage.test.ts`
+(24 cases) and `tests/b0508-thetalib-invoke-static-compose-integration.test.ts`
+(8 cases) pin unused/sibling/transitive scope coverage, re-export/type-only
+exclusions, canonical identity, both modes and reversed graph input order,
+declaring schemas/spans, multiplicity/deferral, shared-importer decisions,
+warning-only admission and refused-library watching/corrected reload.
+The first additive pre-fix run had 18 expected failures and six controls
+(`implement-a1-additive-red-01.log`, exit 1); final additive run passes all
+32 (`implement-a1-additive-green-03.log`, exit 0).
+
+Two existing 0506 fixture files were adapted, without changing any assertion:
+`tests/b0506-lib-invoke-schema-production-composition.test.ts:103-113` and
+`tests/live/acceptance/b0506live-lib-invoke-schema-declaring-scope.test.ts:97-106`.
+Their good/bad child payloads now pass through the same plain-function tail,
+whose return summary is genuinely undecidable in the current static engine
+(0513). This preserves runtime AJV success/failure coverage rather than
+silencing the new earlier static refusal. A separate decidable named-schema
+case locks that refusal boundary. Independent review accepted this as fixture
+compatibility, not weakened tests or skipped gates.
+
+### Gates and independent review
+
+| Exact command | Exit | Artifact in the run directory |
+|---|---:|---|
+| `npm run typecheck` | 0 | `gate-1-initial-0.json`; also `implement-a1-typecheck-final-01.log` |
+| `npm test` | 0 | `gate-1-initial-1.json`; also `implement-a1-full-default-01.log` |
+| `npm run lint` | 0 | `implement-a1-lint-final-01.log` |
+| `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/b0508live-thetalib-invoke-static-registration.test.ts` | 0 | `gate-1-initial-2.json`; independent `review-fix-live-01.log` |
+| `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/b0506live-lib-invoke-schema-declaring-scope.test.ts` | 0 | `implement-a1-live-0506-01.log` |
+
+Full default verification passed 744 files / 12,563 tests, including the
+62-case committed fixture parse gate and provider-free real-child spawn test.
+Relevant 0506 live compatibility passed all 21 runtime/prompt/subagent-child
+cases with actual validation outcomes and completed provider turns.
+`evidence-review.md` is independently CLEAN on the pre-fix evidence;
+`reviews.md` is independently CLEAN on the implemented fix, exact approved
+normative diff and witness integrity. Its focused rerun passed seven files /
+114 cases (`review-fix-focused-01.log`, exit 0), and its separate unchanged
+live witness passed both cases (`review-fix-live-01.log`, exit 0).
+
+Rejected construction attempts remain preserved and are not proof: the first
+session-header-only live observer, the corrected unit helper tag error, the
+case-variant fake-directory setup failures, and the exact-spec blank-line
+correction. The earlier 0506 failures were related earlier-refusal fixture
+failures, resolved with unchanged runtime assertions as described above.
+No unrelated failing test or infrastructure failure remained at closure.
+The full command history, failed-attempt explanations and saved-log decoding
+are in the run's `reproduce.md`, `diagnose.md`, `implement.md` and `close.md`.
+No quality loop was run. CLOSE inspected captured evidence and changed docs
+only; it did not rerun test suites or claim new execution results.
+
+### Remaining boundaries and related bugs
+
+- The deterministic production tests use real filesystem/discovery/parser/
+  import/static-check composition with an outer host double; the separate
+  real host proves registration and provider completion. Invalid 0508 bodies
+  are intentionally not dispatched. This does not establish runtime argument
+  dropping/null conversion, actual cyclic execution or subagent transport for
+  those invalid bodies, nor does the fix add runtime argument validation.
+- The graph retains the existing discovered-theta target boundary; cycles
+  through exclusively undiscovered target files are not newly proven or fixed.
+  Static inference still has the limits recorded by 0513 and 0518; unknowns
+  defer, and the runtime fixtures may need new dynamic inputs if inference
+  later improves. No blanket source-admission equivalence is claimed: invalid
+  unused library siblings can now refuse an importer, by approved design.
+- 0505 prompt-callee runtime imports and 0507 runtime provenance remain
+  separate open bugs. 0506's runtime declaring-schema fix is already fixed,
+  unreleased; this patch preserves it rather than claiming to implement it.
+  0509 remains open for its owner's disposition despite the explicitly
+  approved overlapping prose corrections. No other numbered bug was closed.
+- No new out-of-scope residual report was filed: this stage found no newly
+  established defect requiring one. The above limits are not release claims.

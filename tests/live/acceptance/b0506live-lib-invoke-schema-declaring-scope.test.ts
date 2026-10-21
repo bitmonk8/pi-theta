@@ -94,9 +94,14 @@ describe("H9a bug 0506 — library invoke annotation uses declaring scope", () =
           `mode: ${cell.mode ?? "prompt"}`,
           `model: ${host.provider}/${host.model}`,
           "---",
+          // Preserve runtime AJV coverage after B0508's earlier load refusal:
+          // the current engine defers a plain function-call return summary
+          // (0513). Both valid and invalid payloads take this identical path;
+          // no gate or existing full-stream/provider/outcome assertion changes.
           ...(cell.enumWire !== undefined
-            ? ["schema ROut { tag: string, choice: string }", `ROut { tag: "x", choice: "${cell.enumWire}" }`]
-            : cell.good ? ["schema ROut { tag: string }", 'ROut { tag: "x" }'] : ['"not-an-ROut"']),
+            ? ["schema ROut { tag: string, choice: string }", `fn payload() { ROut { tag: "x", choice: "${cell.enumWire}" } }`]
+            : cell.good ? ["schema ROut { tag: string }", 'fn payload() { ROut { tag: "x" } }'] : ['fn payload() { "not-an-ROut" }']),
+          "payload()",
           "",
         ].join("\n"));
         writeFileSync(join(roots, "b0506-probe.theta"), probeSource);

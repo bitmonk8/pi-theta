@@ -302,8 +302,11 @@ standard field-summarisation rule, so a `null` renders as `null`
 `invoke("./path.theta", args...)` is the only way for a `.theta` to spawn/attach to
 another `.theta` by an inline path literal. `import` is reserved for `.thetalib`.
 
-- **Resolution.** The path is a string literal resolved at parse time relative to
-  the calling theta's directory; must end in `.theta` (byte-exact lowercase, else
+- **Resolution.** The path is a string literal. At load time it resolves relative
+  to the authoring `.theta`'s directory, or, inside a `.thetalib` function body,
+  to the declaring library's directory regardless of importer, re-export or alias
+  (see [Imports](../spec_topics/imports.md#permitted-top-level-forms)). The runtime
+  uses the same declaring-file base. It must end in `.theta` (byte-exact lowercase, else
   `theta/parse/invoke-non-theta-extension`); forward-slash separators only; dynamic
   (runtime-computed) paths are not supported. The resolved path (post-`realpath`)
   must lie within the union of active discovery roots (segment-boundary containment,
@@ -331,6 +334,18 @@ another `.theta` by an inline path literal. `import` is reserved for `.thetalib`
   returns (nested prompt → prompt invokes execute strictly sequentially).
 - **Cycle detection.** Invocation cycles are detected at parse time by walking the
   per-load-pass static-resolution graph → `theta/load/invocation-cycle`.
+  Refusal is syntactic in both modes: conditional calls, unused functions and
+  fresh conversations do not exempt a cycle. The runtime depth cap does not admit
+  a statically detected cycle; ordinary plain-function recursion is distinct.
+- **Library coverage.** The load pass checks every function body in each
+  materialised declaring-library function scope, including unused siblings, and
+  follows that scope's materialised function imports. Re-exports select the
+  terminal declaration, not the forwarding file; schema-only and enum-only
+  imports do not introduce function scopes. Paths and type names use the
+  declaring library, located diagnostics name the actual library site, and every
+  affected importer is refused on error regardless of display deduplication.
+  See [Invocation — Library invoke static coverage](../spec_topics/invocation.md#library-invoke-static-coverage)
+  for the exact roots, exclusions and unchanged static-resolution deferrals.
 - **Failures.** `InvokeInfraError` (infra-side, around the callee body) and
   `InvokeCalleeError` (the callee's own `Err` propagated); schemas in
   [Errors and results](./errors-and-results.md).
