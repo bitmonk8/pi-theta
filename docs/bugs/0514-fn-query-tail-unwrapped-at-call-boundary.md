@@ -1,8 +1,12 @@
 # Bug 0514 — a call to a `fn` whose tail is a bare `@`-query hands the caller the RAW query outcome, not the `Result<T, QueryError>` FN-3 assigns it: `evalUserFnCall` runs the body with its tail at the terminal disposition and nothing re-wraps at the fn-call boundary, so `let r = f()` binds the raw reply (`match r { Ok … Err … }` panics `MatchError`) and a failing query aborts the caller even when a `match` consumes the call — newly reachable in multi-statement bodies since the 0510 fix
 
-- **Status:** open — filed 2026-10-03 as residual 4 of the bug-0510 fix
+- **Status:** fixed (unreleased - commit/push only). No new package release
+  is published. The existing published package version does not contain this
+  fix; no resolving shipment SHA is assigned here. Filed 2026-10-03 as
+  residual 4 of the bug-0510 fix
   ([0510](./0510-block-trailing-call-value-discarded.md), `## Fix
-  (0.496.0)` Residuals, item 4)
+  (0.496.0)` Residuals, item 4). Historical observations and fix direction
+  below are preserved; the closure record follows under **Fix (unreleased)**.
 - **Owning repo:** pi-theta
 - **Sev/Diff estimate:** S1/D2 — S1: `let r = f()` binds a raw payload where
   the spec types a `Result`, with no diagnostic at load. The documented
@@ -304,3 +308,132 @@ Same boundary, outside this report:
 - [0017](./0017-ok-field-object-misclassified-as-result.md) — the CONV-6
   user-fn-call wrap in `evalAsResult` that hides the success half at the
   `?` / `match` positions.
+
+## Fix (unreleased)
+
+**Fixed in the working-tree patch; unreleased - commit/push only.**
+No new package release is published. This fix is not attributed to the existing
+published package version. The shipment commit will supply the resolving SHA;
+this record does not invent one.
+
+### Cause and actual change
+
+Ordinary fn dispatch dropped the call site's consumption disposition, making
+all fn body tails terminal. Explicit `return` independently forced terminal
+query evaluation. The shared query evaluator therefore returned raw success
+or a failing flow before a consuming caller could bind or match its Result.
+The resulting MatchError was downstream of the lost Result, not a matcher
+failure.
+
+- `evalExpr` and `evalUserFnCall`
+  (`src/runtime/statement-executor.ts:286-351,471-474`) now forward the
+  ordinary call's disposition into the fn tail. Arguments still run with
+  caller deps before immutable callee deps are installed; imported-function
+  depth-chain updates preserve the new field.
+- `ExecuteBodyDeps.returnAtTerminal`
+  (`src/runtime/statement-executor-types.ts:217-224`) carries the activation's
+  disposition through nested blocks. `executeStatement`'s return arm
+  (`src/runtime/statement-executor.ts:788-798`) uses it with a terminal
+  fallback. Single-/multi-form, annotated, transitive and explicit-return
+  query outcomes consequently carry one Result layer to value consumers.
+- `executeBody` (`src/runtime/statement-executor.ts:1010-1014`) and
+  `runSubagentFnInProcess` (`src/runtime/subagent-fn-call.ts:188-200`) reset
+  the new field at their own roots. The latter preserves the isolated
+  test-double mapping, not a new production subagent call-value policy.
+- Void calls and terminal calls retain their prior disposition. Shared query
+  disposal, Result branding, par-for normalization, cancellation, panic
+  framing, child launch/protocol and parser/static inference are unchanged.
+
+This implements QRY-1/QRY-2, QRY-8, FN-3/FN-5 and RET-1 for consumed
+ordinary-fn query tails/returns; `error-model.md:10` distinguishes a handled
+caller match from an unhandled failure. No normative spec change was needed
+or made. The three planned legacy expectations in
+`tests/b0510-block-trailing-call-tail.test.ts:317,370,372` now assert exact
+`makeOk(payload)` rather than a raw payload: one query reference and two raw
+scripted-invoke seam references. Fixtures and all remaining assertions stay
+intact. The production invoke path already carries Result; the raw seam is
+not a claim about production untyped invoke payloads.
+
+### Red, green and independent review
+
+Evidence directory (checkout-relative):
+`.pi/tmp/fix-bug-0514-6c68326d-5c72-4900-bbaf-1b10751aabae/`.
+All log names below are relative to that directory. Exact command/exit
+records and limits are in `close.md`, with earlier detail in `reproduce.md`,
+`diagnose.md`, `plan.md`, `implement.md`, `evidence-review.md` and `reviews.md`.
+The frozen witness files and `witnesses.json` remain unchanged after red.
+
+| Exact command | Pre-fix evidence (exit) | Post-fix evidence (exit) |
+|---|---|---|
+| `npx vitest run tests/b0514-fn-query-call-boundary.test.ts` | `red-0.json` (1): three MatchError regressions, three controls pass | `green-1-0.json` (0): 6/6 pass |
+| `npx vitest run tests/b0514-fn-query-disposition-unit.test.ts` | `red-2.json` (1): 21 exact raw-vs-Ok/fail-vs-Err or propagation mismatches, 39 controls pass | `green-1-2.json` (0): 60/60 pass |
+| `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/b0514live-fn-query-call-boundary.test.ts` | `red-1.json` (1): two caller MatchError-note failures after real provider completion, two controls pass | `green-1-1.json`, `gate-1-initial-2.json`, `review-fix-live.log` (0 each): 4/4 pass each |
+
+The real pi print-mode host loads this working-tree extension with inherited
+worker state scrubbed. Before the fix, the query completes normally and the
+caller aborts with `MatchError: no arm matched 777`. After the fix, both fn
+forms and both healthy controls complete two actual OpenAI/gpt-6.1-sol turns,
+reach the code-generated `B0514 consumption=handled` follow-up prompt, exit
+zero with clean stderr, and emit neither theta-system-note nor an outer
+`theta_result` envelope. Exact assistant reply bytes are not the assertion.
+Neither a resolved prompt nor a provider error is counted as success or bug
+proof.
+
+Added `tests/b0514-fn-query-boundary-controls.test.ts` passes 51/51
+(`implement-a1-added-controls-v2.log`, exit 0): nested for/while/BlockExpr
+returns, opposite-disposition activations, caller-owned argument returns,
+materialized imported siblings, no double wrap, root/isolation resets,
+void compatibility, cancellation/panic bypass and par-for normalization.
+These are deterministic operation-seam controls, not live error/cancellation
+or typed respond-tool verification.
+
+Green gates: `npm run typecheck` (`gate-1-initial-0.json`, exit 0),
+`npm test` (`gate-1-initial-1.json`, exit 0: 747 files / 12,680 tests,
+including committed-fixture parsing and provider-free real-child spawn),
+and `npm run lint` (`implement-a1-lint.log`, exit 0). The ten-file
+compatibility run passes 293 tests (`implement-a1-compatibility.log`, exit
+0); targeted existing live BlockExpr and subagent-mode controls also pass
+(`implement-a1-live-block-control.log` and
+`implement-a1-live-isolation-control.log`, exit 0 each). The latter's 88
+nonselected tests reflect its explicit `-t subagent-mode` filter, not newly
+added skips or coverage of the full file.
+
+Independent verdict: **CLEAN — fix focus; no actionable in-scope must-fix
+findings** (`reviews.md`). Independent offline verification passes all 171
+tests across the three 0514 files and changed 0510 suite
+(`review-fix-offline.log`, exit 0); independent real-host verification passes
+4/4 (`review-fix-live.log`, exit 0). The evidence-focused review was also
+CLEAN. The fix reviewer checked frozen-test integrity, exact legacy re-pins,
+gates and matching pi 1.3.0 host implementations; this is host compatibility
+evidence, not a pi-theta release claim.
+
+### Limits and residuals
+
+No full live-suite result is claimed. Err, cancellation, typed payload,
+imported activation and isolated-double controls are deterministic; they do
+not prove every live scheduling or validation path. Historical invalid draft
+fixtures and the corrected local test-host array evaluator are preserved in
+earlier logs, excluded as bug witnesses, and documented in the stage reports.
+No unresolved unrelated failing gate was found.
+
+The original **Scope** exclusions remain: implicit Ok for plain-valued
+question-bearing fns, void-query error/operator behavior, subagent call-value
+policy, and already-carried terminal Result normalization are not fixed or
+endorsed here. Static call typing remains [0513](./0513-call-static-type-nominal-not-return-type.md);
+query-sink/promotion work remains separately owned by 0511, 0516 and 0517.
+No new residual report is filed without additional evidence. Historical 0510
+and other bug records are not rewritten by this closure.
+
+## Provenance
+
+- Contract: QRY-1/QRY-2 (`docs/spec_topics/query/query-forms.md`), QRY-8
+  (`docs/spec_topics/query/query-failure-and-repair.md`), FN-3/FN-5
+  (`docs/spec_topics/functions.md`), RET-1 (`docs/spec_topics/return.md`) and
+  handledness (`docs/spec_topics/errors-and-results/error-model.md:10`).
+- Cause/fix: `evalExpr`, `evalUserFnCall`, `executeStatement`, `executeBody`,
+  `ExecuteBodyDeps` and `runSubagentFnInProcess` in the source files cited
+  above; unchanged `evalCheckpointedEffect` in
+  `src/runtime/executor-result-flow.ts` explains the disposition split.
+- Verification/review: original red/green/gate artifacts, implementation and
+  independent-review logs in the evidence directory; `close.md` records
+  exact commands, exits, modified files, preservation checks and uncertainties.

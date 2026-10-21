@@ -215,6 +215,14 @@ export interface ExecuteBodyDeps {
    */
   readonly invokeChain?: InvokeChain;
   /**
+   * Consumption disposition of explicit return operands in this activation
+   * (bug 0514). Ordinary fn calls overwrite it AFTER evaluating arguments;
+   * nested statement blocks inherit it. Theta and isolated subagent roots
+   * reset it to true. Absent means terminal, preserving standalone callers.
+   * Execution context only — not configuration or a child wire field.
+   */
+  readonly returnAtTerminal?: boolean;
+  /**
    * RFC 0010 (execution-status.md EXST-3(c)): the `par for` lane-set producer
    * hooks, threaded from the bound invocation's executeDeps. OPTIONAL because
    * existing constructors of this interface omit it (the `emitDiagnostic?` /

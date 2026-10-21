@@ -288,6 +288,7 @@ async function evalUserFnCall(
   expr: CallExpr,
   env: LexicalEnvironment,
   deps: ExecuteBodyDeps,
+  atTerminal: boolean,
   moduleEnv?: LexicalEnvironment,
 ): Promise<EvalResult> {
   if (expr.args.length !== fn.params.length) {
@@ -320,7 +321,12 @@ async function evalUserFnCall(
   // 33rd frame; the incremented chain flows into the body so nested cross-file
   // calls stack. An intra-file fn (moduleEnv undefined, or residence equal) is
   // NOT countable and inherits the parent chain unchanged.
-  let bodyDeps = deps;
+  // Ordinary functions pass consumption disposition through to their tail and
+  // every explicit return, including returns under nested statement blocks.
+  // Install it only AFTER arguments run in the caller's activation. Void
+  // functions still discard their outcome at the existing terminal boundary.
+  const bodyAtTerminal = fn.returnType === "void" ? true : atTerminal;
+  let bodyDeps: ExecuteBodyDeps = { ...deps, returnAtTerminal: bodyAtTerminal };
   if (moduleEnv !== undefined && deps.invokeChain !== undefined) {
     const kind = thetalibFnFrameKind({
       callerFile: env.currentResidence() ?? deps.file,
@@ -328,7 +334,7 @@ async function evalUserFnCall(
     });
     if (kind !== undefined) {
       try {
-        bodyDeps = { ...deps, invokeChain: pushCountableFrame(deps.invokeChain, kind) };
+        bodyDeps = { ...bodyDeps, invokeChain: pushCountableFrame(deps.invokeChain, kind) };
       } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
         // The depth cap is breached BEFORE the frame opens (invocation.md
         // §INV-4), so this call expression — the one that WOULD have opened
@@ -342,7 +348,7 @@ async function evalUserFnCall(
   }
   let flow: EvalResult;
   try {
-    flow = await executeBlock(fn.body, scope, bodyDeps);
+    flow = await executeBlock(fn.body, scope, bodyDeps, bodyAtTerminal);
   } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
     // The fn-call boundary: as the panic unwinds through this call, push the
     // CALL SITE (this caller's file, the call expression's own range) as a
@@ -465,7 +471,7 @@ export async function evalExpr(
       // 0303) into either path so the body's free names resolve there.
       return resolved.fn.subagent === true
         ? evalSubagentFnCall(resolved.fn, expr, env, deps, resolved.moduleEnv)
-        : evalUserFnCall(resolved.fn, expr, env, deps, resolved.moduleEnv);
+        : evalUserFnCall(resolved.fn, expr, env, deps, atTerminal, resolved.moduleEnv);
     }
   }
   // Composite literals are decomposed on the executor path (not the sync pure
@@ -782,9 +788,10 @@ async function executeStatement(stmt: Stmt, env: LexicalEnvironment, deps: Execu
       if (stmt.operand === null) {
         return { flow: "return", value: null };
       }
-      // A `return` operand's `Err` is returned — unhandled per error-model.md:10
-      // — a terminal/returning position.
-      const r = await evalExpr(stmt.operand, env, deps, true);
+      // Return exits this activation. Its caller may consume the Result, so
+      // ordinary fn returns use their call site's disposition, not the nested
+      // block's tail disposition. Theta/isolated roots remain terminal.
+      const r = await evalExpr(stmt.operand, env, deps, deps.returnAtTerminal ?? true);
       if (r.flow !== "value") {
         return r;
       }
@@ -838,12 +845,10 @@ export async function executeBlock(
     trailingExprValue = stmt.kind === "expr" ? { value: flow.value } : undefined;
   }
   if (block.tail !== null) {
-    // A block's tail is a consumed VALUE at a value-position block-expr (the
-    // caller binds/matches it, so no re-wrap runs downstream) but a
-    // returned/discarded value at a body/statement block (the caller's own
-    // terminal boundary re-wraps once) — the two positions need opposite
-    // `atTerminal` dispositions, so the caller-supplied flag (not a hard-coded
-    // terminal default) decides how THIS tail's query outcome disposes.
+    // A value-position BlockExpr or ordinary fn call consumes the tail's
+    // Result; a terminal/discarding block leaves normalization to its receiving
+    // boundary. The caller-supplied disposition decides how THIS tail's query
+    // outcome disposes; nested explicit returns use their activation instead.
     return evalExpr(block.tail, env, deps, atTerminal);
   }
   return { flow: "value", value: trailingExprValue !== undefined ? trailingExprValue.value : null };
@@ -1004,7 +1009,9 @@ async function executeFor(stmt: ForStmt, env: LexicalEnvironment, deps: ExecuteB
  * surface is mutated and no compensating turn is injected (ERR-8 … ERR-12).
  */
 export async function executeBody(body: ThetaBody, deps: ExecuteBodyDeps): Promise<BodyExecution> {
-  const flow = await executeBlock(body, deps.env, deps);
+  // A new theta invocation owns its return boundary, even if a caller reused
+  // a dependency bundle from a consumed ordinary-fn activation.
+  const flow = await executeBlock(body, deps.env, { ...deps, returnAtTerminal: true });
   switch (flow.flow) {
     case "return":
       return { outcome: "success", result: functionResult("success", flow.value) };

@@ -314,7 +314,7 @@ describe("bug 0510 runtime — a multi-statement block's trailing call yields it
     expect(
       execution.result.value,
       "FN-5: `f(1)`'s final value is the tail invoke's value — the same value the single-form control yields",
-    ).toBe(INVOKE_PAYLOAD);
+    ).toEqual(makeOk(INVOKE_PAYLOAD));
   });
 
   it("par for body ending in a bare `invoke(...)` binds Ok(value)", async () => {
@@ -367,9 +367,9 @@ describe("bug 0510 controls — shapes whose trailing value already flows, and p
     if (q.kind === "threw") {
       throw new Error(`query drive threw ${String(q.thrown)}`);
     }
-    expect(q.value, "single-form query tail").toBe("settled-reply");
+    expect(q.value, "single-form query tail").toEqual(makeOk("settled-reply"));
     const i = await runScriptedInvoke('fn f(n: number) { invoke("./c.theta", n) }\nlet r = f(1)\nr');
-    expect(i.result.value, "single-form invoke tail").toBe(INVOKE_PAYLOAD);
+    expect(i.result.value, "single-form invoke tail").toEqual(makeOk(INVOKE_PAYLOAD));
   });
 
   it("A2: a trailing identifier `let v = pure(…) ⏎ v` returns the value", async () => {

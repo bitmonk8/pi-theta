@@ -185,10 +185,15 @@ async function runSubagentFnInProcess(
     // the fallback / cap-breach / nested-spawn seed). Kept inside the boundary
     // `try` so a cap breach on this push still downgrades to
     // `Err(InvokeInfraError{cause:"panic"})`.
-    const bodyDeps: ExecuteBodyDeps =
-      deps.invokeChain !== undefined
-        ? { ...deps, invokeChain: pushCountableFrame(deps.invokeChain, "subagent-fn") }
-        : deps;
+    // This isolated body owns its terminal return boundary; never inherit an
+    // enclosing ordinary fn's consumed-return disposition (bug 0514).
+    const bodyDeps: ExecuteBodyDeps = {
+      ...deps,
+      returnAtTerminal: true,
+      ...(deps.invokeChain !== undefined
+        ? { invokeChain: pushCountableFrame(deps.invokeChain, "subagent-fn") }
+        : {}),
+    };
     flow = await executeBlock(fn.body, scope, bodyDeps);
   } catch (thrown) { // allow-broad-catch: FN-6 subagent boundary — invocation.md §Failures
     // An uncatchable host fatal (NOCEIL-3) must terminate the process and is
