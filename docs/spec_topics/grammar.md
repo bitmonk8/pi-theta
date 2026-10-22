@@ -126,6 +126,14 @@ WhileStmt    ::= "while" Expr StmtBlock
 ForStmt      ::= "for" Ident "in" Expr StmtBlock
 ```
 
+If the final form of a `ThetaBody` is a distinct expression form, it occupies
+the optional tail `Expr` regardless of source-line packing or newline
+continuation. Once that form has been parsed separately, an earlier
+continuation trigger does not turn it into a value-discarding statement.
+This rule selects the tail among parsed forms; it does not admit additional
+same-line syntax, change the continuation-trigger set, or change
+declaration-residue recovery or malformed-declaration diagnostics.
+
 When `FnBody` or `ThetaBody` is parsed without a trailing `Expr`, the function or theta's inferred return type is `null` (the literal type) and its final value is the literal `null`, per [Function Definitions — Empty-tail body](./functions.md#empty-tail-body). Authors who want the function or theta to be syntactically required to produce a value should declare an explicit non-`void` / non-`null` return type; `void` is the explicit "intentionally produces no value" annotation and is governed by the same page.
 
 A statement-form `if` / `for` / `while` (the `IfStmt` / `WhileStmt` / `ForStmt` productions above, whose surface forms and diagnostics are owned by [Control Flow](./control-flow.md)) is a statement, not an expression: it produces no value and is not admissible in expression position — the ternary `cond ? a : b` is the expression form of conditional. Its `StmtBlock` body accepts zero or more statements with an optional tail `Expr`; an empty `{}` body is admitted. A present tail `Expr` is evaluated and its value is discarded (the block produces no value), except that a tail `Expr` ending in the postfix `?` operator — applied to any operand `?` admits, per [Expression Sublanguage — `?` operand-type precondition](./expressions.md#err-18) — still triggers `?` early-return on failure, because `?` desugars to `return Err(e)` per [Return Statement](./return.md).

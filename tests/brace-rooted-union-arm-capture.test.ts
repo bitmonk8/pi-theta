@@ -34,10 +34,10 @@ import { parseDoc, diagLines } from "./helpers/e2e-s1";
 //   - docs/spec_topics/grammar.md:109 §"Inline object types" — "`ObjectType`
 //     admits an anonymous object type `{ field: T, ... }` in **any** `Type`
 //     position."
-//   - docs/spec_topics/grammar.md:184 — `AliasRhs ::= Type ("|" Type)*`. The
+//   - docs/spec_topics/grammar.md:192 — `AliasRhs ::= Type ("|" Type)*`. The
 //     alias right-hand side is the same union of the same `Type`, which makes
 //     its capture the reference implementation rather than a special case.
-//   - docs/spec_topics/grammar.md:77 (`LetStmt`) and :138/:145 (`FnDecl` /
+//   - docs/spec_topics/grammar.md:77 (`LetStmt`) and :146/:153 (`FnDecl` /
 //     `FnParam`) — in both, the type slot is ONE `Type` and what follows it
 //     (`= Expr`, `,`, `)`, `FnBody`) is a separate slot of the same production.
 //   - docs/spec_topics/type-system.md:15 — "The same type grammar applies in
@@ -612,12 +612,12 @@ describe("bug 0095 (2) — a brace-rooted union annotation keeps the `=` initial
 
 describe("bug 0095 (3) — a brace-rooted union in an `fn` signature", () => {
   it("RED 3a: `fn f(p: {} | null) { 1 }` records ONE parameter", () => {
-    // grammar.md:145 makes each `FnParam` an `Ident ":" Type` pair and admits no
+    // grammar.md:153 makes each `FnParam` an `Ident ":" Type` pair and admits no
     // parameter named `|`. The parameter LIST is the whole observable — no
     // diagnostic moves here at all, which is why the shape half is mandatory.
     expect(
       observeFn(body("fn f(p: {} | null) { 1 }")),
-      "3a — grammar.md:138/:145: the type slot is one `Type` and `)` is a separate slot of the " +
+      "3a — grammar.md:146/:153: the type slot is one `Type` and `)` is a separate slot of the " +
         "same production, so `{} | null` is `p`'s whole type and the signature has arity 1",
     ).toEqual({
       diagnostics: [inlineLine()],
@@ -657,7 +657,7 @@ describe("bug 0095 (3) — a brace-rooted union in an `fn` signature", () => {
 
   it("RED 3c: `fn f(): {} | null { 1 }` keeps `{ 1 }` as the body and the file's tail", () => {
     // The return position takes `ReturnType` (grammar.md:89) — `Type` plus
-    // `void` — so a brace-rooted union is admitted, and `FnBody` (:138) is the
+    // `void` — so a brace-rooted union is admitted, and `FnBody` (:146) is the
     // separate slot after it. `docTailPresent` is the sharpest half: at HEAD the
     // rest of the file is absorbed into the function body and the document has
     // no tail expression, which is a different program.
@@ -1047,7 +1047,7 @@ describe("bug 0095 (5) — the capture sites that are already correct do not mov
         emptySecond: observeSchema(body("schema X = null | {}")),
         nonEmpty: observeSchema(body("schema X = {a: integer} | null")),
       },
-      "5a — grammar.md:184's `AliasRhs ::= Type (\"|\" Type)*` is the reference capture this fix " +
+      "5a — grammar.md:192's `AliasRhs ::= Type (\"|\" Type)*` is the reference capture this fix " +
         "generalises; reusing its branch is what keeps 0042's boundary set intact",
     ).toEqual({
       emptyFirst: {
@@ -1060,7 +1060,7 @@ describe("bug 0095 (5) — the capture sites that are already correct do not mov
       },
       // Since bug 0228's fix the alias's own brace-group arm is ALSO a raw
       // slice now (it shares the same `consumeInlineObjectType`), so this
-      // reference capture (grammar.md:184) keeps the author's own spacing
+      // reference capture (grammar.md:192) keeps the author's own spacing
       // too, agreeing byte-for-byte with the widened positions it generalises
       // to.
       nonEmpty: {

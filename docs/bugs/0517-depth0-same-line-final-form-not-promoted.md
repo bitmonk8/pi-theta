@@ -1,12 +1,15 @@
 # Bug 0517 — a depth-0 final expression form that shares a logical line with the previous form is not promoted to the `ThetaBody` tail: `parseBody` keeps the `"line-start"` promotion test, so `schema X = array<integer>⏎pure("a")` (the trailing `>` joins the two lines) and `42 pure("a")` load clean and return `null` where the same call on its own line returns its value, and ``schema X = array<integer>⏎@`q` `` draws QRY-19; whether `ThetaBody ::= Stmt* Expr?` ranges over logical lines or over forms was unadjudicated at filing (forms reading now approved), and 14 bug-0033/0042 cells pin the logical-line reading
 
-- **Status:** open — filed 2026-10-03 as residual 7 of the bug-0510 fix
+- **Status:** fixed (unreleased - commit/push only). No new package release is
+  published; the existing published package version does not contain this fix.
+  Filed 2026-10-03 as residual 7 of the bug-0510 fix
   ([0510](./0510-block-trailing-call-value-discarded.md), `## Fix
-  (0.496.0)` Residuals, item 7). The 0510 fix excluded depth 0 from
-  final-form promotion on purpose; this report needs a spec adjudication
-  before a fix (now approved below).
-- **Decision:** forms reading approved — final expression form determines the
-  tail; see §Approved ruling. Open pending implementation.
+  (0.496.0)` Residuals, item 7). See §Fix record for implementation,
+  preserved red/green evidence and independent review. No resolving shipment
+  SHA is assigned here; the future shipment commit will supply it.
+- **Decision:** forms reading approved and implemented — final expression form
+  determines the tail; see §Approved ruling and §Fix record. The observations
+  and competing readings below remain historical evidence.
 - **Owning repo:** pi-theta
 - **Sev/Diff estimate (at filing, before ruling):** S1/D3 — S1 under the forms reading: a clean-loading
   theta whose final bare call shares a logical line with the previous form
@@ -152,8 +155,8 @@ ruling. Bug 0516 separately authorizes structural tail handling for a final
 `par for`.
 
 The competing readings below document the pre-ruling ambiguity; the
-logical-lines reading was not selected. The report remains open pending
-implementation.
+logical-lines reading was not selected. Implementation and verification are
+recorded in §Fix record; the pre-fix analysis below is retained.
 
 ## Expected (pre-ruling analysis)
 
@@ -266,3 +269,133 @@ settles with value `"v:a"`.
   `tests/schema-alias-rhs-malformed.test.ts`; groups (b) and (e) hold b12,
   e4 and e9. Its §Non-goals records the general same-line statement
   permissiveness and the lost tail promotion as unfiled.
+
+## Fix record
+
+### Cause and actual change
+
+`BodyParser.parseBody` (`src/parser/body-parser.ts:377–381`) now selects
+`"final-form"`, not `"line-start"`. This is the only executable production
+change. The existing `parseForms` predicate (`:500–510`) promotes the distinct
+final expression even if continuation or source-line packing gave it no
+logical-line start. The old action-statement lowering (`exprToStmt`,
+`:614–626`) left a final call without a tail; `executeBlock`
+(`src/runtime/statement-executor.ts:819–854`) then returned null because its
+fallback retains only generic `expr`-statement values. A final query's wrong
+statement position caused the spurious QRY-19. The executor and query checker
+need no behavioral change.
+
+The exact owner-approved clarification appears in both normative grammar
+presentations: `docs/reference/grammar.md:294–300` and
+`docs/spec_topics/grammar.md:129–135`. It selects tails among parsed forms;
+it does not expand accepted syntax, alter continuation triggers, or change
+malformed-declaration recovery. FN-3/4/5 (`docs/spec_topics/functions.md:26–44`)
+and QRY-19/20 (`docs/spec_topics/query/query-escapes-stringification.md:43–57`)
+still govern return inference, empty-tail null, query disposition and failures.
+
+All 14 authorized legacy cells in the two schema-alias suites now positively
+assert tail kind, payload and range while preserving declaration captures and
+refusals. n1/n2/n4b lose the spurious discarded-query-result; e4 preserves both
+original refusals and additionally reports type-as-value in the structural
+value position. Both n20 constructor branches remain. Comments describe the
+new depth-0 policy; nested value-body modes, StmtBlock modes, lexer and residue
+recovery remain unchanged.
+
+The grammar insertions also required a separately owner-authorized mechanical
+citation/count migration across 27 source/test files. It preserves substantive
+assertions and line-sensitive consumers; topic/reference page counts remain
+exact at 254/762. This is not a gate waiver. The per-line inventory and scope
+proof are in `implement-attempt-3-migration-ledger.md` and the authorization
+record below.
+
+### Evidence, commands and controls
+
+All artifact basenames in this section are under this absolute run directory
+(**R**):
+
+`/home/thomasa/Projects/pi-theta/.pi/tmp/fix-bug-0517-9b8d6f50-8cf6-45f8-b8de-bb27a90e2b5d`.
+
+Pre-fix evidence was recorded against
+`76f2a5b4ab2ee007a09b5d00d5ec4717a43d2550` before production edits. That is
+the baseline, **not** a resolving commit. Commands run from the checkout root;
+outputs were captured before inspection, not rerun to filter them.
+
+| Exact command | Pre-fix red | Post-fix green |
+|---|---|---|
+| `npx vitest run tests/b0517-depth0-final-form-real-child.test.ts` | Exit 1, `reproduce-attempt-1-real-child-red.log` and `red-0.json`: two natural-exit Ok children return null instead of v:a; own-line control passes | Exit 0, `green-1-0.json`: all three pass unchanged |
+| `npx vitest run tests/b0517-depth0-final-form-unit.test.ts` | Corrected baseline witness: exit 1, 12 intended failures / 15 controls, `witness-repair-1-corrected-red.log`; independent confirmation in `review-evidence-resume3-baseline-unit.log` | Exit 0, `green-1-1.json`: 27 pass |
+| `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/b0517live-depth0-final-form-live-cell.test.ts` | Exit 1, `reproduce-attempt-1-live-typed-red.log`: two outbound NULL/v:a mismatches; own-line control passes | Exit 0, `gate-1-initial-2.json`: three pass |
+| `npm test` | Intermediate implementation exit 1, `implement-attempt-2-default.log`: 19 insertion-caused citation/count failures, preserved rather than waived | Exit 0, `implement-attempt-3-default.log` and independent controller capture `gate-1-initial-1.json`: 750 files / 12,734 tests pass, including committed-fixture coverage |
+| `npm run typecheck` | Baseline exit 0, `reproduce-attempt-1-typecheck.log` | Exit 0, `implement-attempt-3-typecheck.log` and `gate-1-initial-0.json` |
+| `npm run lint` | Not a bug witness | Exit 0, `implement-attempt-3-lint.log` |
+| `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/b0517live-depth0-final-form-live-cell.test.ts tests/live/acceptance/b0514live-fn-query-call-boundary.test.ts tests/live/nested-array-element-sink-descent-live-cell.test.ts` | Not a combined red command | Exit 0, `implement-attempt-3-live.log`: eight relevant live cases pass |
+| `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/live-production-acceptance.test.ts -t 'H8a-T — bug 0095'` | Not a bug witness | Exit 0, `implement-attempt-3-live-lpa.log`: one selected registration case; 89 unselected cases, not a full-file/full-live pass |
+
+The corrected unit red used the isolated baseline command documented in
+`witness-repair-1.md`:
+`(cd "$run/witness-repair-1-baseline" && node "$OLDPWD/node_modules/vitest/vitest.mjs" run tests/b0517-depth0-final-form-unit.test.ts)`.
+No main-checkout production rollback was needed. The impossible original
+`tail=unary` oracle was corrected with explicit owner authorization to the
+existing binary/unary-marker representation, strengthened with exact operands
+and an own-line control. Original bytes, reds and manifest signatures remain
+preserved. Earlier untyped-invoke and coordinate-oracle trials are not bug
+witnesses; `witness-repair-1.md`, `reproduce.md` and `diagnose.md` explain them.
+
+Real-child coverage uses the pinned CLI, checkout extension, production
+launcher and result driver, requiring clean diagnostics, Ok envelope and
+natural exit before exact value equality. Live success requires registration,
+empty settled failure notes, no INFRA tag and outbound `b0517-value=v:a`, not
+merely `prompt()` resolving. No provider error is counted as a witness.
+
+The unchanged 0510 suite, both alias suites, all five citation/count gates,
+and 0517 offline tests pass together in `implement-attempt-3-focused.log` and
+`review-fix-independent-focused.log` (exit 0; 271 tests). Supplemental boundary
+coverage checks literal inference, ordered exactly-once effects, explicit
+return, void discard, failure/cancellation/panic and statement-final/empty
+null. Its injected effect seams are composition/unit evidence, not live-host
+proof. Complete H9a JSONL inspection confirms clean exits/stderr, successful
+provider completions and no outer theta_result (`implement-attempt-3-result-inspection.log`).
+
+### Review and delivery boundary
+
+`R/reviews.md` records **CLEAN — no actionable in-scope must-fix findings**.
+The independent reviewer checked exact normative approval, all 14 semantic
+migrations, citation-only scope, preserved red witnesses and gate evidence,
+and independently passed the 271-test focused command plus `git diff --check`.
+This closure adds documentation only; it does not stage, commit, push, tag,
+bump a dependency/version, publish a package, or execute the quality loop.
+**No new package release is published.** No fix is attributed to the existing
+package version, and no resolving SHA is invented.
+
+Scope/authorization records: `spec-proposal.md` and state.approvedProposal;
+`witness-repair-1-authorization.md`; `collateral-migration-1-authorization.md`.
+Detailed commands, complete modified-file inventory, closure integrity checks
+and uncertainties are in `R/close.md`; completed plans, reports, logs and
+history are preserved.
+
+### Residuals and limits
+
+Existing open reports remain separately owned: [0511](./0511-qry19-stmtblock-tail-single-vs-multi.md)
+(StmtBlock query/sink semantics), [0513](./0513-call-static-type-nominal-not-return-type.md)
+(call-type inference), [0515](./0515-ret3-depth0-tail-after-return-silent.md)
+(unreachable top-level tail warning), [0516](./0516-statement-position-par-for-trailing-value-kept.md)
+(final par-for structural alignment), and [0518](./0518-imported-schema-member-read-types-as-receiver.md)
+(imported-member typing). The par-for candidate exclusion is unchanged. General
+same-line syntax permissiveness and older unrelated stale citations are not
+repaired here. No new residual bug is filed without evidence.
+
+These targeted live captures are not a full-live-suite pass, a separate
+operator-host-version certification, or a frozen-language source-equivalence
+claim. H8a's dynamic model ID is not printed; H9a captures identify
+openai/gpt-6.1-sol. Intentional return/diagnostic changes are bounded above.
+
+## Provenance
+
+The historical sections retain their original observed HEAD/spec citations.
+The fix record draws on `BodyParser.parseBody` / `parseForms` / `exprToStmt`,
+`executeBlock`, both approved grammar clauses, FN-3/4/5 and QRY-19/20;
+`reproduce.md`, `diagnose.md`, `implement.md`, the authorization and repair
+records, original red/current green captures, and independent `reviews.md`
+supply the implementation, verification and review claims. `R/close.md`
+records the docs-only closure and preservation audit. No publication evidence
+or shipment commit exists in this record.

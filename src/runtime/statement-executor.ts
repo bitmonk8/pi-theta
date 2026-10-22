@@ -829,8 +829,9 @@ export async function executeBlock(
   // ending a `FnBody`, `ParForBody`, `StmtBlock` or the `ThetaBody`: `parseForm`
   // keeps it out of tail promotion, and this rule returns its value (a
   // `BlockExpr` restores it as the tail through `promoteTrailingExprToTail`).
-  // Second, in the `ThetaBody` and a `StmtBlock` (`if` / `else` / `while` /
-  // `for` body), a final expression form that did not begin a logical line.
+  // Second, in a `StmtBlock` (`if` / `else` / `while` / `for` body), a final
+  // expression form that did not begin a logical line. `ThetaBody` promotes
+  // final expression forms regardless of line packing (bug 0517).
   // `exprToStmt` encodes the latter by kind: a call / invoke / query becomes a
   // `tool-call` / `invoke` / `query` statement, any other expression an `expr`
   // statement. Only an `expr` statement carries its value here; any other

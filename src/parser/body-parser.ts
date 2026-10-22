@@ -187,18 +187,16 @@ function promoteTrailingExprToTail(block: Block): Block {
  * How `parseForms` decides whether a block's final form is its `Block.tail`.
  *
  *   - `"final-form"` — the final form is the tail whenever it is an expression
- *     form. Used for the brace-delimited VALUE blocks (`FnBody`, `ParForBody`,
- *     `BlockExpr`): `collapseContinuations` (../lexer/continuation.ts)
- *     swallows every newline inside a brace pair, so `lineStart` carries no
- *     logical-line information there, and gating on it would turn the
- *     trailing expression of every multi-statement block into a statement —
- *     a trailing call / invoke / query then loses the block's value (bug
- *     0510).
+ *     form. Used for `ThetaBody` regardless of line packing or continuation
+ *     (bug 0517, grammar.md §Blocks), and the brace-delimited VALUE blocks
+ *     (`FnBody`, `ParForBody`, `BlockExpr`). In those nested blocks,
+ *     `collapseContinuations` (../lexer/continuation.ts) swallows every
+ *     newline inside a brace pair, so `lineStart` carries no logical-line
+ *     information; gating on it loses trailing call / invoke / query values
+ *     (bug 0510).
  *   - `"line-start"` — the final form is the tail only when it is an
- *     expression form that began a logical line. Used for the depth-0
- *     `ThetaBody`, where the lexer emits a real `stmt-sep` and `lineStart`
- *     separates a line-starting final form from a same-logical-line residue,
- *     and for the `StmtBlock` bodies of `if` / `else` / `while` / `for`,
+ *     expression form that began a logical line. Used for the `StmtBlock`
+ *     bodies of `if` / `else` / `while` / `for`,
  *     whose value the executor discards (grammar.md §Blocks) but whose
  *     promoted tail the static checks read as a value position
  *     (`type-as-value`, the QRY-19 discarded-query judgment).
@@ -377,9 +375,9 @@ class BodyParser {
   // --- body / block -------------------------------------------------------
 
   public parseBody(): Block {
-    // Depth 0: the lexer emits a real `stmt-sep` here, so `lineStart`
-    // separates a line-starting final form from a same-logical-line residue.
-    return this.parseForms(() => this.atEnd(), "line-start");
+    // ThetaBody's final expression form is its tail regardless of line packing
+    // or newline continuation (bug 0517, grammar.md §Blocks).
+    return this.parseForms(() => this.atEnd(), "final-form");
   }
 
   private parseBlock(promotion: TailPromotion): Block {
@@ -484,18 +482,19 @@ class BodyParser {
     }
 
     // `Stmt* Expr?` — the final form is promoted to the tail per `promotion`
-    // (`TailPromotion`). Under `"line-start"` a same-logical-line residue at
-    // depth 0 (`schema X = Cat 42` — the severed `42`) is NOT the body's tail.
+    // (`TailPromotion`). This selects the role of an already parsed form,
+    // not syntax acceptance or declaration-residue recovery.
     //
     // Either way the promoted value is the body's final value (functions.md
     // FN-5: a fn/theta body's value is its tail expression), including a lone
     // or trailing call/invoke/query — `fn f(n){ g(n) }` MUST return `g(n)`
     // (FN-5), so a bare-call tail is the final value, not a discarded action.
     // A statement-position `par for` is the one expression form `parseForm`
-    // itself keeps out of this promotion (`tailExpr = null` below, grammar.md
-    // §Blocks): it is recorded as an `expr` statement, not a candidate `last`
-    // here. The V19a-T continuation witness `f(a,\n b)` is about grouping the
-    // multi-line call arguments into ONE form (a lexer concern), orthogonal to
+    // itself keeps out of this promotion (`tailExpr = null` below, the
+    // separately owned bug 0516): it is recorded as an `expr` statement, not
+    // a candidate `last` here. The V19a-T continuation witness `f(a,\n b)` is
+    // about grouping the multi-line call arguments into ONE form (a lexer
+    // concern), orthogonal to
     // whether that one form's value is the body's tail.
     const last = forms[forms.length - 1];
     const promoteLast =

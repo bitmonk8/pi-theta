@@ -31,7 +31,7 @@ import {
 // position", naming no position — unlike `:19`'s four-entry enumeration for the
 // case code. A `fn` parameter name is an identifier position by the grammar:
 // `FnParam ::= Ident (":" Type)?` (docs/reference/grammar.md:254,
-// docs/spec_topics/grammar.md:145), the same `Ident` terminal the rule's own
+// docs/spec_topics/grammar.md:153), the same `Ident` terminal the rule's own
 // rationale invokes when it says keeping the spellings reserved "is what stops
 // them matching `NamedType ::= Ident`". lexical.md:3 applies every rule on that
 // page to `.theta` and `.thetalib` alike.

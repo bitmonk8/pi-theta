@@ -145,8 +145,8 @@ const SUPPORTED_FORMS = "## Supported forms";
  * line-54 region this cell guards. Re-pinned here per the same clause
  * (verified: `wc -l docs/reference/grammar.md` = 755 at RFC 0009 erratum A′,
  * including the §Provenance bullet naming the new section). */
-const SPEC_GRAMMAR_LINES = 246;
-const REF_GRAMMAR_LINES = 755;
+const SPEC_GRAMMAR_LINES = 254; // bug 0517: approved +8 with coordinated current-citation migration
+const REF_GRAMMAR_LINES = 762; // bug 0517: approved +7; no previously stale reference citation is repaired
 
 /** expressions.md:10's name for the bracket form; the name the bullet lacks. */
 const INDEXED_ACCESS = /indexed access/i;

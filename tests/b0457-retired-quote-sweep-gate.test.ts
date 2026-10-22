@@ -19,7 +19,7 @@ import { linesOf, readCorpus as readCorpusFile, repoFile } from "./helpers/corpu
 //
 //   - Cell B: bug 0150 (fixed 0.177.0) relaxed the FnParam production to an
 //     optional annotation (`FnParam ::= Ident (":" Type)?`, spec truth
-//     docs/spec_topics/grammar.md:145). The retired mandatory form
+//     docs/spec_topics/grammar.md:153). The retired mandatory form
 //     `FnParam ::= Ident ":" Type` survives across five enforced-scope surfaces
 //     (three test headers, a parser comment, and the fn-param-not-identifier
 //     registry Trigger prose), several asserting it as "THE RULE".
@@ -151,7 +151,7 @@ const FNPARAM_ENFORCED_SCOPE: readonly string[] = [
 // ---------------------------------------------------------------------------
 
 const GRAMMAR = "docs/spec_topics/grammar.md";
-const GRAMMAR_FNPARAM_LINE = 145; // the current optional-form production line
+const GRAMMAR_FNPARAM_LINE = 153; // the current optional-form production line
 const GRAMMAR_FNPARAM_OPTIONAL = 'FnParam      ::= Ident (":" Type)?';
 
 const RUNTIME_PANICS = "src/runtime/stdlib-signature.ts";
@@ -209,7 +209,7 @@ describe("bug 0457 — six committed surfaces quote retired normative text as cu
   // Cell C — GREEN control. Pins the spec truth the sweep aligns to. Passes at
   // the fork and after the fix; guards the targets so a spec drift reds here.
   // =========================================================================
-  it("cell C (GREEN control) — grammar.md:145 carries the optional FnParam form and stdlib-signature.ts:60 carries the current belt tail", () => {
+  it("cell C (GREEN control) — grammar.md:153 carries the optional FnParam form and stdlib-signature.ts:60 carries the current belt tail", () => {
     const grammarLines = linesOf(readCorpus(GRAMMAR));
     expect(
       grammarLines.length,

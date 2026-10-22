@@ -5,7 +5,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { FRONTMATTER, parseDoc, findCode, diagsOf, bodyCodesOf as codesOf, diagnosticMessageFor as messageFor } from "./helpers/e2e-s1";
 
-// Bug 0241 — `docs/spec_topics/grammar.md:230`'s FOURTH sink bullet, "the
+// Bug 0241 — `docs/spec_topics/grammar.md:238`'s FOURTH sink bullet, "the
 // element type of an array-typed sink that this literal is itself an element of
 // (recursive descent)", is unwired at all three type-layer routes, so a nested
 // array literal under a written, in-scope element sink reaches the sink-LESS
@@ -45,9 +45,9 @@ import { FRONTMATTER, parseDoc, findCode, diagsOf, bodyCodesOf as codesOf, diagn
 //     in the sunk arm of the same relation (src/parser/type-compat.ts:603).
 //
 // SPEC ANCHORS (the contract, not the current code):
-//   - docs/spec_topics/grammar.md:230 — fourth sink bullet, "The element type
+//   - docs/spec_topics/grammar.md:238 — fourth sink bullet, "The element type
 //     of an array-typed sink that this literal is itself an element of
-//     (recursive descent)", under `:225`'s "The sink set is exhaustive".
+//     (recursive descent)", under `:233`'s "The sink set is exhaustive".
 //     Prose mirror: docs/reference/grammar.md:461–471.
 //   - docs/spec_topics/expressions.md:226, rule 1 — with a sink in scope
 //     "every element must satisfy `T_element ⊑ T_sinkElement`; a mismatch is
@@ -82,7 +82,7 @@ import { FRONTMATTER, parseDoc, findCode, diagsOf, bodyCodesOf as codesOf, diagn
 //
 // WITHHOLDING IS *NO* VERDICT, NOT A SINK-LESS ONE — group (F). Where the
 // enclosing level refuses, the sink is still in scope at every nested position
-// down the element chain (grammar.md:230), so `array-no-common-type`'s
+// down the element chain (grammar.md:238), so `array-no-common-type`'s
 // registered *Trigger* ("and no sink to narrow against") is false there and the
 // withheld literals must draw nothing at all rather than the sink-less row.
 // Group (F) pins that at the three routes and at depth 2, and its last cell
@@ -212,7 +212,7 @@ const A_AND_C = "[A { a: 1 }, C { c: true }]";
 
 describe("0241 (A) — the fourth sink bullet reaches the nested literal at all three routes", () => {
   it("the binding-annotation route admits the nested rule-3 literal — row A1", () => {
-    // grammar.md:230's fourth bullet at the FIRST wired dispatch: the outer
+    // grammar.md:238's fourth bullet at the FIRST wired dispatch: the outer
     // sink is `array<array<A | B>>`, so the inner literal's sink is
     // `array<A | B>` and expressions.md:228's "some sink in scope expects a
     // union" is satisfied one level down exactly as it is flat (row B1).
@@ -220,7 +220,7 @@ describe("0241 (A) — the fourth sink bullet reaches the nested literal at all 
     expectSilent(
       [...AB, `let xs: array<array<A | B>> = [${A_AND_B}]`, "xs"],
       3,
-      "the annotation's element type `array<A | B>` is the nested literal's sink (grammar.md:230)",
+      "the annotation's element type `array<A | B>` is the nested literal's sink (grammar.md:238)",
     );
   });
 
@@ -235,7 +235,7 @@ describe("0241 (A) — the fourth sink bullet reaches the nested literal at all 
         "y",
       ],
       4,
-      "the callee's parameter element type `array<A | B>` is the nested literal's sink (grammar.md:230)",
+      "the callee's parameter element type `array<A | B>` is the nested literal's sink (grammar.md:238)",
     );
   });
 
@@ -252,17 +252,17 @@ describe("0241 (A) — the fourth sink bullet reaches the nested literal at all 
         "s",
       ],
       4,
-      "the declared field's element type `array<A | B>` is the nested literal's sink (grammar.md:230)",
+      "the declared field's element type `array<A | B>` is the nested literal's sink (grammar.md:238)",
     );
   });
 
   it("the descent is not depth-1-specific — row A4", () => {
-    // "recursive descent" (grammar.md:230) is recursive: two levels of wrapping
+    // "recursive descent" (grammar.md:238) is recursive: two levels of wrapping
     // must narrow the innermost literal the way one level narrows its own.
     expectSilent(
       [...AB, `let xs: array<array<array<A | B>>> = [[${A_AND_B}]]`, "xs"],
       3,
-      "the sink descends through TWO array levels to the innermost literal (grammar.md:230, recursive)",
+      "the sink descends through TWO array levels to the innermost literal (grammar.md:238, recursive)",
     );
   });
 
@@ -602,7 +602,7 @@ describe("0241 (E) — the harness reaches the checkers", () => {
 //     element violation beside a conformant nested rule-3 literal: the outer
 //     level reports, the descent into the nested literal withholds (bug 0129's
 //     law, group (C)), and the nested literal must therefore draw NOTHING —
-//     grammar.md:230 keeps the sink in scope at that position, so
+//     grammar.md:238 keeps the sink in scope at that position, so
 //     `array-no-common-type`'s registered *Trigger* ("and no sink to narrow
 //     against", code-registry-parse.md:44) is false there.
 // ===========================================================================

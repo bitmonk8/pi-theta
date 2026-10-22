@@ -142,30 +142,30 @@ describe("bug 0405 — the bare-form grammar.md spec cites in three test files r
   // re-pin targets by content so a later grammar shift reds here first.
   // =========================================================================
 
-  it("cell A1 (SPEC-TRUTH) — `FnParams` sits at grammar line 144, `SubagentMod` (the stale anchor) at 139", () => {
+  it("cell A1 (SPEC-TRUTH) — `FnParams` sits at grammar line 152, `SubagentMod` (the stale anchor) at 147", () => {
     expect(
       fnParamsLine(),
-      `cell A1: the \`FnParams\` production is the re-pin target for fn-param-not-identifier.test.ts; if it is not at grammar.md line 144 the sweep numbers below are stale.`,
-    ).toBe(144);
+      `cell A1: the \`FnParams\` production is the re-pin target for fn-param-not-identifier.test.ts; if it is not at grammar.md line 152 the sweep numbers below are stale.`,
+    ).toBe(152);
     expect(
       subagentModLine(),
-      `cell A1: line 139 must still hold \`SubagentMod\` — the content the fork's line-139 cites wrongly name (bug 0405 symptom).`,
-    ).toBe(139);
+      `cell A1: line 147 must still hold \`SubagentMod\` — the content the fork's line-139 cites wrongly name (bug 0405 symptom).`,
+    ).toBe(147);
   });
 
-  it("cell A2 (SPEC-TRUTH) — the `array<T>` sink-rule anchors sit at 225 / 229 / 230", () => {
+  it("cell A2 (SPEC-TRUTH) — the `array<T>` sink-rule anchors sit at 233 / 237 / 238", () => {
     expect(
       exhaustiveLine(),
       "cell A2: the sink-set-exhaustive sentence is the re-pin target for the ctor/nested sink-set-exhaustive cites.",
-    ).toBe(225);
+    ).toBe(233);
     expect(
       ctorFieldLine(),
       "cell A2: the constructor-field bullet is the re-pin target for the ctor constructor-field cites.",
-    ).toBe(229);
+    ).toBe(237);
     expect(
       recursiveLine(),
       "cell A2: the recursive-descent bullet is the re-pin target for the eight nested recursive-descent cites.",
-    ).toBe(230);
+    ).toBe(238);
   });
 
   // =========================================================================

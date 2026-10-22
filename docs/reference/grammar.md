@@ -291,6 +291,13 @@ ParForBody ::= "{" Stmt* Expr? "}"      // per-iteration body; tail Expr optiona
 
 - Expression-position blocks require a trailing tail `Expr`. Function bodies, the
   top level of `.theta`, and statement-form control-flow bodies do not.
+- If the final form of a `ThetaBody` is a distinct expression form, it occupies
+  the optional tail `Expr` regardless of source-line packing or newline
+  continuation. Once that form has been parsed separately, an earlier
+  continuation trigger does not turn it into a value-discarding statement.
+  This rule selects the tail among parsed forms; it does not admit additional
+  same-line syntax, change the continuation-trigger set, or change
+  declaration-residue recovery or malformed-declaration diagnostics.
 - A `FnBody`/`ThetaBody` with no tail expression has inferred return type `null`
   (the literal type) and final value literal `null` (see [Type system — final
   value](./type-system.md)). `void` is the only explicit "produces no value"

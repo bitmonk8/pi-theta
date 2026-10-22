@@ -9,7 +9,7 @@ import { parseDeps } from "./helpers/e2e-s1";
 // Bug 0512: full source bytes -> production lexer/body parser/query-schema
 // resolution/identifier + type checks -> public document diagnostics.
 // FN-3 (functions.md:26-30) counts only the fn's own tail and explicit return
-// operands. grammar.md:298-301 discards nested StmtBlock success values.
+// operands. grammar.md:305-308 discards nested StmtBlock success values.
 // No AST, type inference, contribution collector or diagnostic is mocked.
 // parseDeps supplies inert note delivery and a model matcher; these fixtures
 // declare no model and run no turns. This is frontend E2E, not a real pi host,

@@ -20,10 +20,10 @@ import { codes, parseDoc, diagLines, loadCleanly, schemaDeclLookup } from "./hel
 // `parseThetaDocument`.
 //
 // SPEC ANCHORS (the contract, not the current code):
-//   - docs/spec_topics/grammar.md:179–186 — `SchemaShape` has THREE
+//   - docs/spec_topics/grammar.md:187–194 — `SchemaShape` has THREE
 //     alternatives: the object form, `"=" AliasRhs`, and
 //     `"by" Ident "=" UnionRhs`, with `AliasRhs ::= Type ("|" Type)*` and
-//     `UnionRhs ::= Type ("|" Type)+`. None is marked deferred. `:188` prescribes
+//     `UnionRhs ::= Type ("|" Type)+`. None is marked deferred. `:196` prescribes
 //     `theta/parse/by-on-object-schema` for `schema X by f { ... }`.
 //   - docs/spec_topics/schemas.md:50–60 — §Type-alias / union schema: "The `=`
 //     form is a top-level type alias. It composes with every shape from the type
@@ -463,7 +463,7 @@ function expectNoResidue(doc: ThetaDocument, why: string): void {
     expect(
       sig,
       `${why} — the shape's tokens must be consumed by the declaration, not re-parsed as ` +
-        `statements (grammar.md:179–186). statements=${JSON.stringify(sig)}; ` +
+        `statements (grammar.md:187–194). statements=${JSON.stringify(sig)}; ` +
         `diagnostics=${JSON.stringify(diagLines(doc))}`,
     ).not.toContain(residue);
   }
@@ -477,7 +477,7 @@ function expectLoadsClean(doc: ThetaDocument, why: string): void {
   expectNoResidue(doc, why);
   expect(
     diagLines(doc),
-    `${why} — the form is normative theta 1.0 (grammar.md:179–186, schemas.md:50–60), so it must ` +
+    `${why} — the form is normative theta 1.0 (grammar.md:187–194, schemas.md:50–60), so it must ` +
       `load with NO diagnostics`,
   ).toEqual([]);
 }
@@ -714,7 +714,7 @@ describe("bug 0033 (a) — the alias and explicit-discriminator declaration shap
   });
 
   it("RED a5: the explicit-discriminator form `schema Animal by kind = Cat | Dog` loads clean", () => {
-    // schemas.md:110 / grammar.md:179–186. Today the `by kind = Cat` head parses as
+    // schemas.md:110 / grammar.md:187–194. Today the `by kind = Cat` head parses as
     // a REASSIGNMENT and only the trailing `| Dog` draws a diagnostic — one
     // stray token for a whole unparsed declaration.
     const doc = parse(F_BY_KIND);
@@ -783,7 +783,7 @@ describe("bug 0033 (a) — the alias and explicit-discriminator declaration shap
 
 describe("bug 0033 (b) — the seven discriminated-union / cycle codes fire through the parse", () => {
   it("RED b1: `schema X by f { a: string }` fires theta/parse/by-on-object-schema", () => {
-    // grammar.md:188 prescribes this rejection. DRIFT vs the bug doc: at 0.32.0
+    // grammar.md:196 prescribes this rejection. DRIFT vs the bug doc: at 0.32.0
     // this fixture loaded with ZERO diagnostics; at HEAD bug 0025's landed
     // constructor gate rejects the `f { a: string }` residue's re-parse with
     // `unresolved-named-type 'f'` — a name the author never wrote as a type.
@@ -799,7 +799,7 @@ describe("bug 0033 (b) — the seven discriminated-union / cycle codes fire thro
     expectExactly(
       doc,
       line(BY_ON_OBJECT, msg(BY_ON_OBJECT, [])),
-      "b1 — grammar.md:188 / schemas.md:113",
+      "b1 — grammar.md:196 / schemas.md:113",
     );
   });
 
@@ -1206,12 +1206,9 @@ describe("bug 0033 (g) — an alias right-hand side ends at the declaration's en
     // The silent arrangement: nothing after the declaration draws a diagnostic,
     // so the capture eats the tail expression `a` and the theta still loads
     // clean — the load is a lie about what it parsed. `expectLoadsClean` cannot
-    // be used here: the tail `a` is a legitimate expression FORM on the logical
-    // line the trailing `>` continued, so it lands in the statement list rather
-    // than being promoted to `body.tail` (`parseForms` promotes only a form that
-    // opened a new logical line). That promotion loss is the lexer's
-    // continuation rule, not the capture's; what this cell pins is that the
-    // token survives AS A FORM instead of vanishing into the arm source.
+    // be used to detect absorption alone: bug 0517 now promotes the distinct
+    // final form to body.tail despite the continued logical line. Pin its
+    // identity and range as well as the unchanged declaration capture.
     const doc = parse(F_LET_THEN_GENERIC);
     expect(
       diagLines(doc),
@@ -1225,7 +1222,11 @@ describe("bug 0033 (g) — an alias right-hand side ends at the declaration's en
     expect(
       stmtSig(doc),
       `g2 — the trailing \`a\` survives as an expression form; diagnostics=${JSON.stringify(diagLines(doc))}`,
-    ).toEqual(["let:a", "schema:IntList", "expr"]);
+    ).toEqual(["let:a", "schema:IntList"]);
+    expect(doc.body.tail).toMatchObject({
+      kind: "ident", name: "a",
+      range: { start: { line: 6, column: 1 }, end: { line: 6, column: 2 } },
+    });
   });
 
   it("g3: a union whose LAST arm is generic-tailed stops at the following statement", () => {
@@ -1521,7 +1522,7 @@ const VOID_POSITION = "theta/parse/void-in-non-return-position";
 const RESULT_POSITION = "theta/parse/result-in-schema-position";
 
 describe("bug 0033 (l) — a punct-headed following statement is not absorbed", () => {
-  it("n1: a bare `@`-query after a generic-tailed alias survives as a statement", () => {
+  it("n1: a bare `@`-query after a generic-tailed alias survives as the tail", () => {
     // Destructive arrangement: the arm grows to ``array<integer>@`` `` (the
     // lexer emits the two backtick delimiters and no prose tokens), the query
     // statement is GONE, and the theta loads with zero diagnostics.
@@ -1533,16 +1534,13 @@ describe("bug 0033 (l) — a punct-headed following statement is not absorbed", 
     expect(
       stmtSig(doc),
       `n1 — the query survives as its own form; diagnostics=${JSON.stringify(diagLines(doc))}`,
-    ).toEqual(["schema:X", "query"]);
-    // The query's OWN disposition, pinned as observed rather than as preferred:
-    // the `>` continuation swallowed the boundary newline, so the query does not
-    // open a logical line and `parseForms` cannot promote it to the void tail.
-    // A non-tail bare query is QRY-19's sole trigger. That is the arrangement's
-    // honest cost; the alternative is the statement disappearing.
-    expect(
-      diagLines(doc),
-      "n1 — the surviving query is an ordinary non-tail bare query",
-    ).toEqual([line(DISCARDED, msg(DISCARDED, []))]);
+    ).toEqual(["schema:X"]);
+    // Bug 0517: a distinct final query is a tail, not a QRY-19 statement.
+    expect(doc.body.tail).toMatchObject({
+      kind: "query", schema: null, template: "ask something",
+      range: { start: { line: 5, column: 1 }, end: { line: 5, column: 17 } },
+    });
+    expect(diagLines(doc), "n1 — tail query has no discard diagnostic").toEqual([]);
   });
 
   it("n2: a TYPED `@<X>`-query after the same alias survives with its annotation", () => {
@@ -1556,21 +1554,20 @@ describe("bug 0033 (l) — a punct-headed following statement is not absorbed", 
     expect(
       stmtSig(doc),
       `n2 — the typed query survives; diagnostics=${JSON.stringify(diagLines(doc))}`,
-    ).toEqual(["schema:X", "query"]);
-    expect(
-      diagLines(doc),
-      "n2 — same non-tail bare-query disposition as n1; the annotation resolves, so no " +
-        "unresolved-named-type joins it",
-    ).toEqual([line(DISCARDED, msg(DISCARDED, []))]);
+    ).toEqual(["schema:X"]);
+    expect(doc.body.tail).toMatchObject({
+      kind: "query", schema: "X", ascriptionWritten: true, template: "ask",
+      range: { start: { line: 5, column: 1 }, end: { line: 5, column: 10 } },
+    });
+    expect(diagLines(doc), "n2 — typed tail query resolves without QRY-19").toEqual([]);
   });
 
   it("n3: a parenthesised expression statement after the same alias survives", () => {
     // `(` is no depth-0 stop in the general list — it INCREMENTS depth — so the
     // arm grew to `array<integer>(1+2)` and the statement was consumed with it.
     const doc = parse(F_GENERIC_THEN_PAREN);
-    // `expectLoadsClean` does not apply: its residue rule forbids an `expr`
-    // statement, and here the surviving statement IS an expression form — the
-    // observable this cell exists to see. The load must still be clean.
+    // Bug 0517: the surviving final form is a structural tail; its operands
+    // and original range distinguish survival from absorption.
     expect(
       diagLines(doc),
       "n3 — a well-formed alias followed by a well-formed expression statement",
@@ -1580,16 +1577,19 @@ describe("bug 0033 (l) — a punct-headed following statement is not absorbed", 
     ]);
     expect(
       stmtSig(doc),
-      `n3 — the expression survives as a form; diagnostics=${JSON.stringify(diagLines(doc))}`,
-    ).toEqual(["schema:X", "expr"]);
+      `n3 — the expression survives as a tail; diagnostics=${JSON.stringify(diagLines(doc))}`,
+    ).toEqual(["schema:X"]);
+    expect(doc.body.tail).toMatchObject({
+      kind: "binary", op: "+", left: { kind: "number", text: "1" }, right: { kind: "number", text: "2" },
+      range: { start: { line: 5, column: 3 }, end: { line: 5, column: 8 } },
+    });
   });
 
   it("n4: an array-literal statement after the same alias survives", () => {
     // `[` likewise increments depth, so `[1, 2]` joined the arm. The type
     // grammar has no bracket-headed Type at an arm boundary at all.
     const doc = parse(F_GENERIC_THEN_ARRAY_LIT);
-    // Same as n3: the survivor is an expression form, so the shared
-    // residue-forbidding helper is the wrong oracle here.
+    // Bug 0517: the final literal survives structurally as the tail.
     expect(
       diagLines(doc),
       "n4 — a well-formed alias followed by a well-formed array-literal statement",
@@ -1599,8 +1599,12 @@ describe("bug 0033 (l) — a punct-headed following statement is not absorbed", 
     ]);
     expect(
       stmtSig(doc),
-      `n4 — the literal survives as a form; diagnostics=${JSON.stringify(diagLines(doc))}`,
-    ).toEqual(["schema:X", "expr"]);
+      `n4 — the literal survives as a tail; diagnostics=${JSON.stringify(diagLines(doc))}`,
+    ).toEqual(["schema:X"]);
+    expect(doc.body.tail).toMatchObject({
+      kind: "array", elements: [{ kind: "number", text: "1" }, { kind: "number", text: "2" }],
+      range: { start: { line: 5, column: 1 }, end: { line: 5, column: 7 } },
+    });
   });
 
   it("n4b: the same four heads stop where an arm must START, not only after one", () => {
@@ -1614,15 +1618,14 @@ describe("bug 0033 (l) — a punct-headed following statement is not absorbed", 
     const doc = parse(F_EMPTY_RHS_THEN_QUERY);
     expect(
       stmtSig(doc),
-      `n4b — the query is a statement of its own; diagnostics=${JSON.stringify(diagLines(doc))}`,
-    ).toEqual(["schema:X", "query"]);
-    expect(
-      diagLines(doc),
-      "n4b — a shapeless right-hand side takes group (e)'s disposition, and the surviving " +
-        "query takes n1's",
-    ).toEqual([
+      `n4b — the recovered query is the tail; diagnostics=${JSON.stringify(diagLines(doc))}`,
+    ).toEqual(["schema:X"]);
+    expect(doc.body.tail).toMatchObject({
+      kind: "query", schema: null, template: "ask",
+      range: { start: { line: 5, column: 1 }, end: { line: 5, column: 7 } },
+    });
+    expect(diagLines(doc), "n4b — shapeless RHS still refuses; tail query is not discarded").toEqual([
       line(EMPTY_BODY, msg(EMPTY_BODY, [["<X>", "X"]])),
-      line(DISCARDED, msg(DISCARDED, [])),
     ]);
   });
 
@@ -1969,8 +1972,12 @@ describe("bug 0033 (p) — `!` and the expression-statement keywords end the cap
     ).toEqual(["array<integer>"]);
     expect(
       stmtSig(doc),
-      `n17 — the statement survives as a form; diagnostics=${JSON.stringify(diagLines(doc))}`,
-    ).toEqual(["schema:X", "expr"]);
+      `n17 — the negation survives as a tail; diagnostics=${JSON.stringify(diagLines(doc))}`,
+    ).toEqual(["schema:X"]);
+    expect(doc.body.tail).toMatchObject({
+      kind: "binary", unary: true, op: "!", left: { kind: "null" }, right: { kind: "bool", value: true },
+      range: { start: { line: 5, column: 1 }, end: { line: 5, column: 6 } },
+    });
     expect(
       diagLines(doc),
       "n17 — a well-formed alias followed by a well-formed expression statement",
@@ -1984,8 +1991,12 @@ describe("bug 0033 (p) — `!` and the expression-statement keywords end the cap
     const doc = parse(F_EMPTY_RHS_THEN_INVOKE);
     expect(
       stmtSig(doc),
-      `n18 — the invocation is a statement of its own; diagnostics=${JSON.stringify(diagLines(doc))}`,
-    ).toEqual(["schema:X", "invoke"]);
+      `n18 — the recovered invocation is the tail; diagnostics=${JSON.stringify(diagLines(doc))}`,
+    ).toEqual(["schema:X"]);
+    expect(doc.body.tail).toMatchObject({
+      kind: "invoke", path: "child.theta", returnSchema: "string", args: [{ kind: "string", value: "child.theta" }],
+      range: { start: { line: 5, column: 1 }, end: { line: 5, column: 30 } },
+    });
     expect(
       diagLines(doc),
       "n18 — a shapeless right-hand side takes group (e)'s disposition, and nothing else fires",
@@ -2003,8 +2014,13 @@ describe("bug 0033 (p) — `!` and the expression-statement keywords end the cap
     ).not.toContain(UNRESOLVED);
     expect(
       stmtSig(doc),
-      `n19 — the match survives as an expression form; diagnostics=${JSON.stringify(diagLines(doc))}`,
-    ).toEqual(["schema:X", "expr"]);
+      `n19 — the match survives as a tail; diagnostics=${JSON.stringify(diagLines(doc))}`,
+    ).toEqual(["schema:X"]);
+    expect(doc.body.tail).toMatchObject({
+      kind: "match", scrutinee: { kind: "number", text: "1" },
+      arms: [{ body: { kind: "number", text: "2" } }],
+      range: { start: { line: 5, column: 1 }, end: { line: 5, column: 19 } },
+    });
     expect(diagLines(doc), "n19 — the shapeless right-hand side alone").toEqual([
       line(EMPTY_BODY, msg(EMPTY_BODY, [["<X>", "X"]])),
     ]);
@@ -2022,7 +2038,11 @@ describe("bug 0033 (p) — `!` and the expression-statement keywords end the cap
       expect(
         stmtSig(doc),
         `${label} — the constructor call survives as a form; diagnostics=${JSON.stringify(diagLines(doc))}`,
-      ).toEqual(["schema:X", "expr"]);
+      ).toEqual(["schema:X"]);
+      expect(doc.body.tail).toMatchObject({
+        kind: "result-ctor", ctor: label === "n20 Ok" ? "Ok" : "Err", arg: { kind: "number", text: "1" },
+        range: { start: { line: 5, column: 1 }, end: { line: 5, column: label === "n20 Ok" ? 6 : 7 } },
+      });
       expect(
         diagLines(doc),
         `${label} — the shapeless right-hand side alone, with no unresolved TYPE named after ` +
@@ -2248,7 +2268,7 @@ describe("bug 0033 (t) — legal recursion is admitted, not refused", () => {
 // ===========================================================================
 
 describe("bug 0033 (u) — `-` after a completed arm ends the capture", () => {
-  it("n28: `-a` after a generic-tailed alias survives as its own statement", () => {
+  it("n28: `-a` after a generic-tailed alias survives as the final tail (0517)", () => {
     const doc = parse(F_GENERIC_THEN_NEG);
     expect(
       armsOf(doc, "X", "n28"),
@@ -2257,8 +2277,12 @@ describe("bug 0033 (u) — `-` after a completed arm ends the capture", () => {
     ).toEqual(["array<integer>"]);
     expect(
       stmtSig(doc),
-      `n28 — the negation survives as a form; diagnostics=${JSON.stringify(diagLines(doc))}`,
-    ).toEqual(["let:a", "schema:X", "expr"]);
+      `n28 — the negation survives as a tail; diagnostics=${JSON.stringify(diagLines(doc))}`,
+    ).toEqual(["let:a", "schema:X"]);
+    expect(doc.body.tail).toMatchObject({
+      kind: "binary", unary: true, op: "-", left: { kind: "null" }, right: { kind: "ident", name: "a" },
+      range: { start: { line: 6, column: 1 }, end: { line: 6, column: 3 } },
+    });
     expect(
       diagLines(doc),
       "n28 — a well-formed alias followed by a well-formed negation statement; `let a = 1` " +

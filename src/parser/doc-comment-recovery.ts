@@ -136,7 +136,7 @@ export function templateProseLineSpans(tokens: readonly Token[]): (line: number)
   // 0411 excluded a template span's lines wholesale, which over-reached into
   // `${…}` interpolation interiors: lexical.md:24 sentence 2 puts interpolation
   // contents in expression position, where the SAME `///` line one production
-  // over already draws `doc-comment-misplaced` (grammar.md:204). The walk below
+  // over already draws `doc-comment-misplaced` (grammar.md:212). The walk below
   // additionally tracks interpolation sub-spans — the lexer marks entry with an
   // adjacent `$` `{` punct pair (only ever emitted together, from template
   // prose) and nested `{`/`}` puncts while inside, so a depth counter over

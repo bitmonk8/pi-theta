@@ -14,7 +14,7 @@ import { parseDoc, schemaDeclLookup } from "./helpers/e2e-s1";
 // (docs/bugs/0042-schema-decl-same-line-residue-silent.md).
 //
 // SPEC ANCHORS (the contract, not the current code):
-//   - docs/spec_topics/grammar.md:180–:185 — `SchemaDecl ::= "schema" Ident
+//   - docs/spec_topics/grammar.md:188–:193 — `SchemaDecl ::= "schema" Ident
 //     SchemaShape`, with `AliasRhs ::= Type ("|" Type)*` and
 //     `UnionRhs ::= Type ("|" Type)+`. Two `Type` atoms with no `|` between them
 //     are not an `AliasRhs`; a `|` with no `Type` on one of its sides is not one
@@ -22,7 +22,7 @@ import { parseDoc, schemaDeclLookup } from "./helpers/e2e-s1";
 //   - grammar.md:102 — `LiteralType ::= STRING | NUMBER | BOOLEAN | NULL` has no
 //     unary-minus alternative, so `-1` is a `PrimitiveLit` of the VALUE
 //     sublanguage (:20–:24) and spells no `AliasRhs` at all.
-//   - grammar.md:120 (`ThetaBody ::= Stmt* Expr?`), :208 — statements
+//   - grammar.md:120 (`ThetaBody ::= Stmt* Expr?`), :216 — statements
 //     are separated by newlines, the continuation trigger set is closed, and
 //     there is no semicolon escape: a second statement on the same line has no
 //     derivation. The NEXT-line arrangement is the one the separator already
@@ -468,7 +468,7 @@ function expectMalformedAliasRhs(opts: {
   expect(
     renderCoded(hits),
     `${label} — bug 0042 §Expected: this right-hand side is no ` +
-      `\`AliasRhs ::= Type ("|" Type)*\` (grammar.md:184), so the declaration that loads is not ` +
+      `\`AliasRhs ::= Type ("|" Type)*\` (grammar.md:192), so the declaration that loads is not ` +
       `the declaration that was written and ${CODE} is the registered disposition. Exactly one ` +
       `emission per malformed declaration, at error severity, with the registry's normative ` +
       `message. Whole observed diagnostic list=${JSON.stringify(renderDiags(doc.diagnostics, prelude))}`,
@@ -771,23 +771,17 @@ describe("bug 0042 (b) — same-line residue after a complete right-hand side is
     });
   }
 
-  it("RED (b12): `schema X = Cat 42` as the last line — the tail stays unpromoted", () => {
-    // A severed residue never starts a line, so it is not tail-promotable and
-    // the body's final value is `null` (grammar.md:129). That consequence is
-    // the general same-line one (fixture 6b's control in group (e)) and must
-    // survive the emission untouched.
+  it("(b12): `schema X = Cat 42` retains its refusal and recovered final tail", () => {
+    // Bug 0517: role selection is over parsed forms, not logical lines.
+    // Promotion does not legalize the malformed declaration or alter recovery.
     const doc = parse(F6);
     expect(armsOf(doc, "X", "b12"), "b12 — one arm").toEqual(["Cat"]);
-    expect(stmtSpans(doc, FM_LINES), "b12 — three statements, the last being the residue").toEqual([
+    expect(stmtSpans(doc, FM_LINES), "b12 — declarations unchanged, residue becomes tail").toEqual([
       "schema:Cat@1:1-1:25",
       "schema:X@2:1-2:15",
-      "expr@2:16-2:18",
     ]);
-    expect(
-      tailKind(doc),
-      "b12 — tail promotion requires a line-starting last statement, so the severed residue does " +
-        "not become the final value",
-    ).toBe("none");
+    expect(doc.body.tail).toMatchObject({ kind: "number", text: "42", numericType: "integer" });
+    expect(fmtSpan(doc.body.tail?.range, FM_LINES)).toBe("2:16-2:18");
     expectMalformedAliasRhs({
       label: "b12",
       doc,
@@ -1217,20 +1211,23 @@ describe("bug 0042 (e) — the fences the rule may not cross", () => {
     // DECLARATION): both name the same severed token, at the same span, and
     // neither is exclusive of the other. The residue-free control stays
     // exactly `[]`, because a well-formed right-hand side is outside the rule
-    // under either code.
+    // under either code. Bug 0517 makes the recovered final identifier a
+    // structural tail, additionally exposing its existing type-as-value rule.
     const doc = parseLib(F1F_LIB);
     expect(armsOf(doc, "X", "e4"), "e4 — the same capture as fixture 1").toEqual(["Cat"]);
-    expect(stmtSpans(doc, LIB_LINES), "e4 — the same statements as fixture 1, minus the tail").toEqual([
+    expect(stmtSpans(doc, LIB_LINES), "e4 — declarations remain unchanged").toEqual([
       "schema:Cat@1:1-1:25",
       "schema:X@2:1-2:15",
-      "expr@2:16-2:19",
     ]);
+    expect(doc.body.tail).toMatchObject({ kind: "ident", name: "Cat" });
+    expect(fmtSpan(doc.body.tail?.range, LIB_LINES)).toBe("2:16-2:19");
     expect(
       renderDiags(doc.diagnostics, LIB_LINES),
-      "e4 — the full list, in observed emission order: both codes anchored at the residue token " +
+      "e4 — the full list, in observed emission order: all codes anchored at the residue token " +
         "the declaration cannot hold",
     ).toEqual([
       `error ${CODE}: ${malformedMessage("X")} @2:16-2:19`,
+      `error theta/parse/type-as-value: ${msg("theta/parse/type-as-value", [["<name>", "Cat"]])} @2:16-2:19`,
       `error ${THETALIB_TOP_LEVEL}: ${msg(THETALIB_TOP_LEVEL, [])} @2:16-2:19`,
     ]);
 
@@ -1337,7 +1334,7 @@ describe("bug 0042 (e) — the fences the rule may not cross", () => {
     // The registry row's second exclusion. `array<integer>` ends in a trailing
     // newline-continuation trigger, so the following `let` sits directly ahead
     // of the cursor with no separator token — yet it is on the next SOURCE
-    // line, which the statement separator already governs (grammar.md:208).
+    // line, which the statement separator already governs (grammar.md:216).
     // This is the cell that keeps the rule's discrimination line-based.
     const doc = parse(F12);
     expect(armsOf(doc, "X", "e8"), "e8 — the generic arm is captured whole").toEqual([
@@ -1353,11 +1350,9 @@ describe("bug 0042 (e) — the fences the rule may not cross", () => {
     ).toEqual([]);
   });
 
-  it("GREEN (e9, fixtures 6a/6b): the general same-line statement class keeps its dispositions", () => {
-    // The tail-promotion controls. `42` on its own line IS promoted; `42 43`
-    // loses the promotion for the second statement exactly as fixture 6's
-    // residue does. That class is wider than this boundary and unfiled
-    // (§Non-goals), so no rule scoped to an alias right-hand side may report it.
+  it("(e9, fixtures 6a/6b): final scalar forms are tails regardless of line packing", () => {
+    // Bug 0517 changes tail role, not acceptance of general packed syntax.
+    // Both final scalar values and their original source spans survive.
     const promoted = parse(F6A);
     expect(stmtSpans(promoted, FM_LINES), "e9 — one statement, the `42` promoted").toEqual([
       "schema:Cat@1:1-1:25",
@@ -1365,16 +1360,16 @@ describe("bug 0042 (e) — the fences the rule may not cross", () => {
     expect(tailKind(promoted), "e9 — a line-starting last expression is the final value").toBe(
       "number",
     );
+    expect(promoted.body.tail).toMatchObject({ kind: "number", text: "42", numericType: "integer" });
+    expect(fmtSpan(promoted.body.tail?.range, FM_LINES)).toBe("2:1-2:3");
     expect(renderDiags(promoted.diagnostics, FM_LINES), "e9 — silent").toEqual([]);
 
     const pair = parse(F6B);
-    expect(stmtSpans(pair, FM_LINES), "e9 — two statements on one line, neither a declaration").toEqual(
-      ["expr@1:1-1:3", "expr@1:4-1:6"],
+    expect(stmtSpans(pair, FM_LINES), "e9 — first form alone remains a statement").toEqual(
+      ["expr@1:1-1:3"],
     );
-    expect(
-      tailKind(pair),
-      "e9 — the second statement does not start a line, so there is no final value",
-    ).toBe("none");
+    expect(pair.body.tail).toMatchObject({ kind: "number", text: "43", numericType: "integer" });
+    expect(fmtSpan(pair.body.tail?.range, FM_LINES)).toBe("1:4-1:6");
     expect(
       renderDiags(pair.diagnostics, FM_LINES),
       "e9 — and the general class stays silent: this fix reports declarations, not line packing",

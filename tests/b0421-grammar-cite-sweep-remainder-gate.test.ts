@@ -196,7 +196,7 @@ function citesSpecLine(src: string, n: number): boolean {
 /**
  * A spec-side bare `grammar.md:<n>` cite that is NOT the low end of a range — used
  * where a protected range cite shares the number with a stale bare cite (line-29's
- * `grammar.md:179–186` must not shadow the stale bare `grammar.md:179`).
+ * `grammar.md:187–194` must not shadow the stale bare `grammar.md:187`).
  */
 function citesSpecLineStrict(src: string, n: number): boolean {
   return new RegExp(`(?<!reference/)grammar\\.md:${n}(?![0-9\\u2013-])`).test(src);
@@ -447,7 +447,7 @@ describe("bug 0421 — the grammar.md spec cites outside 0405's three-file enume
       citesSpecRangeEndingAt(src, staleRangeHigh),
       `cell R5: ${BLOCKEXPR} must no longer carry a worked-example range ending at grammar.md line ${staleRangeHigh} (line 218's pre-shift range).`,
     ).toBe(false);
-    // Truth-present (green after; line 153's protected single `grammar.md:164`
+    // Truth-present (green after; line 153's protected single `grammar.md:172`
     // is not a range and does not satisfy these).
     expect(
       citesSpecLine(src, armBody) || citesSpecLine(src, armSecond) || citesSpecRange(src, armBody, armSecond),
@@ -558,7 +558,7 @@ describe("bug 0421 — the grammar.md spec cites outside 0405's three-file enume
     const staleAliasRhs = aliasRhs - MAIN_SHIFT;
     const fnDecl = fnDeclLine();
     // Stale-absent (RED at fork): the bare FnParam cite (653), the AliasRhs cites
-    // (1088, 1101), and the grammar.md:138 continuation at 658 whose FnDecl half
+    // (1088, 1101), and the grammar.md:146 continuation at 658 whose FnDecl half
     // stays and whose FnParam half is stale.
     expect(
       citesSpecLine(src, staleFnParam),

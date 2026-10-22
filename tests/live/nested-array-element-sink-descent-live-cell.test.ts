@@ -1,4 +1,4 @@
-// H8a live witness — bug 0241: `docs/spec_topics/grammar.md:230`'s fourth sink
+// H8a live witness — bug 0241: `docs/spec_topics/grammar.md:238`'s fourth sink
 // bullet, "the element type of an array-typed sink that this literal is itself
 // an element of (recursive descent)", must reach the NESTED array literal, so a
 // rule-3 union written one level down admits through the real
@@ -8,7 +8,7 @@
 //     (`docs/spec_topics/expressions.md:228`: two different named schemas yield
 //     `array<A | B>` "only if some sink in scope expects a union", and
 //     `let xs: array<array<A | B>> = [[A { … }, B { … }]]` writes exactly such
-//     a sink for the inner literal by `grammar.md:230`'s fourth bullet) —
+//     a sink for the inner literal by `grammar.md:238`'s fourth bullet) —
 //     REGISTERS as a slash command and drives a real turn, where an
 //     `E`-severity `theta/parse/array-no-common-type` on the INNER literal
 //     refuses it absent this fix;
@@ -89,7 +89,7 @@ import { registryFragment } from "../helpers/registry-oracle";
 /** Rule 1's code — the verdict the nested violation is owed (expressions.md:226). */
 const ELEMENT_CODE = "theta/parse/array-element-type-mismatch";
 /**
- * The sink-LESS refusal. `grammar.md:230` puts a sink in scope for the inner
+ * The sink-LESS refusal. `grammar.md:238` puts a sink in scope for the inner
  * literal in BOTH planted documents, so this code must appear on neither: its
  * registered *Trigger* (code-registry-parse.md:44) reads "and no sink to narrow
  * against".
@@ -135,7 +135,7 @@ const ADMITTED_SENTINEL = "577";
 
 /**
  * ADMITTED — §Reproduction row A1: the binding annotation's element type
- * `array<A | B>` is the inner literal's sink under `grammar.md:230`'s fourth
+ * `array<A | B>` is the inner literal's sink under `grammar.md:238`'s fourth
  * bullet, so rule 3's union is admitted one level down exactly as it is flat. A
  * plain task-question prompt rather than a typed query, so no AJV schema is
  * registered under a name this extension host's other document also declares.
@@ -236,7 +236,7 @@ describe("bug 0241 live: the nested element sink admits its rule-3 literal so th
         "a theta-system-note entry named " +
           NO_COMMON_CODE +
           " fired — both planted documents write an in-scope element sink for their inner " +
-          "literal (grammar.md:230), and that row's registered Trigger requires 'no sink to " +
+          "literal (grammar.md:238), and that row's registered Trigger requires 'no sink to " +
           "narrow against'. Notes: " + JSON.stringify(notes),
       ).toBe(false);
 
@@ -247,7 +247,7 @@ describe("bug 0241 live: the nested element sink admits its rule-3 literal so th
       expect(
         parseDoc(ADMITTED, `${STEM_ADMITTED}.theta`).diagnostics.map((d) => d.code),
         "attribution: the nested-sink document must carry zero diagnostics — a spec-legal " +
-          "source the fix stops refusing (grammar.md:230, expressions.md:228)",
+          "source the fix stops refusing (grammar.md:238, expressions.md:228)",
       ).toEqual([]);
       expect(
         handle.command(STEM_ADMITTED),

@@ -58,8 +58,8 @@ import { arrayElementMessage, REGISTRY } from "./helpers/registry-oracle";
 //
 // Spec anchors (line numbers measured at this HEAD; where the bug doc's own
 // citation has drifted, both are given):
-//   - docs/spec_topics/grammar.md:225–230 — §`array<T>` literal type-sink rule.
-//     The sink set is declared EXHAUSTIVE at :225 and :229 lists "The declared
+//   - docs/spec_topics/grammar.md:233–238 — §`array<T>` literal type-sink rule.
+//     The sink set is declared EXHAUSTIVE at :233 and :237 lists "The declared
 //     type of a surrounding constructor field (`Schema { items: [...] }`)". w4
 //     is an implementation defect against a normative rule whose code is
 //     already registered.
@@ -398,9 +398,9 @@ describe("bug 0031 (a) — a constructor field value is checked against its decl
   });
 
   it("RED w4: `Bag { xs: [\"a\", \"b\"] }` fires BOTH object-field-type-mismatch and array-element-type-mismatch", () => {
-    // The normative half: grammar.md:225–230 declares the `array<T>` sink set
+    // The normative half: grammar.md:233–238 declares the `array<T>` sink set
     // exhaustive and lists the declared type of a surrounding constructor field
-    // in it at :229. §Fix threads the declared field type as the element sink
+    // in it at :237. §Fix threads the declared field type as the element sink
     // and marks the node skipped, mirroring the typed-`let` arm — so this
     // fixture emits the same PAIR the matched `let` (control c3) emits today,
     // with the new code standing where `let-rhs-type-mismatch` stands there.
@@ -412,7 +412,7 @@ describe("bug 0031 (a) — a constructor field value is checked against its decl
     );
     expect(
       hits(doc, ARRAY_ELEMENT_CODE),
-      `w4 — grammar.md:229's sink-set member is implemented, so the ALREADY-REGISTERED element code fires (code-registry-parse.md:40; expressions.md:224 "naming the offending element"); actual diagnostics=${render(doc)}`,
+      `w4 — grammar.md:237's sink-set member is implemented, so the ALREADY-REGISTERED element code fires (code-registry-parse.md:40; expressions.md:224 "naming the offending element"); actual diagnostics=${render(doc)}`,
     ).toEqual([`error ${arrayElementMessage(0, "number", "string")}`]);
     expect(
       errorCodes(doc),

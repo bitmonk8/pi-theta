@@ -19,7 +19,7 @@ import { parseDoc, errors, hasCode } from "./helpers/e2e-s1";
 // interpolation interior too, so a `///` line one `${` deeper than prose is
 // swallowed as a comment and vanishes — where the byte-identical line in any
 // other expression position draws `theta/parse/doc-comment-misplaced`
-// (grammar.md:204: `///` above `let`/expression/control-flow productions).
+// (grammar.md:212: `///` above `let`/expression/control-flow productions).
 // The overreach violates sentence 2; the correct predicate is "column-1 inside
 // template PROSE", i.e. inside a span AND NOT inside a `${…}` sub-span.
 //
@@ -53,7 +53,7 @@ const DOC_MISPLACED = "theta/parse/doc-comment-misplaced";
 // P1 — the divergence. A column-1 `///` line sits inside a MULTI-LINE `${…}`
 // interpolation, above the `1 + 2` expression continuation (a non-anchor
 // production). lexical.md:24 sentence 2 puts this in expression position;
-// grammar.md:204 makes it `doc-comment-misplaced`. At the fork the line is
+// grammar.md:212 makes it `doc-comment-misplaced`. At the fork the line is
 // excluded by `isTemplateLine`, forms no run, and is lexed away — clean load.
 const P1 = `---
 mode: prompt
@@ -122,7 +122,7 @@ q
 // at the MATCHING `}`, not the record's inner `}` — otherwise the `///` line
 // would be (wrongly) read as already outside the interpolation and excluded
 // as template prose. The line is still expression position (lexical.md:24
-// sentence 2) above the interpolation's non-anchor closing `}` (grammar.md:204).
+// sentence 2) above the interpolation's non-anchor closing `}` (grammar.md:212).
 const NEST = `---
 mode: prompt
 ---
@@ -135,7 +135,7 @@ q
 // ===========================================================================
 // P1 — RED at fork. The interpolation-interior `///` line is in expression
 // position (lexical.md:24 sentence 2); a `///` above the `1 + 2` non-anchor
-// continuation is `doc-comment-misplaced` (grammar.md:204). At the fork the
+// continuation is `doc-comment-misplaced` (grammar.md:212). At the fork the
 // 0411 line-granular exclusion swallows it and the theta loads clean; the fix
 // must make P1 draw exactly what P2 draws.
 // ===========================================================================
@@ -146,7 +146,7 @@ describe("bug 0420 P1 — a `///` inside a multi-line `${…}` interpolation ref
       hasCode(doc.diagnostics, DOC_MISPLACED),
       "a column-1 `///` inside a `${…}` interpolation is in expression position " +
         "(lexical.md:24 sentence 2), so a `///` above the `1 + 2` non-anchor " +
-        "continuation must draw theta/parse/doc-comment-misplaced (grammar.md:204) — " +
+        "continuation must draw theta/parse/doc-comment-misplaced (grammar.md:212) — " +
         "it must not be excluded as template prose and silently vanish",
     ).toBe(true);
   });
@@ -164,7 +164,7 @@ describe("bug 0420 P2 — the expression-position baseline draws doc-comment-mis
     expect(
       hasCode(doc.diagnostics, DOC_MISPLACED),
       "a column-1 `///` above a mid-expression continuation is doc-comment-misplaced " +
-        "(grammar.md:204); this is the expression-position behaviour lexical.md:24 " +
+        "(grammar.md:212); this is the expression-position behaviour lexical.md:24 " +
         "sentence 2 requires the interpolation interior (P1) to match",
     ).toBe(true);
   });
@@ -239,7 +239,7 @@ describe("bug 0420 NEST — a `///` line inside an interpolation with a nested b
       "the `///` line sits inside the interpolation sub-span — the inner record " +
         "braces `{ a: 1 }` are depth-counted so the sub-span does NOT close at the " +
         "record's `}`; the line is expression position (lexical.md:24 sentence 2) " +
-        "above the interpolation's non-anchor closing `}` (grammar.md:204), so it " +
+        "above the interpolation's non-anchor closing `}` (grammar.md:212), so it " +
         "must draw the misplaced diagnostic, not be swallowed as prose",
     ).toBe(true);
   });
