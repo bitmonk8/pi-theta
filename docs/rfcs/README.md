@@ -35,9 +35,18 @@ shipped behaviour until specified and implemented.
 - [0013 — A restart contract for long-running theta panes: recover by re-issuing against durable state](./0013-long-running-theta-restart-contract.md) — draft
 - [0014 — Persisted child sessions](./0014-persisted-child-sessions.md) — queued (not yet drafted)
 - [0015 — The theta run card: a live in-transcript script heatmap](./0015-theta-run-card.md) — draft
+- [0016 — Code-side tool calls honor installed tool implementations](./0016-code-side-tool-dispatch-parity.md) — draft
+- [0017 — Code-side tool observability without conversation-transcript rows](./0017-code-side-tool-observability-parity.md) — draft
 
 Reclassified out of the RFC series:
 
 - 0004 — Extension-registered tools are unreachable from Theta — this was a
   defect against documented behaviour, not a feature proposal; moved to
   [Bugs — 0001](../bugs/0001-extension-tools-unreachable.md).
+
+## Provenance
+
+- RFC statuses and titles come from the indexed documents; RFC 0014 remains a
+  queued placeholder rather than a drafted document.
+- RFCs 0016 and 0017 record the owner's separate execution-parity and
+  observability-parity feature requests. Neither changes shipped behavior.
