@@ -252,8 +252,11 @@ theta 1.0 surface.
 - **Print-mode failure surface.** When `ctx.mode` is `print` or `json` and the
   process is not a subagent child (the subagent-root regime is inactive), a
   top-level SLSH-3 `Err` note (the `cancelled` rendering and the stamp-failure
-  fallback arm included) or either runtime-panic framing is also written to
-  stderr as its rendered content plus a newline, and `process.exitCode` is set
+  fallback arm included), either runtime-panic framing, or any of the seven
+  binder short-circuit failure notes (the six group-A causes `needs_info`,
+  `ambiguous`, `malformed`, `transport`, `ajv_args`, `cancelled`, and the
+  group-B BNDR-9 custom-type-unsafe rejection) is also written to stderr as
+  its rendered content plus a newline, and `process.exitCode` is set
   to `1` (assigned only, never `process.exit()`; a numeric code greater than `1`
   already set is kept). `tui` and `rpc` never qualify. Without the surface such
   an ending gives no process-boundary signal: text print mode (`pi -p`) prints
@@ -269,8 +272,11 @@ theta 1.0 surface.
   the diagnostic goes to a UI toast and stderr carries the surface's line once.
   An SDK embedder that passes no `mode` binding reads `ctx.mode === "print"`
   (the host runner's default, with or without a UI context) and gets the same
-  surface. Binder short-circuit notes (`argument binder unavailable`,
-  `argument binding cancelled`) are excluded and still exit `0` (bug 0494). See
+  surface. Binder failure delivery and non-stale fallback arms all qualify;
+  a completed fallback is not followed by another send of the original note.
+  Recognized stale-runtime invalidation still unwinds without a binder surface
+  call. Successful binding, bypasses, success echoes and SLSH-1 informational
+  overflow notes do not qualify. See
   [Slash-Command Invocation — Print-mode failure surface](../spec_topics/slash-invocation.md#slsh-3-print-mode-failure-surface).
 
 Per-`kind` system-note templates (SLSH-4; renderers emit the surrounding template

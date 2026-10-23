@@ -415,8 +415,9 @@ export interface ProductionProducerInput {
    * `ctx.mode === "print" || ctx.mode === "json"` AND the process is not a
    * subagent child (a child's failure surface is its PIC-59 envelope, not a
    * process exit code). `emitTopLevelErrNote` (SLSH-3 `Err` and the
-   * `cancelled` rendering) and `emitPanicNote` (both panic framings) call it
-   * AFTER their `sendSystemNote`, so a print/json parent whose top-level drive
+   * `cancelled` rendering), `emitPanicNote` (both panic framings), and
+   * BinderRunner's `#emitBinderFailureNote` / `#emitCustomTypeUnsafeNote` call it
+   * AFTER note delivery or non-stale fallback, so a print/json parent whose top-level drive
    * ends non-Ok before any assistant turn is distinguishable from success at
    * the process boundary. The host alone exits 0 on both: text-mode `pi -p`
    * prints and exit-codes only from a trailing assistant message, so stdout

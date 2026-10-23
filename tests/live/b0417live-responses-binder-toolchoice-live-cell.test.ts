@@ -17,8 +17,8 @@
 // gains the row and is admitted, so the bind now SUCCEEDS.
 //
 // THE WITNESS (doc-MANDATED live): a `mode: prompt`, two-integer-`params:`
-// theta whose `bind_model:` names the registry-served `unity-responses/gpt-4.1`
-// (api `openai-responses`, credentialed via `$UNITY_LITELLM_KEY1`). Drive one
+// theta whose `bind_model:` names the registry-served `openai/gpt-6-luna`
+// (api `openai-responses`, using the configured OpenAI credentials). Drive one
 // binder pass plus one body turn; assert the `bind_echo` success note fired,
 // the fail-closed `argument binder unavailable` note is ABSENT, and the body
 // ran (both `params:` reached the rendered turn). At the fork this reds; under
@@ -72,13 +72,13 @@ const BODY_MARKER = "B0417LIVE-BOUND";
 
 /**
  * The witness theta: `bind_model:` names a registry-served `openai-responses`
- * model (`unity-responses/gpt-4.1`). Two required integer `params:`; the body
+ * model (`openai/gpt-6-luna`). Two required integer `params:`; the body
  * interpolates both bound fields behind a committed marker and asks their sum.
  */
 const RESP_THETA = [
   "---",
   "mode: prompt",
-  "bind_model: unity-responses/gpt-4.1",
+  "bind_model: openai/gpt-6-luna",
   "params:",
   "  x: integer",
   "  y: integer",

@@ -800,14 +800,17 @@ export class BinderRunner {
    * `emitPanicNote`.
    */
   #emitCustomTypeUnsafeNote(thetaName: string, value: string): void {
+    const content = renderCustomTypeUnsafeNote(thetaName, value);
     sendSystemNote(
       {
-        content: renderCustomTypeUnsafeNote(thetaName, value),
+        content,
         display: true,
         details: { diagnostics: [customTypeUnsafeDiagnostic(value)] },
       },
       this.#systemNoteChannel(),
     );
+    this.#input.printModeFailureSurface?.mirrorLine(content);
+    this.#input.printModeFailureSurface?.markFailed();
   }
 
   /**
@@ -833,26 +836,28 @@ export class BinderRunner {
     const channel = this.#systemNoteChannel();
     if (ticket === undefined) {
       sendSystemNote({ content, display: true, details: { event: {} } }, channel);
-      return;
+    } else {
+      const event = this.#buildGroupAEventOrFallback(
+        content,
+        (): RuntimeEvent => ({
+          kind: surface.kind,
+          theta: `/${ticket.theta}`,
+          invocation_id: ticket.invocationId,
+          message: binderFailureMessage(surface),
+          occurred_at: this.#input.root.clock.wallNow(),
+        }),
+        channel,
+      );
+      if (event !== undefined) {
+        sendSystemNote(
+          buildRuntimeEventNote(event, { topLevelCascade: true, userFacingTemplate: content }),
+          channel,
+        );
+      }
     }
-    const event = this.#buildGroupAEventOrFallback(
-      content,
-      (): RuntimeEvent => ({
-        kind: surface.kind,
-        theta: `/${ticket.theta}`,
-        invocation_id: ticket.invocationId,
-        message: binderFailureMessage(surface),
-        occurred_at: this.#input.root.clock.wallNow(),
-      }),
-      channel,
-    );
-    if (event === undefined) {
-      return;
-    }
-    sendSystemNote(
-      buildRuntimeEventNote(event, { topLevelCascade: true, userFacingTemplate: content }),
-      channel,
-    );
+    // Delivery or its non-stale fallback completes before mirroring the same note.
+    this.#input.printModeFailureSurface?.mirrorLine(content);
+    this.#input.printModeFailureSurface?.markFailed();
   }
 
   /**

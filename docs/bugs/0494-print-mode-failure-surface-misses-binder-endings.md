@@ -1,6 +1,9 @@
 # Bug 0494 — the bug-0493 print-mode failure surface misses every binder short-circuit ending: a `pi -p` parent whose invocation dies in the argument binder (needs_info, ambiguous, malformed, ajv_args, transport, cancelled, BNDR-9) still exits 0 with empty stdout and empty stderr
 
-- **Status:** open
+- **Status:** fixed (unreleased - commit/push only)
+- **Release status:** no new package release is published. The existing published
+  package does not contain this new fix; no resolving shipment SHA is assigned
+  here. Commit/push remain outside this closure worker's authority.
 - **Owning repo:** pi-theta
 - **Sev/Diff estimate:** S3/D1 — S3: the same defect class as bug 0493 D2
   (no result corruption, but the parent run's failure is invisible at the
@@ -182,3 +185,182 @@ Recorded at fix time as 0493 Residual 3; this bug is that residual filed.
   deterministic zero-spend `transport` arm a live witness can use.
 - **0437 (fixed)** — the `#systemNoteChannel` routing both binder emitters
   share with the producer methods; the surface call rides beside it.
+
+## Closure record — reviewed working-tree fix, unreleased
+
+The observations and source locations above are preserved historical evidence,
+including their explicit JSON/stdout, session-persistence and fallback-stderr
+corrections. This section records the actual resulting fix, not a release.
+
+### Cause and actual fix
+
+`theta-composition-producer.ts:313–322` returns normally on an unbound binder
+result, before the theta body or producer Err/panic framing. Both binder note
+owners already received `ProductionProducerInput.printModeFailureSurface` but
+never called it. The group-A emitter also returned early on ticket-less delivery
+and completed stamp-failure fallback. Thus the existing producer-only mirror
+could not see these pre-body endings.
+
+- `src/extension/binder-run.ts:802–814`: BNDR-9 renders once, sends its unchanged
+  group-B diagnostic note, then calls `mirrorLine(content)` and `markFailed()`.
+- `src/extension/binder-run.ts:830–861`: normal stamped-event delivery,
+  ticket-less degrade and completed non-stale stamp fallback converge on the
+  same mirror/mark pair. An undefined event after fallback prevents a second
+  original-note send, not the process surface. Non-stale send fallback also
+  completes before the pair. No unconditional `finally` was introduced;
+  recognized stale-runtime invalidation still unwinds before surface calls.
+- `src/extension/production-producer-deps.ts:414–431`: comment-only update names
+  both binder owners. No interface or wiring change was necessary.
+- The existing adapter at `src/extension/production-composition.ts:1102–1124`
+  remains unchanged: print/json AND inactive subagent-root regime, rendered
+  content plus one newline, assign-only exit 1, retaining a numeric exit code
+  greater than 1. TUI/RPC and child-root composition remain inert.
+
+All seven endings now qualify, including noninteractive `needs_info`,
+`ambiguous` and cancellation. Successful binding, bypasses, success echoes and
+SLSH-1 informational overflow do not qualify. The exact rendered/sanitized/capped
+note is mirrored; the full structured cause and group-A/group-B partition are
+unchanged. No body execution, retry, persistence or child-envelope policy changes.
+
+### Contract decisions and specification
+
+This intentionally extends the former written binder exclusion; it is not
+presented as an implementation-only correction to that old contract. The run's
+controller-recorded human decision `397535af` authorized the two new tests and
+all-seven-ending expectations. Separate delegated decision `625886c9` authorized
+exactly five normative replacements in three files. They are applied at:
+
+- [Slash invocation — Print-mode failure surface](../spec_topics/slash-invocation.md#slsh-3-print-mode-failure-surface),
+  `:41`: enumeration, normal/ticket-less/fallback coverage, no duplicate send,
+  inert success/informational paths and stale-unwind qualification.
+- `docs/spec_topics/pi-integration-contract/runtime-event-channel.md:14`:
+  synchronized process-boundary summary; payload families remain distinct.
+- `docs/reference/discovery-cli.md:252–280`: synchronized CLI reference.
+
+The existing binder non-execution/templates contract remains at
+`docs/spec_topics/binder/determinism-cancellation-failure.md:20–26,44–58`.
+Independent review reconstructed the current three docs from the five exact
+approved substitutions byte-for-byte. No additional normative scope was used.
+Consumers that previously accepted exit 0 for an unrun noninteractive binder
+invocation now receive exit 1 and the rendered stderr line; default-print SDK
+embeddings observe the same existing gate.
+
+### Preserved red and verified green
+
+Run directory **R** (absolute):
+
+`/home/thomasa/Projects/pi-theta/.pi/tmp/fix-bug-0494-b1a46249-1a08-4d4c-b8da-05902b3acf8a`
+
+All commands below ran from `/home/thomasa/Projects/pi-theta`; log names are
+relative to R. Original captures and `witnesses.json` remain unchanged.
+
+| Exact command | Pre-fix exit / log | Post-fix exit / log |
+|---|---|---|
+| `npx vitest run tests/b0494-binder-print-mode-failure-surface.test.ts` | 1 — `diagnose-attempt-1-composition-red.log`: 21 missing-surface failures, 36 controls pass | 0 — `implement-attempt-2-composition-green.log`, controller `green-1-0.json`: all 57 pass |
+| `npx vitest run tests/b0494-binder-print-mode-failure-surface.test.ts -t 'B0494 UNIT'` | 1 — `diagnose-attempt-1-unit-red.log`: six missing mirror/mark failures, seven controls pass | 0 — `implement-attempt-2-unit-green.log`, `green-1-2.json`: all 13 selected units pass |
+| `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/b0494live-binder-print-mode-failure-surface.test.ts` | 1 — `reproduce-attempt-2-live-candidate.log`, `diagnose-attempt-1-live-red.log`: genuine JSON/text exit 0, missing own stderr line, healthy control passes | 0 — `implement-attempt-2-live-green.log`, `green-1-1.json`, `gate-1-initial-2.json`: both cases pass |
+
+Pinned red mismatches include `B0494 print needs_info: binder failure must set
+exit 1: expected undefined to be 1`, `B0494 json: binder refusal must exit 1:
+expected +0 to be 1`, and `B0494 UNIT stamp-failure: missing mirror and markFailed:
+expected [] to deeply equal`. They occur after exact cause/note/non-execution
+premises pass. Draft import/render-literal errors are preserved separately and
+are not bug witnesses. The unit `-t` command deselects 44 composition cases;
+the unfiltered command executes all 57, with no source skip or weakened oracle.
+
+The real-host stimulus is a production unsupported-api pre-dispatch transport
+refusal, not a provider/authentication failure. A test-owned catalog only makes
+the model resolvable. Complete JSONL establishes the exact event, absent assistant
+body and absence of `theta_result` anywhere before process assertions. Post-fix
+JSON and text both exit exactly 1 and emit this own stderr line once, followed
+by one newline:
+
+```text
+theta /refused: argument binder unavailable (google-generative-ai: no measured forced-tool-choice mapping for this prov…
+```
+
+Text stdout remains empty; JSON stdout correctly includes custom-note events.
+The healthy OpenAI bypass completes a real assistant turn (`stopReason: stop`)
+computing 777, exits 0 and has empty stderr. This is execution evidence, not
+`prompt()` resolution. The composition matrix covers all seven endings,
+body non-execution, successful binding/bypasses, TUI/RPC, active child-regime
+gating, never-lower exit handling, and delivery-before-mirror/mark. Units retain
+the real runner/event guard/note fallback and force the bounded delivery arms.
+
+### Gates, related controls and independent review
+
+| Exact command | Exit | Captured evidence under R |
+|---|---:|---|
+| `npm run typecheck` | 0 | `implement-attempt-2-typecheck.log`, controller `gate-1-initial-0.json` |
+| `npm run lint` | 0 | `implement-attempt-2-lint.log` |
+| `npm test` | 0 | `implement-attempt-2-default-suite.log`, controller `gate-1-initial-1.json`: 759 files / 12,983 tests, including committed-fixture parsing and provider-free real-child spawn |
+| `npx vitest run tests/print-mode-failure-surface.test.ts tests/b0417-responses-binder-toolchoice-gate.test.ts tests/b0397-binder-failure-note-runtime-event.test.ts tests/b0437-producer-note-raw-send-fallback.test.ts tests/b0398-custom-type-unsafe-note-details-diagnostics.test.ts tests/binder-call-cancellation.test.ts tests/system-note-channel.test.ts` | 0 | `implement-attempt-2-related-controls.log`: 65 controls |
+| `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/b0493live-refused-subagent-callee-print-parent.test.ts tests/live/b0417live-responses-binder-toolchoice-live-cell.test.ts` | 0 | `implement-attempt-2-related-live.log`: all three cases, including actual non-bypass binding/body execution |
+| `B0494_OPERATOR_CLI=/home/thomasa/.pi/agent/install/releases/1.4.0/node_modules/@earendil-works/pi-coding-agent/dist/cli.js npx vitest run --config "$R/implement-attempt-2-operator-host.config.ts" tests/live/acceptance/b0494live-binder-print-mode-failure-surface.test.ts tests/live/acceptance/b0493live-refused-subagent-callee-print-parent.test.ts` | 0 | `implement-attempt-2-operator-live.log`: four unchanged acceptance cases on actual operator 1.4.0 |
+
+Pinned-host captures use repo host 1.3.0. The supplemental run-local selector
+changes only the acceptance harness's exact CLI initializer in memory, with
+version/realpath and original/transformed hash receipts; tracked harness and
+assertion bytes are unchanged. Independent review repeated both hosts.
+
+- `evidence-review-result.json`: `ok: true`, CLEAN evidence review, including
+  the migration correction below; its then-future operator-host requirement is
+  discharged by implementation and the later fix review.
+- `reviews.md`: **CLEAN for fix focus**, no actionable in-scope must-fix finding.
+  Fresh `audit-fix-offline.log` passes 122 tests; `audit-fix-pinned-live.log`
+  passes five cases; `audit-fix-operator-live.log` passes four cases, each with
+  `AUDIT_EXIT=0`. The latter two establish both hosts and genuine healthy turns.
+- `implement-attempt-2-integrity.log`: exit 0, approved doc reconstruction,
+  frozen tests/witnesses/red signatures, exact source/fixture diffs and actual
+  operator CLI selection verified. This close stage does not claim to be the
+  later controller final review or to have rerun these tests.
+
+### Separately authorized related-test migration
+
+An earlier required 0417 live control stopped at registration because
+`unity-responses/gpt-4.1` was unavailable (`implement-attempt-1-related-live.log`,
+exit 1). That is preserved prerequisite evidence, **not** a 0494 or 0417 causal
+bug red. Initial blocked decisions did not waive it. Later exact delegated
+migration decision `a01e644b`, reaffirmed by `8da101f8` and `0267a3f8`, authorized
+only `tests/live/b0417live-responses-binder-toolchoice-live-cell.test.ts`'s
+`openai/gpt-6-luna` model replacement and three associated comment lines.
+Assertions, messages, controls, ordering and helpers remain unchanged.
+
+`R/fixture-migration-gpt6-luna/` preserves original source/hash and exact diff.
+Its `counterfactual-owner-repair/spelling-red.log` records the unchanged targeted
+command exiting 1 at the whole-object attribution guard (expected `type:
+function`, received `type: tool`); `mutation.diff` changes only the Responses
+spelling row. `restoration.json` records byte-exact restoration, followed by
+`restored-green.log` (same targeted command, exit 0) and `related-live-green.log`
+(complete related command above, exit 0). This is a token-free spelling negative
+control followed by genuine live execution, not a new HTTP-negative capture.
+No permanent forced-tool-choice source change remains. Fresh independent
+reviews accepted these artifacts. Current Unity-route compatibility is not proved
+or claimed equivalent; original historical 0417 Reach 1/2 evidence is preserved
+in its report.
+
+### Scope, residuals and shipment boundary
+
+Resulting fix files are the two production files, three approved spec/reference
+files, two new 0494 test files and one exactly authorized 0417 fixture listed
+above. CLOSE changes only this report and `docs/bugs/README.md`, plus run-local
+closure documentation. No release/version/dependency or controller-file edits.
+
+No new residual production bug was established. Existing separate bugs 0495
+(H9a area-(f) fixture ENOENT), 0497 (shared auth-store race) and 0498
+(cancellation-subscription documentation) remain open and are not fixed or
+waived here. The full broad live suite was not run or claimed. Relevant planned
+live gates passed; no current unrelated failure was waived.
+
+Live 0494 coverage is deterministic transport only; all-seven semantics are
+production-composition coverage, not seven natural live model outcomes. The new
+cancellation matrix is pre-call; active child-regime gating is not a new child
+lifetime proof. Forced fallback stimuli, every in-flight/stale schedule, session
+persistence, and Unity-route equivalence are not newly established. These are
+coverage limits, not newly proven defects.
+
+Detailed stage commands, logs, preservation checks and uncertainties are in
+`R/close.md` and the earlier immutable reports/history. No staging, commit,
+push, tag or publication occurred in CLOSE. No resolving SHA is invented, and
+**no new package release is published**. This fix is not attributed to the
+existing package version; a future authorized shipment commit supplies its SHA.
