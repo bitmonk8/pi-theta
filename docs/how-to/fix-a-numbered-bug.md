@@ -50,15 +50,18 @@ are parsed deterministically: `number`, optionally followed by `ship true|false`
 and/or `review_rounds 1..5` in either order. Unknown/duplicate options fail
 instead of being guessed by a model. Its sole raw-string parameter uses Theta's
 existing single-string binder bypass. Defaults:
-**commit and push requested**, five review rounds; permitted review bounds are 1–5.
-The final explicit ship-approval dialog still applies. Use `ship false` to keep
-verified changes local without committing or pushing.
+**automatic commit and push**, five review rounds; permitted review bounds are 1–5.
+The owner has given standing permission: there is **no commit/push approval
+prompt**, including after resume. Use `ship false` to keep verified changes local.
+This does not permit version bumps, tags, npm publication, force pushes, or
+shipment before all verification and reviews pass.
 
 `/fix-bug resume` continues the paused run that owns this checkout's lease,
 including its original bug number and saved options. An optional number asserts
 which bug you intend to resume; it never starts a new run. Explicit `ship` or
 `review_rounds` options override the saved value. Omitted options retain their
-original values, and shipment still requires a fresh explicit decision.
+original values. A saved `ship true` uses the standing commit/push permission;
+a saved `ship false` remains local. Resume never supplies missing spec/test authority.
 
 Prerequisites:
 
@@ -66,10 +69,11 @@ Prerequisites:
   Resolve existing changes intentionally before starting; no auto-stash or reset.
 - Installed dependencies (`npm ci`), working Git and Node, and the relevant
   real-host/live-test prerequisites from `AGENTS.md`.
-- OpenAI access to GPT-6.1 Sol (stage workers) and GPT-6 Astra (ranking and
-  independent reviews). The command's deterministic argument parsing needs no model.
-- The pi-config `question` tool for owner decisions. In noninteractive mode,
-  missing UI never counts as approval; spec decisions and shipping stop.
+- OpenAI access to GPT-6.1 Sol (stage workers) and GPT-6 Astra (ranking,
+  independent reviews and delegated decisions). Argument parsing needs no model.
+- The pi-config `question` tool for genuinely unresolved owner tradeoffs. Routine
+  delegated decisions and automatic shipment need no dialog. For a genuine
+  tradeoff, missing UI/cancellation/free text never counts as approval.
 
 This version works **in the current checkout**, not an isolated worktree. A new
 run saves its requested options and claims active execution before publishing
@@ -96,12 +100,18 @@ bug workflow, but cannot prevent unrelated tools from editing the checkout.
 4. **Design and plan.** Specify the contract, minimal approach, touched files,
    coverage, compatibility, risks, related bugs and verification commands. The
    planning stage is read-only outside its run artifacts.
-5. **Owner specification decision.** When normative specification changes or an
-   adjudication are needed, present exact clauses/diff and alternatives before
-   implementation. The first/default option stops. Only selecting **Approve
-   proposed spec changes** authorizes the presented proposal. Free text,
-   cancellation, no UI and missing answer all stop. Further spec decisions stop
-   for another discussion; they are not covered by the first approval.
+5. **Astra decision before owner escalation.** Exact normative proposals still
+   follow planning and independent evidence review before implementation. A fresh,
+   read-only **GPT-6 Astra** context inspects the exact proposal, prior decisions,
+   principles, alternatives and evidence. If these clearly prefer one bounded
+   course, it records authorization and continues automatically. Several imaginable
+   alternatives alone do not justify a human pause. The owner is asked only for a
+   genuine unresolved material tradeoff/risk choice with no clearly preferred
+   answer derivable from existing decisions/principles. The first option keeps
+   the run paused; only the exact affirmative selection authorizes that scope.
+   Free text, cancellation, no UI and missing answer do not. Revised proposals
+   replan and are independently reviewed/assessed again, bounded to three workflow
+   cycles per invocation; an earlier approval never covers them.
 6. **Implement.** Follow the plan and exact approved proposal. Preserve witnesses;
    no early commits, status closure, version bumps or publishing.
 7. **Verify.** Run the same witness commands green, `npm run typecheck`, `npm test`,
@@ -111,11 +121,15 @@ bug workflow, but cannot prevent unrelated tools from editing the checkout.
    findings, rerun gates, then review again, up to the bound. Exhaustion stops.
 9. **Close the record, verify again.** Update the bug report/index factually;
    rerun witnesses, offline and live gates after review/closure, then perform a
-   final independent audit. A final audit failure stops rather than shipping.
-10. **Shipment (enabled by default).** With `ship true`, show the verified summary and request
-    a separate explicit **Commit and push this fix** selection. The helper verifies
-    unchanged HEAD/branch and unchanged post-gate files, stages only `src/`,
+   final independent audit. Failure never permits shipment; a routine authorized
+   repair re-enters the bounded verification/review cycle.
+10. **Automatic shipment (enabled by default).** With `ship true`, report the
+    verified outcome and commit/push under the owner's standing permission,
+    **without an approval dialog**. The helper verifies unchanged HEAD/branch,
+    final verification/review and unchanged post-gate files, stages only `src/`,
     `tests/`, `docs/`, commits and pushes only the current branch to `origin`.
+    Unexpected staged/index content is refused, not reset or silently included.
+    The index committed must match the verified scoped checkout exactly.
     Other fix surfaces require manual shipment. No force push, auto-pull/rebase,
     tags, package publication, or version bump. A failed push leaves the commit
     intact and records its SHA; never rerun blindly.
@@ -134,16 +148,56 @@ Each new numbered run creates a unique ignored directory; resume reuses it:
 
 It contains state/base SHA, stage reports, plan/spec proposal and approval text,
 witness command manifest, red/green results, full gate logs, independent reviews,
-and shipment outcome when applicable. Logs can contain provider/test details;
-review them before sharing. They are local evidence, **not a backup**; summarize
+delegated decision snapshots/verdicts/authority, and shipment outcome when applicable.
+Logs can contain provider/test details; review them before sharing. They are local evidence, **not a backup**; summarize
 essential proof in the tracked bug report before shipment.
+
+### Delegated decisions and remaining stops
+
+A stage needing authorization writes `decision-request.md` with exact files/cases,
+old/new outcomes, alternatives, recommendation, cited decisions/principles, risks
+and preserved/replacement controls, then returns `needs_decision` BEFORE editing
+that scope. Each blocked or decision-ready stage receives a fresh Astra assessment.
+An ordinary blocked report without an exact request can receive only existing-scope
+retry guidance, not unspecified test/spec authority. Early phases remain tests-only.
+Normative authority is recorded only for the exact PLAN proposal following evidence
+review; revised implementation/repair contracts replan inline.
+
+Each assessment has a unique `decision-<uuid>/context.json` recording the exact
+request/report/proposal and checkout/checkpoint identity. Its typed verdict records
+evidence sufficiency, whether one course is clearly preferred, whether a material
+tradeoff remains, recommendation, rationale, cited basis and alternatives. The helper
+rejects inconsistent/malformed or stale decisions and checks read-only integrity.
+Accepted exact authority is recorded in state and `decision-authorizations.md`;
+it is not fabricated as a human selection. Workers and reviewers must audit it.
+The archived records and rendered authority view are integrity-checked when
+reused, including resume, stage execution, verification and shipment. A PLAN-stage
+scoped request is not a spec approval. Exact spec approval requires a clean review
+bound to the CURRENT plan/proposal and unchanged checkout, not an old report.
+
+Routine cases include exact legacy-oracle corrections required by an already
+approved contract, or fixture API adaptations preserving assertions and original
+red evidence. Retain annotated fixtures, complete diagnostics/messages/order,
+healthy and genuine-unknown controls, original sources and red captures. This is
+not permission to make tests agree with arbitrary implementation output. Specific
+owner rulings/refusals remain binding; delegation supersedes only human-only
+workflow boilerplate. No decision can waive gates, weaken helpers, delete coverage,
+rewrite the manifest/accepted reds, bypass planning or confer publication authority.
+
+Astra returns `human` only for an unresolved material tradeoff, and its analysis is
+shown before the dialog. It returns `blocked` for an objective prerequisite such as
+missing evidence, credentials or integrity—not permission to proceed unsafely.
+Failing gates, unreproduced bugs, failed reviewers and retry exhaustion can still
+stop the run. At most three attempts per stage call and three workflow/replan
+cycles run in one invocation. A rejected independent review is never converted to a pass:
+clarification/repair still requires fresh review and green gates.
 
 Every expected refusal leaves artifacts and edits for inspection, and prints a
 plain-text stop card: stage, reason, environment involvement, bug validity,
 fixability, progress, required owner action, recommendation and artifact path.
 Unknowns are explicit; a blocked gate does not mean an invalid or unfixable bug.
 Child execution failures also stop rather than advancing the workflow. No
-auto-revert, auto-stash or automatic retry occurs.
+auto-revert, auto-stash or unbounded automatic retry occurs.
 
 ### Resume a paused run
 
@@ -159,8 +213,13 @@ then run **`/fix-bug resume`**. The controller:
   completed plan/proposal are immutable; actual implementation outcomes belong
   in implementation/repair reports. A new ruling is written separately to
   `spec-revision-proposal.md` and recorded as `needs_spec`, explicitly invalidating
-  the plan checkpoint so the next resume replans, re-reviews and asks for exact
-  approval. A report file alone is not a completed checkpoint. Interrupted/blocked stages
+  the plan checkpoint so the current bounded invocation (or next resume) replans,
+  re-reviews and obtains an exact delegated decision, with an owner choice only
+  for an unresolved tradeoff. A rejected evidence-review plan can likewise be
+  explicitly archived/invalidated, revised with its findings and scoped decision,
+  and independently reviewed again; it is never reused as an unchanged cached
+  plan or silently overwritten. A report file alone is not a completed checkpoint.
+  Interrupted/blocked stages
   rerun, inspecting their partial edits. A completed implementation reruns if
   the checkout digest has changed; repair and closure are never cached.
 - Archives prior stage reports/results and independent evidence/fix/final-review
@@ -168,9 +227,11 @@ then run **`/fix-bug resume`**. The controller:
   including failed attempts. Workers must use fresh
   attempt-specific log names. Original accepted red records are not replaced.
 - Runs evidence review, verification gates, fix reviews, closure and final
-  verification/review again. Prior gates and shipment consent are invalidated;
-  prior exact spec approval survives only for the same proposal. A resume is not
-  approval to change a frozen test, waive a gate or adopt another contract.
+  verification/review again. Prior gates are invalidated; the standing ship option
+  remains, but cannot bypass fresh verification. Prior exact spec approval survives
+  only for the same proposal. Recorded bounded decisions remain auditable; new
+  scope requires a fresh assessment. Resume is not permission to change a frozen
+  test, waive a gate or adopt another contract.
 
 Normal stops clear the run's **active execution marker** while retaining the
 checkout lease. An existing marker prevents a second invocation from resuming,
@@ -208,24 +269,27 @@ the command cannot safely reconstruct completed stages from prose reports.
 
 ## Trust boundary
 
-Commands, Git guards, exact dialog selections, snapshots and process exit codes
-are mechanical. Each invocation allocates its own request file before writing
+Commands, Git guards, exact dialog selections when needed, snapshots, decision
+consistency checks and process exit codes are mechanical. Each invocation allocates its own request file before writing
 raw arguments, so concurrent callers cannot overwrite each other's bug/options
 before lease acquisition. Only generated paths are shell-quoted; raw slash
 arguments never become shell command text. Whether a witness proves the bug, its regex names the correct
 assertion, the diagnosis is sound, all necessary live coverage was declared, or
-spec edits match the approved proposal still requires substantive model review
-and owner inspection. A schema-valid model report is not proof by itself.
+spec edits match the authorized proposal still requires substantive independent
+review. The Astra rationale is evidence-backed judgment, not mechanical proof;
+the owner can inspect every recorded decision. A schema-valid report is not proof.
 
 Fix/review workers have ordinary coding tools, including bash; the ranking
-worker admits only `read`. Coding-worker read/write scope and no-shipment rules
+worker admits only `read`. The decision worker admits read/grep/bash for read-only
+inspection; its checkout and authority inputs are fenced. Worker read/write scope
+and no-shipment rules
 are workflow instructions, **not an OS sandbox**. The helper
 checks accidental violations at stage boundaries; it is not designed to contain
 malicious code or a hostile worker modifying the control plane itself.
 
 ## Development verification
 
-`tests/bugfix-workflow.test.ts` parses all four sources and exercises the helper
+`tests/bugfix-workflow.test.ts` parses all five sources and exercises the helper
 against scratch Git repositories: correct-reason red capture, green gates,
 missing e2e/live prerequisites, early production edits, owner-decision refusal,
 review mutations, HEAD drift, checkout lease, post-gate drift, and a real local
@@ -235,11 +299,21 @@ prove the model will diagnose or fix an arbitrary bug correctly.
 `tests/bugfix-resume.test.ts` covers durable checkpoints, stopped/dead/live
 execution ownership, option preservation, original-red reuse, drift and legacy
 refusals, exact/revised spec approval, archived reports/reviews, failed gate logs,
-invalidated shipment consent and a real outstanding gate's stale-write fence. `tests/bugfix-workflow-reporting.test.ts` drives the real CLI
+invalidated legacy shipment answers/fresh verification and a real outstanding
+gate's stale-write fence. `tests/bugfix-workflow-reporting.test.ts` drives the real CLI
 and real child processes with deterministic workers, including a blocked
 implementation followed by `/fix-bug resume` through fresh gates/reviews and a
 local handoff. These tests make no provider requests; they do not substitute for
 live testing of a real model's diagnosis or repair.
+
+`tests/bugfix-decisions.test.ts` covers delegated/human decisions, malformed or
+inconsistent verdicts, stale contexts, original evidence and retained gate/shipment
+boundaries. Real-host reporting tests cover automatic scoped retries and default
+commit/push against a local bare remote, the local-only opt-out, exact spec
+authorization without a dialog and genuine-tradeoff refusal.
+`tests/live/acceptance/bugfix-decisions.test.ts` drives the actual Astra prompt for a
+precedent-derived correction and an unresolved tradeoff; assertions observe the
+returned/persisted decision, not merely prompt resolution.
 
 `tests/bugfix-ranking.test.ts` verifies full snapshots, current/open eligibility,
 resolved-status context, read-only inventory behavior, stale-input detection,

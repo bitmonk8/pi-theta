@@ -33,6 +33,7 @@ describe("live /fix-bug impact-ranked listing", () => {
     // These admitted callables are not executed by the listing branch.
     writeFileSync(join(theta, "workers/bugfix-stage.theta"), '---\nmode: subagent\nparams:\n  run_dir: string\n  phase: string\n  feedback: string\n---\n"FIXER_MUST_NOT_RUN"\n');
     writeFileSync(join(theta, "workers/bugfix-review.theta"), '---\nmode: subagent\nparams:\n  run_dir: string\n  focus: string\n---\n"REVIEWER_MUST_NOT_RUN"\n');
+    writeFileSync(join(theta, "workers/bugfix-decide.theta"), '---\nmode: subagent\nparams:\n  context_path: string\n---\n"DECIDER_MUST_NOT_RUN"\n');
     writeFileSync(join(cwd, "docs/bugs/0001-cosmetic-log-label.md"), [
       "# Incorrect decorative log label", "- **Status:** open", "- **Sev/Diff estimate:** S1/D1", "",
       "The severity estimate above is stale and overstated. A log heading uses the wrong decorative label.",
@@ -76,6 +77,7 @@ describe("live /fix-bug impact-ranked listing", () => {
       expect(result.stdout).not.toContain("0003 before 0002");
       expect(result.stdout).not.toContain("FIXER_MUST_NOT_RUN");
       expect(result.stdout).not.toContain("REVIEWER_MUST_NOT_RUN");
+      expect(result.stdout).not.toContain("DECIDER_MUST_NOT_RUN");
       expect(result.stdout).not.toContain("theta_result");
       expect(git(cwd, "status", "--porcelain")).toBe(before);
       expect(existsSync(join(cwd, ".pi/tmp/fix-bug.lock"))).toBe(false);

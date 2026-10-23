@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -36,7 +36,7 @@ function witnesses(run: string, argv = [process.execPath, "-e", "console.error('
 }
 
 describe("numbered bug workflow control plane", () => {
-  it.each([join(".pi", "theta", "fix-bug.theta"), join(".pi", "theta", "workers", "bugfix-stage.theta"), join(".pi", "theta", "workers", "bugfix-review.theta"), join(".pi", "theta", "workers", "bugfix-rank.theta")])("%s parses cleanly", path => {
+  it.each([join(".pi", "theta", "fix-bug.theta"), join(".pi", "theta", "workers", "bugfix-stage.theta"), join(".pi", "theta", "workers", "bugfix-review.theta"), join(".pi", "theta", "workers", "bugfix-rank.theta"), join(".pi", "theta", "workers", "bugfix-decide.theta")])("%s parses cleanly", path => {
     const doc = parseThetaDocument({ path, bytes: new Uint8Array(readFileSync(path)) }, parseDeps());
     expect(doc.diagnostics).toEqual([]);
   });
@@ -139,18 +139,18 @@ describe("numbered bug workflow control plane", () => {
       expect(invoke(dir, "approval", run).status).toBe(0);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
-  it("refuses shipment without explicit approval and final verification", () => {
+  it("honors ship false and refuses automatic shipment without final verification", () => {
     const dir = repo();
     try {
       const run = begin(dir); const base = git(dir, "rev-parse", "HEAD");
-      writeFileSync(join(run, "ship-answer.txt"), "User selected: 1. Keep local for inspection");
-      expect(invoke(dir, "ship", run).stderr).toContain("No explicit ship approval");
-      writeFileSync(join(run, "ship-answer.txt"), "User selected: 2. Commit and push this fix");
+      expect(invoke(dir, "configure", run, "false", "5").status).toBe(0);
+      expect(invoke(dir, "ship", run).stderr).toContain("Shipment disabled");
+      expect(invoke(dir, "configure", run, "true", "5").status).toBe(0);
       expect(invoke(dir, "ship", run).stderr).toContain("Missing final verification");
       expect(git(dir, "rev-parse", "HEAD")).toBe(base);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
-  it("runs green gates, refuses post-gate drift, and pushes only after approval", () => {
+  it("requires green gates and clean final review, refuses drift, and pushes under standing permission", () => {
     const dir = repo(); const remote = mkdtempSync(join(tmpdir(), "bugfix-remote-"));
     try {
       git(remote, "init", "--bare"); git(dir, "remote", "add", "origin", remote);
@@ -161,10 +161,39 @@ describe("numbered bug workflow control plane", () => {
       witnesses(run, argv); expect(invoke(dir, "red", run).status).toBe(0);
       writeFileSync(join(dir, "src/value.js"), "export const value = 2;\n");
       expect(invoke(dir, "gate", run, "final").status).toBe(0);
-      writeFileSync(join(run, "ship-answer.txt"), "User selected: 2. Commit and push this fix");
+      expect(invoke(dir, "ship", run).stderr).toContain("clean final independent review");
+      expect(invoke(dir, "snapshot", run).status).toBe(0);
+      writeFileSync(join(run, "final-review.md"), "CLEAN — scratch final review");
+      writeFileSync(join(run, "final-review-result.json"), JSON.stringify({ ok: false, findings: "CLEAN — scratch final review" }));
+      expect(invoke(dir, "final-review-record", run).stderr).toContain("Missing clean final independent review");
+      writeFileSync(join(run, "final-review-result.json"), JSON.stringify({ ok: true, findings: "CLEAN — scratch final review" }));
+      expect(invoke(dir, "final-review-record", run).status).toBe(0);
       writeFileSync(join(dir, "src/value.js"), "export const value = 3;\n");
       expect(invoke(dir, "ship", run).stderr).toContain("changed after final verification");
       writeFileSync(join(dir, "src/value.js"), "export const value = 2;\n");
+      // Bytes alone are insufficient: an unreviewed executable-bit change on
+      // an already-modified file must not slip into an automatic commit.
+      const fileMode = statSync(join(dir, "src/value.js")).mode;
+      chmodSync(join(dir, "src/value.js"), 0o755);
+      expect(invoke(dir, "ship", run).stderr).toMatch(/mode|checkout.*changed/i);
+      expect(statSync(join(dir, "src/value.js")).mode & 0o111).not.toBe(0);
+      chmodSync(join(dir, "src/value.js"), fileMode);
+      // Hidden index-only content must never enter an automatic commit. Restore
+      // the WORKTREE bytes only, so working-tree-vs-HEAD guards cannot see it.
+      const packageBytes = readFileSync(join(dir, "package.json"));
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ unreviewed: true }));
+      git(dir, "add", "--", "package.json");
+      writeFileSync(join(dir, "package.json"), packageBytes);
+      expect(invoke(dir, "ship", run).stderr).toMatch(/index|staged/i);
+      expect(git(dir, "diff", "--cached", "--name-only")).toBe("package.json");
+      // Test cleanup is confined to this scratch repository; shipment itself
+      // must NOT reset or discard an unexpected index on the operator's behalf.
+      git(dir, "reset", "HEAD", "--", "package.json");
+      writeFileSync(join(dir, "src/value.js"), "export const value = 3;\n");
+      git(dir, "add", "--", "src/value.js");
+      writeFileSync(join(dir, "src/value.js"), "export const value = 2;\n");
+      expect(invoke(dir, "ship", run).stderr).toMatch(/index|staged/i);
+      git(dir, "reset", "HEAD", "--", "src/value.js");
       const shipped = invoke(dir, "ship", run); expect(shipped.status, shipped.stderr).toBe(0);
       expect(git(remote, "rev-parse", "refs/heads/main")).toBe(git(dir, "rev-parse", "HEAD"));
       expect(git(dir, "status", "--porcelain")).toBe("");

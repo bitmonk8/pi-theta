@@ -2599,7 +2599,7 @@ describe("bug 0124 (x) — the committed corpus declares no annotation in this c
       `x1: the census is over ${files.length} committed files; a change in the corpus size means ` +
         `the inventory below must be re-derived rather than trusted. Files: ` +
         `${JSON.stringify(files)}`,
-    ).toEqual([57, 3]);
+    ).toEqual([58, 3]);
 
     const lets: string[] = [];
     const params: string[] = [];
@@ -2629,8 +2629,10 @@ describe("bug 0124 (x) — the committed corpus declares no annotation in this c
     // /fix-bug's stop-card helpers add 18 annotated parameters and four
     // returns; resume adds seven parameters and path quoting adds one of each.
     // Ranking adds three local array sinks, one worker-query sink, three fn
-    // parameters and two fn returns. Workflow returns remain inferred.
-    ).toEqual([47, 39, 15]);
+    // parameters and two fn returns. Delegated decisions add two typed query/
+    // return sinks, eight fn parameters and three fn returns. The new Astra
+    // worker adds one corpus member; workflow returns remain inferred.
+    ).toEqual([49, 47, 18]);
     expect(
       offenders,
       `x1: ZERO offenders — no committed fixture changes disposition when the refusal lands, so ` +

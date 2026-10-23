@@ -17,7 +17,14 @@ schema BugReview {
 let result: BugReview = @`Independently audit this numbered bug fix, focus ${focus}.
 Read ${run_dir}/state.json, the report it names, AGENTS.md, the full actual diff
 against state.base, plan.md, all stage reports, witnesses.json, and captured
-red/green/gate logs. Do not trust the implementer's status or summaries.
+red/green/gate logs. Also read state.decisions, decision-authorizations.md and the
+referenced immutable decision contexts/verdicts when present. Do not trust the
+implementer's status or summaries. The owner delegates routine exact spec/test
+scope authorization to GPT-6 Astra where prior decisions/principles clearly prefer
+one course; substantive unresolved tradeoffs still require the owner. Do not reject
+a valid recorded delegated authorization merely because it was not a human dialog.
+Independently check the cited basis, exact scope and preserved original evidence;
+a schema-valid model verdict does not itself prove a semantic change is correct.
 Read-only: no editing tracked/untracked files, staging, commits, pushes,
 publishing, spec changes, external communication, or code execution with side
 effects beyond normal test artifacts. You may run relevant tests; capture output
@@ -42,8 +49,12 @@ When focus is final: independently verify the post-review diff and rerun proof
 are still sound, closure docs accurately describe tested rather than assumed
 behavior, every relevant green gate exists (including live tests when required),
 and no normative spec clause differs from the owner's exact approved proposal.
-Explicitly check for changed/deleted baseline tests, skipped cases, weakened
-assertions, and unverified package-release claims. This is a fresh context after
+Explicitly audit every changed/deleted baseline test against its exact recorded
+authorization: retained known fixtures, complete diagnostics/messages/order,
+healthy/genuine-unknown controls, preserved original sources and red captures.
+A justified obsolete-oracle correction preserving these obligations is not test
+weakening; an unapproved change, skipped case, reduced assertion or permissive
+shared helper is. Check unverified package-release claims. This is a fresh context after
 repair/record changes, not a rubber stamp of the prior review.
 
 Return ok true only if all obligations for this focus are supported by observable

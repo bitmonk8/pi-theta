@@ -384,7 +384,7 @@ describe("bug 0195 (D) — no committed theta carries a `for`-iterand `[]`", () 
     expect(
       files.length,
       `D1: the census is over ${files.length} committed files; sibling fixes land \`.theta\` files, so a changed count means the disposition below must be re-derived rather than trusted. Files: ${JSON.stringify(files)}`,
-    ).toBe(60); // ranked-list worker adds one source, with no bare [] literal
+    ).toBe(61); // ranked-list and Astra decision workers add sources, neither with bare []
     const offenders = files.filter((f) =>
       readFileSync(path.join(REPO_ROOT, f), "utf8").includes("[]"),
     );

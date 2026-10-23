@@ -1,7 +1,7 @@
 // Real CLI + workflow + real subagent processes, with deterministic workers:
 // no provider requests and no changes to the real checkout/run evidence.
 import { describe, expect, it } from "vitest";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -11,7 +11,7 @@ import { parseDeps } from "./helpers/e2e-s1";
 
 const root = process.cwd();
 const cli = process.env.PI_THETA_TEST_PI_CLI ?? join(root, "node_modules/@earendil-works/pi-coding-agent/dist/cli.js");
-type Scenario = "environment" | "implementation" | "not-reproduced" | "gate" | "worker-error" | "reviewer-error" | "resume" | "replan-refusal";
+type Scenario = "environment" | "implementation" | "not-reproduced" | "gate" | "worker-error" | "reviewer-error" | "resume" | "replan-refusal" | "autonomous" | "spec-auto" | "plan-scope" | "plan-repair";
 const verdicts = {
   environment: {
     status: "blocked", summary: "Test SDK cannot use stored OAuth.",
@@ -47,7 +47,7 @@ function worker(scenario: Scenario) {
   if (!schema) throw new Error("Missing production stage schema");
   const asTheta = (value: Record<string, string>) => "BugStage { " + Object.entries(value)
     .map(([key, text]) => `${key}: ${JSON.stringify(text)}`).join(", ") + " }";
-  const witness = scenario === "resume" || scenario === "replan-refusal"
+  const witness = ["resume", "replan-refusal", "autonomous", "spec-auto", "plan-scope", "plan-repair"].includes(scenario)
     ? "if(!require('fs').existsSync('src/fixed.txt')){console.error('AssertionError: fixture expected 2 got 1');process.exit(1)}"
     : "console.error('AssertionError: fixture expected 2 got 1');process.exit(1)";
   const manifest = JSON.stringify({
@@ -61,15 +61,50 @@ function worker(scenario: Scenario) {
     'write({ path: run_dir + "/" + phase + ".md", content: "Deterministic reporting fixture: " + phase })?',
     'if phase == "plan" { write({ path: run_dir + "/spec-proposal.md", content: "No spec change needed." })? }',
     ...(scenario === "worker-error" ? ['let missing = read({ path: "missing-worker-input.txt" })?'] : []),
-    ...(scenario === "implementation" || scenario === "gate" || scenario === "reviewer-error" || scenario === "resume" || scenario === "replan-refusal" ? [
+    ...(scenario === "implementation" || scenario === "gate" || scenario === "reviewer-error" || scenario === "resume" || scenario === "replan-refusal" || scenario === "autonomous" || scenario === "spec-auto" || scenario === "plan-scope" || scenario === "plan-repair" ? [
       'if phase == "reproduce" {',
       `  write({ path: run_dir + "/witnesses.json", content: ${JSON.stringify(manifest)} })?`,
       "}",
       ...(scenario === "implementation" ? ['if phase == "implement" { return ' + asTheta(verdicts.implementation) + " }"] : []),
+      ...(scenario === "plan-scope" ? [
+        'if phase == "plan" {',
+        '  let authority = match read({ path: run_dir + "/decision-authorizations.md" }) { Ok(text) => text, Err(_) => "" }',
+        '  if authority == "" {',
+        '    write({ path: run_dir + "/decision-request.md", content: "Exact reports-only PLAN scope: retain existing primitive semantics and correct the fixture coverage description; no normative edits." })?',
+        '    return ' + asTheta({ ...pass, status: "needs_decision" }),
+        '  }',
+        '}',
+        'if phase == "implement" { write({ path: "src/fixed.txt", content: "partial fix" })? }',
+      ] : []),
+      ...(scenario === "plan-repair" ? [
+        'if phase == "plan" {',
+        '  let feedback = match read({ path: run_dir + "/decision-authorizations.md" }) { Ok(text) => text, Err(_) => "" }',
+        '  write({ path: run_dir + "/plan.md", content: feedback == "" ? "Rejected plan: fixture description needs correction." : "Repaired plan: exact fixture description corrected after explicit archived revision." })?',
+        '}',
+        'if phase == "implement" { write({ path: "src/fixed.txt", content: "partial fix" })? }',
+      ] : []),
+      ...(scenario === "spec-auto" ? [
+        'if phase == "plan" {',
+        '  write({ path: run_dir + "/spec-proposal.md", content: "Exact established contract: retain refusal, correct contradictory prose." })?',
+        '  return ' + asTheta(revision),
+        '}',
+        'if phase == "implement" { write({ path: "src/fixed.txt", content: "partial fix" })? }',
+      ] : []),
+      ...(scenario === "autonomous" ? [
+        'if phase == "implement" {',
+        '  write({ path: "src/fixed.txt", content: "partial fix" })?',
+        '  let authority = match read({ path: run_dir + "/decision-authorizations.md" }) { Ok(text) => text, Err(_) => "" }',
+        '  if authority == "" {',
+        '    write({ path: run_dir + "/decision-request.md", content: "Exact fixture-only scope: change tests/legacy.test.js TypeEnv constructor new Map() to {}, preserving its assertion and original red evidence." })?',
+        '    return ' + asTheta({ ...verdicts.implementation, status: "needs_decision" }),
+        '  }',
+        '  write({ path: "tests/legacy.test.js", content: "const env = {}; // same assertion" })?',
+        '}',
+      ] : []),
       ...(scenario === "replan-refusal" ? [
         'if phase == "plan" {',
-        '  let ready = match read({ path: run_dir + "/resume-allow.txt" }) { Ok(text) => text, Err(_) => "no" }',
-        '  if ready == "yes" {',
+        '  let ready = match read({ path: run_dir + "/spec-revision-proposal.md" }) { Ok(text) => text, Err(_) => "no" }',
+        '  if ready != "no" {',
         '    write({ path: run_dir + "/spec-proposal.md", content: "New exact contract" })?',
         '    return ' + asTheta(revision),
         '  }',
@@ -113,7 +148,7 @@ function rankingWorker(kind: RankingCase) {
     `BugRanking { bugs: [${items.join(", ")}], ordering: [${edges.join(", ")}], guidance: ["Severity is not fix order; inspect actual prerequisites before implementation."] }`, "",
   ].join("\n");
 }
-function probe(args: string, options: { workflow?: string; scenario?: Scenario; ranking?: RankingCase } = {}) {
+function probe(args: string, options: { workflow?: string; scenario?: Scenario; ranking?: RankingCase; decision?: "human"; answer?: string } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), options.scenario === "resume" ? "bugfix-report-'quoted-" : "bugfix-report-"));
   const theta = join(cwd, ".pi/theta");
   const agent = join(cwd, "agent");
@@ -123,7 +158,7 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
   mkdirSync(agent);
   mkdirSync(join(cwd, ".pi/tmp"));
   writeFileSync(join(cwd, "question.mjs"), 'export default function(pi) { pi.registerTool({ name: "question", label: "Question", description: "Deterministic decision fixture", parameters: {type:"object", properties:{}}, async execute() { '
-    + (options.scenario === "replan-refusal" ? 'return { content: [{type:"text",text:"User selected: 1. Stop without spec changes"}] };' : 'throw new Error("Unexpected approval request");')
+    + (options.answer !== undefined ? 'return { content: [{type:"text",text:' + JSON.stringify(options.answer) + '}] };' : options.scenario === "replan-refusal" ? 'return { content: [{type:"text",text:"User selected: 1. Stop without spec changes"}] };' : 'throw new Error("Unexpected approval request");')
     + ' } }); }\n');
   writeFileSync(join(agent, "auth.json"), JSON.stringify({ openai: { type: "api_key", key: "pi-theta-no-network" } }));
   writeFileSync(join(agent, "settings.json"), JSON.stringify({ defaultProvider: "openai", defaultModel: "gpt-5.5", defaultProjectTrust: "always", theta: { binderModel: "openai/gpt-5.5" } }));
@@ -132,16 +167,18 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
   if (["two", "missing", "duplicate", "backwards", "cycle"].includes(options.ranking ?? "one")) {
     writeFileSync(join(cwd, "docs/bugs/0002-higher-impact.md"), "# More impact\n- **Status:** open\n");
   }
-  if (options.scenario === "resume" || options.scenario === "replan-refusal") {
+  if (["resume", "replan-refusal", "autonomous", "spec-auto", "plan-scope", "plan-repair"].includes(options.scenario ?? "")) {
     mkdirSync(join(cwd, "src"));
+    mkdirSync(join(cwd, "tests"));
+    writeFileSync(join(cwd, "tests/legacy.test.js"), "const env = new Map(); // same assertion");
     writeFileSync(join(cwd, "package.json"), JSON.stringify({ scripts: { typecheck: 'node -e "process.exit(0)"', test: 'node -e "process.exit(0)"' } }));
   }
   let workflow = options.workflow ?? readFileSync(join(root, ".pi", "theta", "fix-bug.theta"), "utf8");
   if (options.scenario === "replan-refusal") {
     // The decision/refusal is the observable, not the model's explanation turn.
-    const presentation = /let presentation = @`[\s\S]*?`\?/g;
-    expect(workflow.match(presentation)).toHaveLength(1);
-    workflow = workflow.replace(presentation, 'let presentation = "Deterministic spec decision fixture"');
+    // Astra's typed reasoning is rendered directly; there is no parent-model
+    // explanation turn to mock or a manual resume before the exact decision.
+    expect(workflow).not.toContain("let presentation = @`");
   }
   writeFileSync(join(theta, "fix-bug.theta"), workflow);
   copyFileSync(join(root, "tools/bugfix/run.mjs"), join(cwd, "tools/bugfix/run.mjs"));
@@ -149,11 +186,25 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
   writeFileSync(join(theta, "workers/bugfix-rank.theta"), rankingWorker(options.ranking ?? "one"));
   writeFileSync(join(theta, "workers/bugfix-review.theta"), '---\nmode: subagent\ntools: read\nparams:\n  run_dir: string\n  focus: string\n---\nschema Review { ok: boolean, findings: string }\n'
     + (options.scenario === "reviewer-error" ? 'let missing = read({ path: "missing-reviewer-input.txt" })?\n' : "")
+    + (options.scenario === "plan-repair" ? 'if focus == "evidence" {\n let plan = read({ path: run_dir + "/plan.md" })?\n if !plan.startsWith("Repaired plan:") { return Review { ok: false, findings: "MUST FIX: correct the fixture description in the reports-only plan; preserve all original evidence and test assertions." } }\n}\n' : "")
     + 'Review { ok: true, findings: "CLEAN — reporting fixture" }\n');
+  const decisionSchemas = readFileSync(join(root, ".pi", "theta", "workers", "bugfix-decide.theta"), "utf8")
+    .match(/schema BugDecision[\s\S]*?(?=\nlet result:)/)?.[0];
+  if (!decisionSchemas) throw new Error("Missing decision schema");
+  const human = options.scenario === "replan-refusal" || options.decision === "human";
+  const automatic = ["autonomous", "spec-auto", "plan-scope", "plan-repair"].includes(options.scenario ?? "");
+  writeFileSync(join(theta, "workers/bugfix-decide.theta"), [
+    "---", "mode: subagent", "tools: read", "params:", "  context_path: string", "---", decisionSchemas,
+    'read({ path: context_path })?',
+    `BugDecision { disposition: "${human ? "human" : automatic ? "continue" : "blocked"}", clear_preference: ${automatic && !human}, has_tradeoff: ${human}, evidence_sufficient: true,`,
+    'summary: "Decision fixture inspected the exact context.", recommendation: "Preserve assertions and follow the recorded scope.",',
+    'rationale: "Existing principles prefer fixture-only correction; unresolved contract choices remain with the owner.",',
+    'basis: ["AGENTS.md: preserve assertions and original evidence"], alternatives: ["Apply the exact scoped correction.", "Retain the obsolete fixture and remain blocked."] }', "",
+  ].join("\n"));
   try {
     // A refused slash command can fall back to a natural-language provider turn.
     // Catch syntax regressions before spawning, rather than reaching fake auth.
-    for (const path of [join(theta, "fix-bug.theta"), join(theta, "workers/bugfix-stage.theta"), join(theta, "workers/bugfix-review.theta"), join(theta, "workers/bugfix-rank.theta")]) {
+    for (const path of [join(theta, "fix-bug.theta"), join(theta, "workers/bugfix-stage.theta"), join(theta, "workers/bugfix-review.theta"), join(theta, "workers/bugfix-rank.theta"), join(theta, "workers/bugfix-decide.theta")]) {
       const doc = parseThetaDocument({ path, bytes: new Uint8Array(readFileSync(path)) }, parseDeps());
       expect(doc.diagnostics, path).toEqual([]);
     }
@@ -167,15 +218,20 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
         PI_OFFLINE: "1", PI_CODING_AGENT_DIR: agent,
       }),
     });
+    const remote = join(cwd, ".pi/tmp/origin.git");
+    if (["autonomous", "spec-auto"].includes(options.scenario ?? "")) {
+      expect(spawnSync("git", ["init", "--bare", remote], { cwd, encoding: "utf8" }).status).toBe(0);
+      expect(spawnSync("git", ["remote", "add", "origin", remote], { cwd, encoding: "utf8" }).status).toBe(0);
+    }
     let result = launch(args);
     let firstStop = "";
     let resumedState = "";
     let redPreserved = false;
     let leaseReleased = false;
     let partialWorkPreserved = false;
-    if (options.scenario === "resume" || options.scenario === "replan-refusal") {
+    if (options.scenario === "resume") {
       expect(result.status, result.stderr + result.stdout).toBe(0);
-      expect(result.stdout).toContain(options.scenario === "resume" ? "Typecheck rejects Map" : "A revised specification ruling is needed.");
+      expect(result.stdout).toContain("Typecheck rejects Map");
       firstStop = result.stdout;
       const run = JSON.parse(readFileSync(join(cwd, ".pi/tmp/fix-bug.lock/owner.json"), "utf8")).run as string;
       const red = readFileSync(join(run, "red-0.json"));
@@ -187,7 +243,19 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
       leaseReleased = !existsSync(join(cwd, ".pi/tmp/fix-bug.lock"));
       partialWorkPreserved = readFileSync(join(cwd, "src/fixed.txt"), "utf8") === "partial fix";
     }
-    return { ...result, firstStop, resumedState, redPreserved, leaseReleased, partialWorkPreserved };
+    if (options.scenario === "replan-refusal") {
+      const run = JSON.parse(readFileSync(join(cwd, ".pi/tmp/fix-bug.lock/owner.json"), "utf8")).run as string;
+      resumedState = readFileSync(join(run, "state.json"), "utf8");
+      redPreserved = existsSync(join(run, "red-0.json"));
+      partialWorkPreserved = readFileSync(join(cwd, "src/fixed.txt"), "utf8") === "partial fix";
+    }
+    const entries = existsSync(join(cwd, ".pi/tmp")) ? readdirSync(join(cwd, ".pi/tmp")) : [];
+    const completedRun = entries.find(name => name.startsWith("fix-bug-0001-"));
+    const completedState = completedRun ? readFileSync(join(cwd, ".pi/tmp", completedRun, "state.json"), "utf8") : "";
+    const shipmentPath = completedRun ? join(cwd, ".pi/tmp", completedRun, "shipment.json") : "";
+    const shipment = shipmentPath && existsSync(shipmentPath) ? JSON.parse(readFileSync(shipmentPath, "utf8")) : null;
+    const pushedSha = shipment ? spawnSync("git", ["--git-dir", remote, "rev-parse", "refs/heads/main"], { cwd, encoding: "utf8" }).stdout.trim() : "";
+    return { ...result, firstStop, resumedState, redPreserved, leaseReleased, partialWorkPreserved, completedState, shipment, pushedSha };
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 }
 function cleanHost(result: ReturnType<typeof probe>) {
@@ -281,13 +349,84 @@ describe("fix-bug completion reporting through the real host", () => {
   it("retains partial work and reports revised-spec refusal honestly after implementation started", () => {
     const result = probe("1 ship false", { scenario: "replan-refusal" });
     cleanHost(result);
-    card(result.stdout, "Specification approval (before continuing implementation)");
+    card(result.stdout, "Specification decision (before continuing implementation)");
     expect(result.stdout).toContain("Earlier partial work, if any, is retained.");
+    expect(result.stdout).toContain("ASTRA — HUMAN");
     expect(result.stdout).not.toContain("implementation has not started");
     expect(result.partialWorkPreserved).toBe(true);
     expect(result.redPreserved).toBe(true);
     expect(JSON.parse(result.resumedState).checkpoints.plan.attempt).toBe(2);
     expect(result.leaseReleased).toBe(false);
+  }, 120000);
+
+  it("automatically authorizes a bounded test correction, retries and commits/pushes by default without a dialog", () => {
+    // The fixture question tool throws on ANY call. Success therefore proves
+    // neither the routine decision nor shipment interrupted for owner consent.
+    const result = probe("1", { scenario: "autonomous" });
+    cleanHost(result);
+    expect(result.stdout).toContain("ASTRA — continuing implement");
+    expect(result.stdout).toContain("COMMITTED AND PUSHED");
+    const state = JSON.parse(result.completedState);
+    expect(state.options.ship).toBe(true);
+    expect(state.checkpoints.implement).toMatchObject({ status: "pass", attempt: 2 });
+    expect(result.shipment.pushed).toBe(true);
+    expect(result.pushedSha).toBe(result.shipment.sha);
+    expect(result.stdout).not.toContain("STOP —");
+  }, 120000);
+
+  it("authorizes a clearly preferred exact spec proposal without a dialog and honors ship false", () => {
+    const result = probe("1 ship false", { scenario: "spec-auto" });
+    cleanHost(result);
+    expect(result.stdout).toContain("ASTRA — continuing plan");
+    expect(result.stdout).toContain("VERIFIED, NOT SHIPPED");
+    const state = JSON.parse(result.completedState);
+    expect(state.specApproved).toBe(true);
+    expect(state.approvedProposal).toBe("Exact established contract: retain refusal, correct contradictory prose.");
+    expect(result.shipment).toBeNull();
+    expect(result.stdout).not.toContain("STOP —");
+  }, 120000);
+
+  it("automatically resolves a PLAN-stage scoped request without accidentally authorizing specification edits", () => {
+    const result = probe("1 ship false", { scenario: "plan-scope" });
+    cleanHost(result);
+    expect(result.stdout).toContain("VERIFIED, NOT SHIPPED");
+    const state = JSON.parse(result.completedState);
+    expect(state.checkpoints.plan.attempt).toBe(2);
+    expect(state.specApproved).not.toBe(true);
+    expect(state.decisions[0].authority.type).toBe("exact-scoped-request");
+  }, 120000);
+
+  it("uses the scoped, not spec, affirmative label for a genuine PLAN-stage tradeoff", () => {
+    const result = probe("1 ship false", { scenario: "plan-scope", decision: "human", answer: "User selected: 2. Approve recommended scoped decision" });
+    cleanHost(result);
+    expect(result.stdout).toContain("ASTRA — HUMAN at plan");
+    expect(result.stdout).toContain("VERIFIED, NOT SHIPPED");
+    const state = JSON.parse(result.completedState);
+    expect(state.specApproved).not.toBe(true);
+    expect(state.decisions.at(-1)).toMatchObject({ source: "human", authority: { type: "exact-scoped-request" } });
+  }, 120000);
+
+  it("a failed human dialog grants no scope and stops without implementation", () => {
+    const result = probe("1 ship false", { scenario: "plan-scope", decision: "human" });
+    cleanHost(result);
+    expect(result.stdout).toContain("ASTRA — HUMAN at plan");
+    expect(result.stdout).toContain("STOP —");
+    const state = JSON.parse(result.completedState);
+    expect(state.decisions.at(-1)).toMatchObject({ outcome: "HUMAN", authority: null });
+    expect(state.specApproved).not.toBe(true);
+    expect(state.checkpoints.implement).toBeUndefined();
+    expect(result.shipment).toBeNull();
+  }, 120000);
+
+  it("revises an explicitly invalidated rejected plan and obtains fresh clean evidence review automatically", () => {
+    const result = probe("1 ship false", { scenario: "plan-repair" });
+    cleanHost(result);
+    expect(result.stdout).toContain("ASTRA — continuing evidence");
+    expect(result.stdout).toContain("VERIFIED, NOT SHIPPED");
+    const state = JSON.parse(result.completedState);
+    expect(state.checkpoints.plan.attempt).toBe(2);
+    expect(state.replanRequired).toBe(false);
+    expect(state.decisions[0]).toMatchObject({ phase: "evidence", outcome: "CONTINUE" });
   }, 120000);
 
   it("red-direction control: returning the stop card alone is invisible", () => {

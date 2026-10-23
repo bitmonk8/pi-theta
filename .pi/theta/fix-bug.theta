@@ -11,6 +11,7 @@ tools:
   - ./workers/bugfix-stage.theta
   - ./workers/bugfix-review.theta
   - ./workers/bugfix-rank.theta
+  - ./workers/bugfix-decide.theta
 params:
   arguments: string
 ---
@@ -48,7 +49,7 @@ fn checkpoint_stop(bug: string, stage: string, reason: string, action: string,
 // Same wire shape as the stage worker; fallback values keep transport failures
 // on the same card surface and preserve the orchestrator's known stage.
 schema StageFailure {
-  status: "pass" | "blocked" | "not_reproduced" | "needs_spec",
+  status: "pass" | "blocked" | "not_reproduced" | "needs_spec" | "needs_decision",
   summary: string, environment: string, bug_validity: string, fixability: string,
   progress: string, next_action: string, recommendation: string
 }
@@ -76,7 +77,7 @@ fn control(command: string): boolean {
 }
 // Cache only durably recorded successful stages. Blocked/interrupted stages
 // rerun; original red proof and fresh verification/reviews stay controller-owned.
-fn run_stage(run: string, phase: string, feedback: string) {
+fn stage_attempt(run: string, phase: string, feedback: string) {
   let command = "node tools/bugfix/run.mjs "
   let quoted = shell_path(run)
   let cached = bash({ command: command + "cached " + quoted + " " + phase })?
@@ -97,6 +98,101 @@ fn run_stage(run: string, phase: string, feedback: string) {
   write({ path: run + "/stage-" + phase + "-result.txt", content: result.status + "\n" + result.summary })?
   if !control(command + "record " + quoted + " " + phase) { return worker_failure("Could not record stage result: " + phase) }
   result
+}
+// A fresh Astra pass owns routine authorizations, never shipment or gate waivers.
+// Persist its typed value without an extra model formatting/explanation turn.
+schema DecisionRecord {
+  disposition: "continue" | "human" | "blocked",
+  clear_preference: boolean, has_tradeoff: boolean, evidence_sufficient: boolean,
+  summary: string, recommendation: string, rationale: string,
+  basis: array<string>, alternatives: array<string>
+}
+schema DecisionOutcome { proceed: boolean, feedback: string, context_path: string }
+fn json_string(value: string): string {
+  "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"")
+    .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t") + "\""
+}
+fn json_strings(values: array<string>): string {
+  let mut body = ""
+  for value in values {
+    if body != "" { body += "," }
+    body += json_string(value)
+  }
+  "[" + body + "]"
+}
+fn decision_json(value: DecisionRecord): string {
+  "{\"disposition\":" + json_string(value.disposition)
+    + ",\"clear_preference\":" + (value.clear_preference ? "true" : "false")
+    + ",\"has_tradeoff\":" + (value.has_tradeoff ? "true" : "false")
+    + ",\"evidence_sufficient\":" + (value.evidence_sufficient ? "true" : "false")
+    + ",\"summary\":" + json_string(value.summary)
+    + ",\"recommendation\":" + json_string(value.recommendation)
+    + ",\"rationale\":" + json_string(value.rationale)
+    + ",\"basis\":" + json_strings(value.basis)
+    + ",\"alternatives\":" + json_strings(value.alternatives) + "}"
+}
+fn resolve_decision(run: string, phase: string) {
+  let prefix = "node tools/bugfix/run.mjs "
+  let quoted = shell_path(run)
+  let context = bash({ command: prefix + "decision-start " + quoted + " " + phase })?.trim()
+  if !context.startsWith(run + "/decision-") || !context.endsWith("/context.json") || context.includes("\n") {
+    return DecisionOutcome { proceed: false, feedback: "Decision snapshot failed: " + context, context_path: context }
+  }
+  let kind = bash({ command: prefix + "decision-kind " + quoted + " " + shell_path(context) })?.trim()
+  if kind != "SPEC" && kind != "SCOPED" {
+    return DecisionOutcome { proceed: false, feedback: "Invalid decision scope discriminator.", context_path: context }
+  }
+  let result = bugfix_decide(context)
+  let failure = match result { Ok(_) => "", Err(error) => error_reason(error) }
+  if failure != "" {
+    theta_print({ text: "Astra decision pass failed; no authorization granted: " + failure + "\nContext: " + context })?
+    return DecisionOutcome { proceed: false, feedback: "Decision reviewer failed: " + failure, context_path: context }
+  }
+  let decision: DecisionRecord = result?
+  write({ path: context + ".verdict.json", content: decision_json(decision) })?
+  let disposition = bash({ command: prefix + "decision-record " + quoted + " " + shell_path(context) })?.trim()
+  let feedback = "Read the recorded decision at " + context + " and decision-authorizations.md. "
+    + "Apply only its exact scoped authority; all original evidence, stage boundaries and gates remain mandatory. "
+    + decision.recommendation
+  if disposition == "CONTINUE" {
+    theta_print({ text: "ASTRA — continuing " + phase + ": " + decision.summary + "\nBasis and scope: " + context })?
+    return DecisionOutcome { proceed: true, feedback: feedback, context_path: context }
+  }
+  theta_print({ text: "ASTRA — " + disposition + " at " + phase + ": " + decision.summary
+    + "\nAstra recommends: " + decision.recommendation + "\nReasoning: " + decision.rationale
+    + "\nBasis: " + decision.basis.join("; ") + "\nAlternatives: " + decision.alternatives.join("; ")
+    + "\nExact context: " + context })?
+  if disposition != "HUMAN" {
+    return DecisionOutcome { proceed: false, feedback: "No authorization: " + context, context_path: context }
+  }
+  // Only genuine unresolved tradeoffs reach a dialog. Default/cancel/free text
+  // and a missing UI remain refusals; the controller validates the exact answer.
+  let label = kind == "SPEC" ? "Approve proposed spec changes" : "Approve recommended scoped decision"
+  let answer = question({ question: "Astra found an unresolved tradeoff. Approve the exact recommended "
+      + (kind == "SPEC" ? "specification proposal" : "scoped decision") + " described above?",
+    options: [OwnerOption { label: "Keep paused for discussion", description: "No new authority; preserve the patch and evidence." },
+      OwnerOption { label: label, description: "Approve only the recorded exact scope and recommendation; no gate waiver or general rebaseline." }] })?
+  write({ path: context + ".answer.txt", content: answer })?
+  let accepted = control(prefix + "decision-answer " + quoted + " " + shell_path(context))
+  DecisionOutcome { proceed: accepted, feedback: feedback, context_path: context }
+}
+// Up to three attempts per stage call. Every substantive blocked/decision
+// outcome receives a fresh assessment before owner escalation, not a keyword heuristic.
+fn run_stage(run: string, phase: string, feedback: string) {
+  let mut attempt = 0
+  let mut guidance = feedback
+  while attempt < 3 {
+    attempt += 1
+    let result = stage_attempt(run, phase, guidance)?
+    if result.status == "pass" || result.status == "needs_spec" { return result }
+    let decision = resolve_decision(run, phase)?
+    if !decision.proceed { return result }
+    if attempt == 3 {
+      return worker_failure("Automatic stage retry limit reached; inspect recorded decisions and unresolved stage obligations.")
+    }
+    guidance = feedback + "\n" + decision.feedback
+  }
+  worker_failure("Automatic stage retry limit reached.")
 }
 schema RankItem {
   id: string, severity: "critical" | "high" | "medium" | "low",
@@ -224,10 +320,22 @@ for value in ["1", "2", "3", "4", "5"] {
   if value == info[2] { break }
 }
 theta_print({ text: "Bug " + bug + (resumed ? ": resuming recorded checkpoints. Artifacts: " : ": reproduction started. Artifacts: ") + run })?
-let outcome = match drive(run, bug, ship, review_rounds) {
-  Ok(value) => value,
-  Err(error) => checkpoint_stop(bug, "Workflow execution", error_reason(error),
-    "Inspect the latest stage report and checkout.", "Preserve partial work; use /fix-bug resume only after resolving the stop reason.", run),
+// Revised contracts replan in this invocation instead of forcing an owner resume.
+// The ceiling bounds all automatic replan/repair cycles; it never waives a gate.
+let mut outcome = "REPLAN"
+let mut cycle = 0
+while outcome == "REPLAN" && cycle < 3 {
+  cycle += 1
+  outcome = match drive(run, bug, ship, review_rounds) {
+    Ok(value) => value,
+    Err(error) => checkpoint_stop(bug, "Workflow execution", error_reason(error),
+      "Inspect the latest stage report and checkout.", "Preserve partial work; use /fix-bug resume only after resolving the stop reason.", run),
+  }
+}
+if outcome == "REPLAN" {
+  outcome = checkpoint_stop(bug, "Automatic continuation limit", "Three workflow cycles did not reach verified completion.",
+    "Inspect the recorded decisions and unresolved findings before resuming.",
+    "Keep the partial fix and original evidence; do not remove limits or waive verification.", run)
 }
 if !control(prefix + "pause " + quoted) {
   return checkpoint_stop(bug, "Execution handoff", "Could not clear the active-run marker. " + outcome,
@@ -280,29 +388,45 @@ let evidence = evidence_result?
 if !control(prefix + "review-check " + quoted) { return checkpoint_stop(bug, "Evidence review — read-only check", "Evidence reviewer changed files or checkpoint validation failed.",
   "Compare the checkout with the saved snapshot.", "Review unexpected changes; do not accept a compromised read-only review.", run) }
 write({ path: run + "/evidence-review.md", content: evidence.findings })?
+write({ path: run + "/evidence-review-result.json", content: "{\"ok\":" + (evidence.ok ? "true" : "false") + ",\"findings\":" + json_string(evidence.findings) + "}" })?
 if !evidence.ok {
+  let decision = resolve_decision(run, "evidence")?
+  // Never convert a failed review to a pass or reuse its rejected cached plan.
+  // Archive/invalidate the old plan explicitly; the next PLAN gets the findings
+  // and scoped decision, followed by a genuinely fresh evidence review.
+  if decision.proceed {
+    let feedback_path = run + "/evidence-replan-feedback.md"
+    write({ path: feedback_path, content: evidence.findings + "\n\n" + decision.feedback })?
+    if !control(prefix + "replan " + quoted + " " + shell_path(feedback_path)) {
+      return checkpoint_stop(bug, "Evidence-review plan revision", "Could not archive and invalidate the rejected plan.",
+        "Inspect the recorded decision and replan transition; do not overwrite completed reports manually.",
+        "Require an explicit plan revision and fresh independent evidence review.", run)
+    }
+    return "REPLAN"
+  }
   return checkpoint_stop(bug, "Evidence/plan review (before implementation)", "Independent evidence/plan review did not pass.",
     "Address the blocking findings in evidence-review.md.", "Repair the evidence or plan before implementation; do not treat this review failure as proof the bug is invalid.", run)
 }
+if !control(prefix + "evidence-review-record " + quoted) {
+  return checkpoint_stop(bug, "Evidence review — durable verification", "Could not bind clean evidence review to the current plan and checkout.",
+    "Inspect evidence-review-result.json and checkpoint drift.", "Do not infer authorization from a stale review report.", run)
+}
 if plan.status == "needs_spec" && !control(prefix + "approved " + quoted) {
-  let proposal = read({ path: run + "/spec-proposal.md" })?
-  let presentation = @`Explain the proposed specification change below to the project owner:
-${proposal}
-Give the design choice, alternatives, consequences and the plan summary:
-${plan.summary}
-Do not use tools or change files. A separate dialog will request approval.`?
-  let answer = question({ question: "Approve the exact specification proposal in " + run + "/spec-proposal.md, as discussed above?", options: [OwnerOption { label: "Stop without spec changes", description: "Keep evidence and plan for discussion - no implementation." }, OwnerOption { label: "Approve proposed spec changes", description: "Authorize only the presented clauses - new spec decisions require another pause." }] })?
-  write({ path: run + "/spec-answer.txt", content: answer })?
-  if !control(prefix + "approval " + quoted) { return stop_report(bug, "Specification approval (before continuing implementation)",
-    "Exact specification proposal was not approved or approval validation failed.", "Not established — approval is a separate checkpoint.",
-    "See reproduction and evidence-review.md; approval does not determine validity.", "Pending an approved contract; not shown to be unfixable.",
-    "No implementation is authorized under this proposal. Earlier partial work, if any, is retained.", "Decide on the exact proposal in spec-proposal.md.",
-    "Discuss unresolved semantics before approving; do not implement an unapproved contract.", run) }
+  let decision = resolve_decision(run, "plan")?
+  if !decision.proceed || !control(prefix + "approved " + quoted) {
+    return stop_report(bug, "Specification decision (before continuing implementation)",
+      "Exact specification proposal is not authorized; see the recorded Astra assessment.", "Not established — authorization is a separate checkpoint.",
+      "See reproduction and evidence-review.md; authorization does not determine validity.", "Pending an authorized contract; not shown to be unfixable.",
+      "Earlier partial work, if any, is retained. No further implementation is authorized under this proposal.",
+      "Resolve the recorded tradeoff or objective prerequisite; then use /fix-bug resume.",
+      "Do not implement an unauthorized contract or treat missing UI as consent.", run)
+  }
 }
 let implemented = match run_stage(run, "implement", "") {
   Ok(value) => value,
   Err(error) => worker_failure(error_reason(error)),
 }
+if implemented.status == "needs_spec" { return "REPLAN" }
 if implemented.status != "pass" {
   return stop_report(bug, "Implementation / worker verification (before independent fix review)",
     implemented.summary, implemented.environment, implemented.bug_validity,
@@ -335,6 +459,7 @@ while round < review_rounds {
     Ok(value) => value,
     Err(error) => worker_failure(error_reason(error)),
   }
+  if repair.status == "needs_spec" { return "REPLAN" }
   if repair.status != "pass" {
     return stop_report(bug, "Review repair / worker verification", repair.summary, repair.environment,
       repair.bug_validity, repair.fixability, repair.progress, repair.next_action, repair.recommendation, run)
@@ -367,27 +492,33 @@ if !control(prefix + "review-check " + quoted) { return checkpoint_stop(bug, "Fi
   "Compare the checkout with the saved snapshot.", "Review unexpected changes before shipment.", run) }
 write({ path: run + "/final-review.md", content: final_review.findings })?
 if !final_review.ok {
+  let decision = resolve_decision(run, "final")?
+  if decision.proceed {
+    let repair = run_stage(run, "repair", final_review.findings + "\n" + decision.feedback)?
+    if repair.status == "pass" || repair.status == "needs_spec" { return "REPLAN" }
+    return stop_report(bug, "Final-review repair", repair.summary, repair.environment,
+      repair.bug_validity, repair.fixability, repair.progress, repair.next_action, repair.recommendation, run)
+  }
   return checkpoint_stop(bug, "Final verification review", "Final independent review did not pass.",
     "Address the blocking findings in final-review.md and reverify the changed diff.", "Keep the fix local until the final review is clean.", run)
+}
+write({ path: run + "/final-review-result.json", content: "{\"ok\":true,\"findings\":" + json_string(final_review.findings) + "}" })?
+if !control(prefix + "final-review-record " + quoted) {
+  return checkpoint_stop(bug, "Final review — durable verification", "Could not bind clean final review to the verified checkout.",
+    "Inspect final-review-result.json and post-gate drift before continuing.", "Do not ship or waive final review integrity.", run)
 }
 if !ship {
   if !control(prefix + "release " + quoted) { return checkpoint_stop(bug, "Local handoff — lease release", "Checkout lease release failed after verification.",
     "Inspect .pi/tmp/fix-bug.lock/owner.json before releasing the stopped run's lease.", "Preserve the verified local fix; do not start an overlapping run.", run) }
   return "VERIFIED, NOT SHIPPED: inspect the diff and reports in " + run + ". No commit, push, tag or package publication performed."
 }
-let shipment_context = @`Summarize the verified fix for bug ${bug}, its evidence and residuals,
-using the final independent review below. Do not call tools or change files.
-Explain that the next dialog commits and pushes the current branch to origin,
-but does not bump a version, tag, or publish npm. Reports: ${run}.
-${final_review.findings}`?
-let ship_answer = question({ question: "Commit and push this verified fix on the current branch to origin?", options: [OwnerOption { label: "Keep local for inspection", description: "No commit or push - preserve verified changes and evidence." }, OwnerOption { label: "Commit and push this fix", description: "Stage scoped src/tests/docs changes, commit, then push current branch - no force or publication." }] })?
-write({ path: run + "/ship-answer.txt", content: ship_answer })?
-if !control(prefix + "ship " + quoted) { return stop_report(bug, "Shipment approval / commit / push",
-  "Shipment was declined or the shipment command failed.", "Unknown — inspect approval and shipment evidence.",
+theta_print({ text: "VERIFIED — committing and pushing bug " + bug + " under standing owner permission.\nNo version bump, tag or npm publication. Reports: " + run + "\n" + final_review.findings })?
+if !control(prefix + "ship " + quoted) { return stop_report(bug, "Shipment / commit / push",
+  "Automatic commit/push failed or shipment guards refused it.", "Unknown — inspect shipment evidence.",
   "Confirmed by the reviewed evidence.", "Fix verified; shipment state is a separate question.",
   "Final verification/review passed. A commit or push MAY have occurred; do not assume either outcome.",
-  "Inspect ship-answer.txt, shipment.json if present, and git status/log before retrying.",
-  "Keep a declined shipment local; if shipping failed, establish commit/push state before any retry.", run) }
+  "Inspect shipment.json if present and git status/log before retrying.",
+  "Establish commit/push state before any retry; never force push or restart blindly.", run) }
 "COMMITTED AND PUSHED - reports and SHA in " + run + "/shipment.json"
 }
 

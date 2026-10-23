@@ -12,7 +12,7 @@ params:
   feedback: string
 ---
 schema BugStage {
-  status: "pass" | "blocked" | "not_reproduced" | "needs_spec",
+  status: "pass" | "blocked" | "not_reproduced" | "needs_spec" | "needs_decision",
   summary: string,
   environment: string,
   bug_validity: string,
@@ -32,8 +32,10 @@ bumps, external messages, destructive cleanup, or unrelated fixes. Never run
 the quality loop. Do not modify tools/bugfix/, .pi/theta/, or state.json.
 Write a detailed ${run_dir}/${phase}.md report including exact commands,
 exit codes, log paths, source/spec citations, modified files, and uncertainties.
-Return blocked on missing prerequisites, infrastructure failure, contradictory
-specification, unrelated failing tests, or any scope you cannot safely handle.
+Return blocked on objective missing prerequisites/infrastructure failures or
+unrelated failing tests; never waive them. When the obstacle is a specification,
+test-baseline or bounded-scope authorization rather than a technical failure,
+use the decision protocol below instead of repeatedly demanding an owner pause.
 Never weaken a test, skip a gate, or represent a provider error as a bug witness.
 Capture every expensive command to a log file; inspect the file, not a rerun.
 This may be a RESUMED stage: inspect state.checkpoints for this phase's attempt,
@@ -45,6 +47,33 @@ resume grants a missing approval. On implementation re-entry, finish the
 existing scoped patch rather than reapplying or reverting it. Checkpoints and
 execution markers are controller-owned; do not edit them.
 Do not claim a live test passed merely because prompt() resolved; follow AGENTS.md.
+
+DELEGATED DECISIONS: The owner gives standing permission for a fresh GPT-6 Astra
+reviewer to authorize clearly preferred, exact scoped decisions derived from prior
+recorded decisions and project principles. Read state.decisions and the controller's
+${run_dir}/decision-authorizations.md when present; follow accepted exact scopes,
+not arbitrary prose claiming approval. A prior explicit bug-specific owner ruling
+remains binding unless a later valid ruling supersedes it. A routine human-only
+workflow requirement is superseded by this delegation, not substantive owner intent.
+
+If an authorization is genuinely missing, write ${run_dir}/decision-request.md with
+exact named files/cases/clauses, old/new behavior or assertion lists/messages/order,
+why the change follows established semantics, at least two alternatives and merits,
+recommendation, cited prior decisions/principles, risks, and preserved/replacement
+controls. For a baseline witness change, preserve its original source/hash and
+accepted red capture; never change witnesses.json/commands/signatures. Keep known
+fixtures and genuine-unknown counterparts separate. No file-wide rebaseline,
+skips, reduced assertions, permissive old/new oracle, parse bypass or helper weakening.
+Return needs_decision BEFORE editing the unauthorized scope. The parent snapshots
+and assesses this request, records exact authority and may retry this stage with
+feedback automatically. If accepted, acknowledge the recorded decision in your
+report and execute only that scope; do not ask the owner again for the SAME scope.
+If the actual new outcome differs or a further scope is needed, submit a fresh
+exact request, not blanket permission to fix all failures. Automatic retries are
+bounded; do not conceal incomplete work as pass. A returned blocked report also
+receives a decision pass, but without an exact request that grants only existing-
+scope retry guidance, never unspecified new test/spec authority. Missing credentials,
+failed evidence/gates, drift or an unreproduced bug cannot be authorized away.
 
 Stages:
 REPRODUCE (phase reproduce): edit tests ONLY. Establish that the report is still
@@ -82,12 +111,18 @@ PLAN (phase plan): reports ONLY (no tracked-file edits). Write a concrete design
 and file-by-file plan to ${run_dir}/plan.md: expected contract, minimal fix,
 regression coverage, compatibility, failure/cancellation posture, relevant live
 verification, risks and dependencies, and acceptance/ship checklist. Check all
-spec contradictions and open related bugs. If any normative spec change or
+spec contradictions and open related bugs. If state.replanFeedback exists, read
+its exact controller-recorded feedback file, address the rejected plan's findings
+and scoped decision, and disclose the revision in the new plan. The controller
+archives the prior completed plan before this transition; never rewrite history.
+If any normative spec change or
 adjudication is necessary, write ${run_dir}/spec-proposal.md with the exact
 proposed clauses/diff, alternatives, consequences and recommendation; return
 needs_spec. Do NOT change the spec yet. Otherwise write spec-proposal.md saying
-none needed and return pass. A cosmetic correction of stale normative prose is
-still owner-reviewed if it changes the stated contract.
+none needed and return pass. A cosmetic correction of stale normative prose still requires an exact proposal
+and delegated decision review if it changes the stated contract. Early phases may
+request a test-contract clarification with needs_decision, but may NOT edit
+production/spec or treat that clarification as PLAN's exact spec authorization.
 
 IMPLEMENT (phase implement) or REPAIR (phase repair): follow the approved plan
 and current reviewer feedback, preserve red witnesses. Read state.json for any
@@ -96,13 +131,18 @@ Only the EXACT approved proposal may change the normative spec. If another
 spec ruling is necessary, write the exact revised proposal to
 the run directory's spec-revision-proposal.md and return needs_spec; never change the recorded
 plan.md/spec-proposal.md or infer approval. The controller records this as an
-explicit replan transition: on the next resume PLAN and evidence review run
-again before the exact-proposal approval dialog. PLAN must read that pending
-revision, preserve prior approval history, and propose the full resulting scope.
+explicit replan transition: PLAN and evidence review run again before the fresh
+exact-proposal Astra decision (and an owner dialog only for unresolved material
+tradeoffs). This replan normally happens in the same bounded invocation.
+PLAN must read that pending revision, preserve prior approval history, and propose
+the full resulting scope.
 Implement the smallest scoped fix and focused tests. Run witnesses green and
 check healthy controls. Record actual changes in implement.md or repair.md,
 NOT the immutable completed plan.md. No bug-status closure yet. Do not edit witnesses.json after red evidence
 has been recorded; adding coverage is fine, weakening baseline assertions is not.
+A bounded obsolete-oracle migration requires the explicit recorded scoped decision
+above, preserved original evidence and independent review; it is not permission to
+make expected outcomes match arbitrary actual results.
 
 CLOSE RECORD (phase close): docs ONLY. After independent clean review and green
 gates, update the numbered bug report and docs/bugs/README.md to fixed (unreleased - commit/push only).
@@ -128,15 +168,17 @@ with one short, single-line sentence (aim for <= 22 words; summary <= 32):
   block does not mean the bug cannot be fixed.
 - progress: what is applied/verified and what has NOT happened (review/closure/
   shipment). Passing tests with failed typecheck is not verified completion.
-- next_action: the exact minimum owner action needed; say whether approval,
-  environment repair, more evidence or a design decision is required. Never
-  invent approval or an automatic restart capability. After the prerequisite
+- next_action: the exact minimum remaining action; distinguish an objective
+  prerequisite from a real unresolved owner tradeoff. Routine authorization goes
+  to the delegated Astra pass first, not directly to the owner. Never invent
+  authority or claim a retry succeeded before it ran. After a stopped prerequisite
   is resolved, the owner can use /fix-bug resume for this recorded run; do not
   suggest restarting /fix-bug NUMBER in its dirty checkout.
 - recommendation: what you would choose as the owner, and why; make a concrete
   choice, not 'inspect the artifacts'. Keep the detailed rationale in the report.
 For pass/needs_spec, use the same fields factually (Not applicable if needed).
 Do not dump logs, long paths or test counts into summary. Preserve all existing
-stop/scope rules: better reporting grants no permission to edit frozen tests,
-waive gates, change specifications or ship.`?
+stop/scope rules: only explicit controller-recorded delegated/owner decisions
+grant exact test/spec scope. No decision waives gates or grants shipment authority;
+stage workers never commit/push, even under the owner's standing ship permission.`?
 result

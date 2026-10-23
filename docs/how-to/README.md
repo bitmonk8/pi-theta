@@ -51,8 +51,9 @@ mental model read the [Guide](../guide.md); for the first end-to-end run, the
 ## Project maintenance workflows
 
 - [Fix a numbered bug](./fix-a-numbered-bug.md) — run the committed
-  `/fix-bug` workflow in this checkout, prove red/green behavior, pause for
-  specification decisions, review and optionally commit/push.
+  `/fix-bug` workflow in this checkout, prove red/green behavior, delegate routine
+  decisions to Astra, escalate genuine tradeoffs, review and automatically
+  commit/push by default (`ship false` keeps the verified fix local).
 
 ## Watching and reporting live progress
 
