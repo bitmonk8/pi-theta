@@ -512,14 +512,14 @@ if !ship {
     "Inspect .pi/tmp/fix-bug.lock/owner.json before releasing the stopped run's lease.", "Preserve the verified local fix; do not start an overlapping run.", run) }
   return "VERIFIED, NOT SHIPPED: inspect the diff and reports in " + run + ". No commit, push, tag or package publication performed."
 }
-theta_print({ text: "VERIFIED — committing and pushing bug " + bug + " under standing owner permission.\nNo version bump, tag or npm publication. Reports: " + run + "\n" + final_review.findings })?
+theta_print({ text: "VERIFIED — committing and pushing bug " + bug + " under standing owner permission.\nFor pi-theta, also update and push pi-config's dependency pin to the new HEAD.\nNo version bump, tag or npm publication. Reports: " + run + "\n" + final_review.findings })?
 if !control(prefix + "ship " + quoted) { return stop_report(bug, "Shipment / commit / push",
   "Automatic commit/push failed or shipment guards refused it.", "Unknown — inspect shipment evidence.",
   "Confirmed by the reviewed evidence.", "Fix verified; shipment state is a separate question.",
   "Final verification/review passed. A commit or push MAY have occurred; do not assume either outcome.",
   "Inspect shipment.json if present and git status/log before retrying.",
   "Establish commit/push state before any retry; never force push or restart blindly.", run) }
-"COMMITTED AND PUSHED - reports and SHA in " + run + "/shipment.json"
+"COMMITTED AND PUSHED (including pi-config dependency update for pi-theta) - reports and SHAs in " + run + "/shipment.json"
 }
 
 // One deterministic completion surface for EVERY normal terminal branch:

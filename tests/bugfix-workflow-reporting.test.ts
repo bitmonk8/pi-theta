@@ -181,7 +181,9 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
     expect(workflow).not.toContain("let presentation = @`");
   }
   writeFileSync(join(theta, "fix-bug.theta"), workflow);
-  copyFileSync(join(root, "tools/bugfix/run.mjs"), join(cwd, "tools/bugfix/run.mjs"));
+  for (const file of ["run.mjs", "update-pi-config.mjs"]) {
+    copyFileSync(join(root, "tools/bugfix", file), join(cwd, "tools/bugfix", file));
+  }
   writeFileSync(join(theta, "workers/bugfix-stage.theta"), worker(options.scenario ?? "environment"));
   writeFileSync(join(theta, "workers/bugfix-rank.theta"), rankingWorker(options.ranking ?? "one"));
   writeFileSync(join(theta, "workers/bugfix-review.theta"), '---\nmode: subagent\ntools: read\nparams:\n  run_dir: string\n  focus: string\n---\nschema Review { ok: boolean, findings: string }\n'

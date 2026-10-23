@@ -133,6 +133,16 @@ bug workflow, but cannot prevent unrelated tools from editing the checkout.
     Other fix surfaces require manual shipment. No force push, auto-pull/rebase,
     tags, package publication, or version bump. A failed push leaves the commit
     intact and records its SHA; never rerun blindly.
+    For a `@bitmonk8/pi-theta` checkout, a successful push additionally updates
+    the canonical `~/.pi/agent/git/github.com/bitmonk8/pi-config` clone: require
+    clean `main`, pull/rebase, verify the pushed SHA is pi-theta's remote HEAD,
+    install that exact Git SHA into `package.json` and `package-lock.json`
+    (also refreshing the installed dependency), verify the pin, then commit,
+    pull/rebase and push pi-config `main`. No other config paths are staged.
+    Both repository outcomes are recorded in `shipment.json`. A consumer-update
+    failure is a partial shipment, not success: pi-theta is already pushed;
+    reconcile pi-config status/log and retry only the consumer update, never
+    rerun the bug fix or discard existing work. `ship false` updates neither repo.
 
 "Ship" here means **commit and push**, not publish a package release. The closure
 record must distinguish a working-tree fix from a published version. Package

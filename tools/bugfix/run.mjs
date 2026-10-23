@@ -6,6 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync, rmSync, renameSync, realpathSync, copyFileSync, lstatSync, readlinkSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { updatePiConfig } from './update-pi-config.mjs';
 
 export function command(argv, cwd, timeout = 30 * 60 * 1000) {
   if (!Array.isArray(argv) || !argv.length || argv.some(x => typeof x !== 'string')) throw new Error('Command must be a nonempty argv array');
@@ -193,7 +194,7 @@ function renderRanking(root, catalogPath) {
 }
 const PHASES = new Set(['reproduce', 'diagnose', 'plan', 'implement', 'repair', 'close']);
 function controlPaths(root) {
-  return ['tools/bugfix/run.mjs', '.pi/theta/fix-bug.theta', '.pi/theta/workers/bugfix-stage.theta', '.pi/theta/workers/bugfix-review.theta', '.pi/theta/workers/bugfix-rank.theta', '.pi/theta/workers/bugfix-decide.theta'].filter(p => existsSync(join(root, p)));
+  return ['tools/bugfix/run.mjs', 'tools/bugfix/update-pi-config.mjs', '.pi/theta/fix-bug.theta', '.pi/theta/workers/bugfix-stage.theta', '.pi/theta/workers/bugfix-review.theta', '.pi/theta/workers/bugfix-rank.theta', '.pi/theta/workers/bugfix-decide.theta'].filter(p => existsSync(join(root, p)));
 }
 function stagePaths(phase) { return [`stage-${phase}-result.txt`, `${phase}.md`, ...(phase === 'plan' ? ['spec-proposal.md'] : [])]; }
 // Decision snapshots are controller-owned, run-local authority, never Git or
@@ -867,8 +868,19 @@ export function main(args, cwd = process.cwd()) {
       const commit = command(['git', 'commit', '-m', `fix: resolve bug ${state.id}`], root); if (commit.code !== 0) throw new Error(commit.output);
       // Push only the reviewed commit and current branch: no tags, force, npm publish, or unrelated refs.
       const push = command(['git', 'push', 'origin', `HEAD:refs/heads/${state.branch}`], root);
-      save(join(run, 'shipment.json'), { sha: git(root, 'rev-parse', 'HEAD'), pushed: push.code === 0, output: push.output });
+      const shipment = { sha: git(root, 'rev-parse', 'HEAD'), pushed: push.code === 0, output: push.output };
+      save(join(run, 'shipment.json'), shipment);
       if (push.code !== 0) throw new Error('Commit created, push failed. Inspect shipment.json; do not rerun the workflow blindly.');
+      try {
+        shipment.piConfig = existsSync(join(root, 'package.json')) && json(join(root, 'package.json')).name === '@bitmonk8/pi-theta'
+          ? updatePiConfig(shipment.sha, command)
+          : { skipped: true, reason: 'Not a pi-theta checkout' };
+        save(join(run, 'shipment.json'), shipment);
+      } catch (error) {
+        shipment.piConfig = { status: 'incomplete', error: error.message };
+        save(join(run, 'shipment.json'), shipment);
+        throw new Error('pi-theta was pushed, but the pi-config dependency update failed. Inspect shipment.json and pi-config status/log; reconcile only the consumer update, do not rerun the fix. ' + error.message);
+      }
     });
     rmSync(lock, { recursive: true });
     console.log('PASS'); return;
