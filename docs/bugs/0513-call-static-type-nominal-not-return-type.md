@@ -1,6 +1,9 @@
 # Bug 0513 — `StaticTypeInferencePass` types every call expression as `named(<callee>)`, a nominal minted from the callee's NAME, never the callee's declared return type: a call-tailed `fn` body contributes an unresolvable nominal to FN-3 inference, so `return-no-common-type`, the annotated `subagent fn` boundary check, the cross-file `invoke<T>` payload check, the typed-`let` sink and the boolean-position check all defer on a call whose declared return type is in the same file
 
-- **Status:** open — filed 2026-10-03 as residual 3 of the bug-0510 fix
+- **Status:** fixed (unreleased - commit/push only). No new package release
+  is published; the existing published package version does not contain this
+  fix. No resolving commit is recorded here; the shipment commit will supply
+  it. Filed 2026-10-03 as residual 3 of the bug-0510 fix
   ([0510](./0510-block-trailing-call-value-discarded.md), `## Fix
   (0.496.0)` Residuals item 3). The defect predates that fix; the fix's
   structural tail promotion makes it reachable from every multi-statement
@@ -88,6 +91,12 @@
     incompatible payload is `theta/parse/invoke-return-type-mismatch`; an
     unresolvable one defers to the runtime boundary validation", and "the
     call site still receives `Result<T, QueryError>`".
+
+The original investigation below, through **Related**, is historical evidence.
+Its three-constructor inventory, unconditional subagent-Result direction, and
+“No spec edit” recommendation are superseded by the reviewed fix and owner
+ruling recorded under **Fix (unreleased - commit/push only)**. The historical
+0512 prerequisite is satisfied; its controls remain green.
 
 ## Symptom
 
@@ -288,3 +297,206 @@ fires (row A2).
   first (see `Blocks on`).
 - [0511](./0511-qry19-stmtblock-tail-single-vs-multi.md) — sibling residual
   (residual 1); no shared mechanism.
+
+## Fix (unreleased - commit/push only)
+
+### Cause and actual change
+
+The primary defect is missing ordinary-function return information in
+`StaticTypeInferencePass`, not incorrect unknown compatibility. The old call
+arm minted `named(callee)` even when a valid same-file written return annotation
+was available. Unknown compatibility, FN-3's conservative LUB and the
+cross-namespace named-payload filter then suppressed the diagnostic or summary.
+
+`collectFnCallReturnTypes` (`src/parser/fn-call-return-types.ts:14-31`) now builds
+a hoisted, body-local map of valid written returns for unshadowed top-level
+**ordinary** functions. Ordinary `void` maps to literal null; other annotations
+use the existing `annotationToCompatType` converter. Absent/malformed
+annotations, subagent declarations and conservative whole-file binder shadows
+supply no entry. The required map dependency reaches all **four** production
+construction routes:
+
+- Shared parser and callee-summary composition:
+  `buildTypeLayerWalk` (`src/parser/type-layer-checks.ts:362-390`).
+- Theta compose checks, including frontmatter wire-name shadows:
+  `src/extension/invoke-static-checks.ts:692-698`.
+- Distinct declaring-library invoke scope, using that library's own body and
+  shadows, not caller declarations or imported type supplements:
+  `src/extension/invoke-static-checks.ts:774-779`.
+- Imported-function argument route, using the importing body's declarations and
+  supplied shadows: `checkImportedFnCallArgs`
+  (`src/extension/invoke-imported-checks.ts:185-201`).
+
+The call arm (`src/parser/static-type-inference.ts:424-444`) retains runtime-tool
+priority, uses the map for known ordinary returns and keeps nominal fallback
+otherwise. Every call still withholds `members`: reduced type precision does
+not expand the separate argument-proof channel. Comments describing the old
+limitation are corrected without changing interpolation provenance or proof
+predicates. No LUB, compatibility, return collector, runtime execution, schema
+lowering, envelope, cancellation or failure-provenance algorithm changes.
+
+Owning contract: FN-1/3/4/5 (`docs/spec_topics/functions.md:20-44`) and known versus
+unresolvable compatibility (`docs/spec_topics/type-system.md:26-60`). This
+intentionally diagnoses previously accepted invalid known-return programs.
+
+### Durable owner ruling and exact normative reconciliation
+
+The owner selected **preserve values; conservative subagent typing**. Preserve
+bare success, explicit Ok/Err tails, propagated failure and boundary failure
+values/provenance; introduce no automatic success wrapping. A subagent fn's
+`): T` constrains its success payload. Alone it proves neither plain `T` nor
+`Result<T, QueryError>` as the language call's static type. Subagent call typing
+therefore remains unresolvable; ordinary annotated calls **inside** subagent
+bodies still participate in payload validation.
+
+The controller records exact-proposal approval. The applied amendment is exactly
+nine literal replacements across `docs/spec_topics/functions.md`,
+`docs/spec_topics/pi-integration-contract/subagent.md`,
+`docs/spec_topics/grammar.md` and `docs/reference/grammar.md`. FN-6 now separates
+boundary-payload inference/validation from language call-value projection,
+retains FN-4's void discard and existing Err provenance, and distinguishes
+transport Ok/Err from automatic language success wrapping. PIC-59 and the two
+grammar mirrors agree; postfix `?` retains ERR-18's operand precondition.
+Wire version, sidecar optionality, syntax and binding precedence are unchanged.
+Independent review reconstructed all four files from base plus the approved
+replacements and required complete byte equality. The historical unconditional
+Result direction above is not the implemented contract.
+
+### Red-to-green evidence and controls
+
+Evidence run: `.pi/tmp/fix-bug-0513-d35562c9-dd3f-426a-8774-dc99bcf45957/`
+under this checkout; all artifact names below are relative to that directory.
+Base HEAD: `fe1b835c43539d16474094d5bb1b6478836961c7` (a reproduction base, **not**
+a resolving SHA). Exact invocation, failure details and intermediate stops are
+preserved in `reproduce.md`, `diagnose.md`, `plan.md`, `implement.md`, `history/`
+and the original logs. `close.md` records the docs-only closure audit.
+
+| Exact command, from repository root | Before fix | After fix / captured evidence |
+| --- | --- | --- |
+| `npx --no-install vitest run tests/b0513-call-static-return-type-e2e.test.ts` | Exit 1; six missing-diagnostic failures, 12 controls pass; `reproduce-attempt-1-e2e-red.log`, `red-0.json` | Exit 0; 18 pass; `implement-attempt-3-e2e.log`, controller `green-1-0.json` |
+| `npx --no-install vitest run tests/b0513-call-static-return-type-unit.test.ts` | Exit 1; 19 semantic failures, 15 controls pass at diagnosis attempt 2; `diagnose-attempt-2-unit-red.log`, `red-1.json` | Exit 0; 34 pass with the exact authorized summary correction disclosed below; `implement-attempt-3-unit.log`, `green-1-1.json` |
+| `npx --no-install vitest run tests/b0513-call-static-return-type-wiring.test.ts tests/b0513-call-static-return-type-compose.test.ts` | Additive coverage, not original red evidence | Exit 0; 20 pass; `implement-attempt-3-new-coverage-fixed-fixtures.log` |
+| `npx --no-install vitest run tests/b0513-legacy-oracle-direction.test.ts` | Recorded old/wrong observations are negative controls, not another pre-fix execution | Exit 0; 12 exact-oracle controls pass; `implement-attempt-3-legacy-oracles.log` |
+| `npm test` | Intermediate authorized-baseline stop preserved in `implement-attempt-2-offline-early.log` (exit 1) | Exit 0; 756 files / 12,832 tests; `implement-attempt-3-offline-final.log`; independently repeated controller gate `gate-1-initial-1.json` also exit 0 |
+| `npm run typecheck` | Pre-fix compiler passes; not a compiler-error witness | Exit 0; `implement-attempt-3-typecheck-complete.log`, controller `gate-1-initial-0.json`, `review-fix-independent-typecheck.log` |
+| `npm run lint` | Not the bug witness | Exit 0; `implement-attempt-3-lint.log` |
+| `npx --no-install vitest run tests/committed-fixture-parse-gate.test.ts` | Not the bug witness | Exit 0; 62 pass; `implement-attempt-3-corpus.log`; no shipped theta/thetalib source moves |
+
+The frontend assertion fails specifically with
+`expected 'accepted' to be 'theta/parse/return-no-common-type'`; the unit
+signature is `named('g')` versus primitive `string`. These are lost-type
+observations, not authentication, compilation, path, timeout or provider errors.
+The original frontend source, manifest and red captures remain unchanged. Six
+literal substitutions, compatible and genuine-unknown controls, 0512 discarded
+nested-tail controls, and the same oracle's explicit rejection of a healthy
+accepted document protect both assertion directions.
+
+The wiring tests cover hoisting, binder categories, malformed/subagent exclusion,
+converter opacity, runtime-tool priority and withheld proof members. Production
+filesystem/composition tests measure exact diagnostics and registration sets on
+direct and declaring-library routes, distinguish caller/callee homonyms and
+observe all four own-body construction routes. These do not replace real-host
+coverage. The independent fix reviewer also ran 22 targeted files / 636 tests
+successfully (`review-fix-independent-targeted.log`).
+
+### Disclosed, owner-authorized oracle/baseline corrections
+
+These are not byte-identical original-witness/legacy-expectation verification:
+
+1. **One summary oracle.** The unit adapter cell at
+   `tests/b0513-call-static-return-type-unit.test.ts:122-126` changes only its
+   title and expected object to exact primitive null. A direct ordinary void
+   call remains literal null. Its containing body's **nonempty** contribution
+   summary uses the unchanged widened-member LUB; empty contributions remain
+   literal null and literal-target compatibility stays strict. The original
+   unit source is archived in `null-summary-authorization-originals/`.
+   `tests/b0513-null-payload-plan-boundary.test.ts` preserves these distinctions
+   and rejects recorded pre-fix undefined and other wrong shapes. No loose
+   either-shape matcher or production normalization was introduced.
+2. **Eight bounded legacy groups.** Explicit owner authorization and fresh
+   evidence-review acceptance cover known-return outcomes in
+   `index-element-alias-unfolded`, `member-access-declared-field-type`,
+   `let-annotation-inline-object-compat`, `ctor-field-type-check`,
+   `index-sentinel-typeenv-case-fence` and `array-sink-unresolvable-deferral`,
+   plus the two documentation gates `grammar-literal-forbidden-access-naming`
+   and `rfc-0009-spec-surface-gate` (all under `tests/`, `.test.ts`). Exact
+   diagnostic lists/order/messages remain asserted and genuine unknown/healthy
+   controls remain separate. Ctor r2b was previously masked; it is now separately
+   measured and matches the authorized let-mismatch prediction. Array e7 keeps
+   the annotated original as static refusal and separately preserves unknown-call
+   admission, successful execution and exact runtime `"z"`; the refused original
+   is not executed via a parser bypass. Original legacy sources and the 12-failure
+   capture remain intact. The reference line count changes exactly 762 to 765
+   (+1/+2 approved replacements); topic count remains 254. The bounded citation
+   audit preserves historical/unaffected/already-stale references, rather than
+   claiming an unrelated citation sweep.
+
+`owner-null-summary-decision.md`, `plan-null-summary-addendum.md`,
+`owner-legacy-baseline-decision.md`, `plan-legacy-baseline-addendum.md` and
+`evidence-review.md` preserve the exact authority and matrix. Independent fix
+review checks the actual diff against those exceptions. The original E2E and
+all other original B0513 assertions remain fixed; manifest argv/signatures are
+unchanged. Supplemental exact-oracle tests reject old/wrong observations.
+
+### Real-host/live verification
+
+All three commands below exit **0**, captured once during implementation:
+
+- `npx --no-install vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/b0513live-call-return-static-registration.test.ts`
+  — `implement-attempt-3-live-b0513.log`, two passes: dependency-pinned CLI and
+  actual PATH operator host, both loading this checkout's extension with scrubbed,
+  authenticated top-level environments.
+- `npx --no-install vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/b0508live-thetalib-invoke-static-registration.test.ts tests/live/acceptance/b0506live-lib-invoke-schema-declaring-scope.test.ts`
+  — `implement-attempt-3-live-controls.log`, 23 registration/declaring-scope/AJV
+  controls, including real subagent children with unannotated payload functions.
+- `npx --no-install vitest run --config config/vitest/vitest.live.config.ts tests/live/hardening/recent-rfc-live-drives.test.ts -t 'FN-6: a subagent fn issues a real turn'`
+  — `implement-attempt-3-live-fn6.log`, selected real spawned-session turn,
+  code-computed return and isolation control passes. Two nonmatching tests are
+  deselected by `-t`, not provider/model skips.
+
+For both B0513 hosts the public command registry reports direct/library known
+mismatches absent and healthy/unknown/subagent-deferral/ordinary-call-in-subagent
+controls present. Complete JSONL captures show successful OpenAI
+`gpt-6.1-sol` assistant stops with nonempty text, empty stderr, no outer
+`theta_result` and no fail-closed theta-system-note. The same registry oracle
+rejects a wrong known-call admission observation. File-derived summaries are
+`implement-attempt-3-live-b0513-observables.log` and
+`implement-attempt-3-live-controls-observables.log`; raw streams remain available
+and were independently reviewed. Passing is based on those observables, not
+`prompt()` resolving. Unknown/subagent fixture registration is **not** a claim
+that their deliberately mismatched bodies execute successfully. Historical
+`witnesses.json.live_required:false` describes only the original pre-execution
+frontend/AST witnesses and was not used to waive live verification.
+
+### Review, remaining limits and disposition
+
+Independent `reviews.md` verdict: **CLEAN — fix-focus audit; no actionable
+in-scope must-fix finding identified**. It verifies exact normative fidelity,
+authorized oracle migrations, original red integrity, green controller gates,
+independent targeted/typecheck results and captured live observables. This is
+not shipment or package-publication approval. CLOSE changes only this numbered
+report and its index; it reruns no test/provider/quality loop.
+
+No new independently established out-of-scope residual is filed. Existing
+related query/discard, unreachable-tail, final-par-for and imported-schema
+issues (0511, 0515, 0516, 0518) remain separately owned and unchanged.
+Annotation-less/imported/recursive-return inference, precise lexical shadowing,
+converter opacity for Result/inline-object forms and broader subagent call-value
+inference remain outside this fix. Frontend/AST tests prove static behavior;
+real-host tests prove selected load/registration/provider observables, not every
+runtime tail/provenance/cancellation combination. Runtime algorithms are unchanged.
+
+The closure records a verified working-tree fix only. No commit, staging, push,
+tag, version/dependency bump or publication occurs here. **No new package release
+is published; this patch is not in the existing published package version.**
+
+## Provenance
+
+Historical findings above name their measured HEAD. Current fix claims derive
+from `collectFnCallReturnTypes`, the four production constructors and call arm
+cited above; FN-1/3/4/5/6, TYPE compatibility and PIC-59 own the contract. The
+recorded run's exact approved proposal and explicit owner/reviewer decisions
+supply amendment/baseline authority. Original red captures, final implementation
+logs, controller green/gate JSON and independent `reviews.md` supply the
+verification claims. `close.md` records closure commands, preservation checks,
+modified-file inventory and uncertainty boundaries; it does not establish shipment.

@@ -45,6 +45,7 @@ import { checkObjectLiteralFields } from "../parser/literal-sublanguage";
 import { checkVariantAccess } from "../parser/schema-declarations";
 import { checkFnCallArity } from "../parser/invoke-diagnostics";
 import { StaticTypeInferencePass } from "../parser/static-type-inference";
+import { collectFnCallReturnTypes } from "../parser/fn-call-return-types";
 import {
   collectEnumNames,
   collectLocalBinderNames,
@@ -196,6 +197,7 @@ export function checkImportedFnCallArgs(
   const importerPass = new StaticTypeInferencePass({
     checkCompatible,
     enumNames: collectEnumNames(importingBody.statements),
+    fnCallReturnTypes: collectFnCallReturnTypes(importingBody.statements, shadowedNames),
   });
   // One `TypeEnv` per resolved library body, cached by statement-list
   // identity so two calls of the same imported `fn` do not rebuild the

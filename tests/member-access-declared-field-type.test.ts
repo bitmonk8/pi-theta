@@ -846,24 +846,24 @@ describe("bug 0136 (e) — the five receiver routes, and the two bounds", () => 
 });
 
 // ===========================================================================
-// (f) The sibling `named`-mint arms — TRIPWIRES. Byte-identical pre and post.
-// A RED here means the fix widened into a sibling arm of the same switch, each
-// of which needs its own resolution source and none of which is fixed by
-// resolving a field against a schema.
+// (f) Sibling-arm bounds. 0136 left call typing unchanged; 0513 deliberately
+// supplies ordinary written return annotations. Method/free-name bounds remain
+// unchanged; unknown calls still take the nominal fallback.
 // ===========================================================================
 
 const F1 = 'fn g(): array<string> { ["a"] }\nfor y in g() { y }\n1\n';
 const F2 = 'let s: string = "a,b"\nfor y in s.split(",") { y }\n1\n';
 const F3 = "for y in zzz { y }\n1\n";
 
-describe("bug 0136 (f) — the sibling-arm tripwires stay byte-identical", () => {
-  it("TRIPWIRE f1: `case \"call\"` still types a call by its callee name (`got g`)", () => {
-    expectRow(
-      "f1",
-      F1,
+describe("bug 0136 (f) — sibling bounds with 0513 annotated-call admission", () => {
+  it("f1: an annotated array-returning ordinary call is a legal iterand", () => {
+    expectRow("f1", F1, CLEAN, "0513 supplies array<string>; both complete code and message lists must be empty");
+  });
+
+  it("f1 unknown control: annotation-less call remains a non-array nominal iterand", () => {
+    expectRow("f1 unknown", F1.replace(": array<string>", ""),
       one(NON_ARRAY_ITERAND, iterand("g")),
-      "the `call` arm needs the declared-return-annotation collector as its source; a move here means the fix widened into it",
-    );
+      "unknown compatibility is not iterand admission");
   });
 
   it("TRIPWIRE f2: `case \"method-call\"` still types a method call by its method name (`got split`)", () => {

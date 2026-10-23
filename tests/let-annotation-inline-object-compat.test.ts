@@ -545,14 +545,13 @@ describe("bug 0130 (d) — the R3 deferral controls and the GOV-15 corpus fixtur
     ).toEqual([]);
   });
 
-  it("d4: a `call` initialiser DEFERS under an inline-object annotation (R3)", () => {
-    // `f()` types as `named <callee>` (static-type-inference.ts's `call` arm) —
-    // unresolvable as a TYPE ENV entry, so R3 defers. §Non-goals scopes the
-    // correctness of that pseudo-`named` inference out of this report.
-    expect(
-      stmtDiags("fn f(): integer { 1 }\nlet r: {a: integer} = f()"),
-      "d4 — the RHS side's pseudo-`named` inference is §Non-goals; R3 keeps it deferring",
-    ).toEqual([]);
+  it("d4: 0513 judges an ordinary annotated integer call at the object sink", () => {
+    expect(stmtDiags("fn f(): integer { 1 }\nlet r: {a: integer} = f()"))
+      .toEqual([mismatch("r", "{ a: integer }", "integer")]);
+  });
+
+  it("d4 unknown control: an annotation-less call still defers under R3", () => {
+    expect(stmtDiags("fn f() { 1 }\nlet r: {a: integer} = f()")).toEqual([]);
   });
 
   it("d5: an `invoke` initialiser DEFERS under an inline-object annotation (R3)", () => {
@@ -938,13 +937,15 @@ describe("bug 0130 (g) — the recorded declared binding type's downstream gates
     // raw text. HEAD (pre-fix) baseline, measured on this exact document:
     //   `error theta/parse/non-array-iterand: 'for' expects array<T> after 'in'; got {a:integer}`
     // — the token-joined pseudo-name, which placeholder-rendering-a.md's
-    // category 1 does not admit. The initialiser stays `f()`, whose pseudo-
-    // `named` type R3 keeps deferred, so this cell isolates the message-byte
-    // change at the gate and nothing else.
+    // category 1 does not admit. 0513 now also judges the annotated integer
+    // initializer. The binding retains its declared object type downstream.
     expect(
       diags(body("fn f(): integer { 1 }\nlet o: {a: integer} = f()\nfor v in o { let q = 1 }")),
-      "g4 — one line, the iterand refusal, now rendering `{ a: integer }`",
-    ).toEqual([line("error", NON_ARRAY_ITERAND, [["<type>", "{ a: integer }"]])]);
+      "g4 — known initializer refusal precedes the unchanged declared-object iterand refusal",
+    ).toEqual([
+      mismatch("o", "{ a: integer }", "integer"),
+      line("error", NON_ARRAY_ITERAND, [["<type>", "{ a: integer }"]]),
+    ]);
   });
 
   it("g5: an array literal mixing that binding with an integer now refuses (MEASURED)", () => {
@@ -956,8 +957,11 @@ describe("bug 0130 (g) — the recorded declared binding type's downstream gates
     // the row's own remedy (annotate `array<A | B>`) is the author's answer.
     expect(
       diags(body("fn f(): integer { 1 }\nlet o: {a: integer} = f()\nlet z = [o, 1]")),
-      "g5 — `theta/parse/array-no-common-type` at the array literal",
-    ).toEqual([line("error", ARRAY_NO_COMMON, [])]);
+      "g5 — known initializer refusal precedes the unchanged array no-common-type refusal",
+    ).toEqual([
+      mismatch("o", "{ a: integer }", "integer"),
+      line("error", ARRAY_NO_COMMON, []),
+    ]);
   });
 
   it("g6: `let x: array<{a: integer}> = [1]` draws BOTH the initialiser and element rows (MEASURED)", () => {
@@ -979,9 +983,17 @@ describe("bug 0130 (g) — the recorded declared binding type's downstream gates
     ]);
     expect(
       diags(body("fn f(): integer { 1 }\nlet x: array<{a: integer}> = [f()]")),
-      "g6.2 — the deferring twin: an element whose static type is a pseudo-`named` is past " +
-        "the parser's static view, so R3's deferral holds BOTH rows silent",
-    ).toEqual([]);
+      "g6.2 — 0513 exposes the annotated integer at BOTH sinks, just like g6.1",
+    ).toEqual([
+      mismatch("x", "array<{ a: integer }>", "array<integer>"),
+      line("error", ARRAY_ELEMENT, [
+        ["<i>", "0"], ["<expected>", "{ a: integer }"], ["<actual>", "integer"],
+      ]),
+    ]);
+  });
+
+  it("g6.2 unknown control: annotation-less element calls defer at BOTH sinks", () => {
+    expect(diags(body("fn f() { 1 }\nlet x: array<{a: integer}> = [f()]"))).toEqual([]);
   });
 });
 

@@ -1274,7 +1274,7 @@ describe("0125 (f) — the array-literal sink-routing siblings, closed by bug 01
 // (g) Routes that are NOT this defect.
 // ===========================================================================
 
-describe("0125 (g) — the `let` route is closed and the `fn`-return route is out of reach", () => {
+describe("0125 (g) — let and annotated-fn routes agree after 0513", () => {
   it("g1: the `let` route already narrows an alias-typed array's element", () => {
     // Bug 0083 closed this route by recording the annotation in
     // TYPE-11-transparent form (src/parser/type-layer-checks.ts:643). This row
@@ -1302,37 +1302,36 @@ describe("0125 (g) — the `let` route is closed and the `fn`-return route is ou
     );
   });
 
-  it("g2: an index read on a `fn` return typed by an alias reports nothing", () => {
-    // Out of reach of this defect for a different reason, and g3 proves it:
-    // `#typeExpr`'s `case "call"` (src/parser/static-type-inference.ts:251–252)
-    // types a call as `{ kind: "named", name: callee }` and never consults the
-    // declared return type, so the alias is not what is lost here. A separate
-    // gap (0125 §Non-goals), untouched in either direction.
-    expect(
-      codesOf([
+  it("g2: an alias-annotated fn return exposes its string element (0513)", () => {
+    // 0125 left call typing out of scope; 0513 deliberately supplies the
+    // written ordinary return type without changing alias/index machinery.
+    const diags = diagsOf([
         "schema L = array<string>",
         "fn g(): L {",
         '  ["a"]',
         "}",
         "let y = g()[0]",
         "y.frobnicate()",
-      ]),
-      "0125 §Non-goals — the `fn`-return route loses the type at the `call` arm, not at the `index` arm",
-    ).toEqual([]);
+      ]);
+    expect(diags.map((d) => `${d.severity} ${d.code}: ${d.message}`)).toEqual([
+      `error theta/parse/unknown-method: ${msg("theta/parse/unknown-method", [["<method>", "frobnicate"], ["<type>", "string"]])}`,
+    ]);
   });
 
-  it("g3: the same read on a CONCRETE `fn` return type reports nothing (control)", () => {
-    // Identical to g2, which is what makes g2 attributable to the `call` arm
-    // rather than to the alias.
-    expect(
-      codesOf([
+  it("g3: a concrete annotated fn return agrees with the alias (0513 control)", () => {
+    const diags = diagsOf([
         "fn g(): array<string> {",
         '  ["a"]',
         "}",
         "let y = g()[0]",
         "y.frobnicate()",
-      ]),
-      "0125 §Non-goals — the concrete return type is lost at the same `call` arm, so the two spellings agree",
-    ).toEqual([]);
+      ]);
+    expect(diags.map((d) => `${d.severity} ${d.code}: ${d.message}`)).toEqual([
+      `error theta/parse/unknown-method: ${msg("theta/parse/unknown-method", [["<method>", "frobnicate"], ["<type>", "string"]])}`,
+    ]);
+  });
+
+  it("g2/g3 unknown control: annotation-less call still withholds element-method judgement", () => {
+    expect(diagsOf(['fn g() { ["a"] }', 'let y = g()[0]', 'y.frobnicate()'])).toEqual([]);
   });
 });

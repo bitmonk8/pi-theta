@@ -677,8 +677,9 @@ describe("bug 0031 (c) — controls: the matched `let` sinks and the existing co
 // residue, so the pair is measured POSITIVELY on both sides. 0031's subject is
 // preserved and strengthened by that: its constructor-field check is now scored
 // by an emission at r3a instead of by a silence, with r3b deciding the identical
-// value/declaration pair at the matched `let` sink one position over. r1, r2, r4
-// and r5 remain residues, and total silence stays their pin.
+// value/declaration pair at the matched `let` sink one position over. 0513
+// likewise judges r2's ordinary annotated calls; r1/r4/r5 and genuinely
+// annotation-less calls remain residues, with total silence still their pin.
 // ===========================================================================
 
 describe("bug 0031 (d) — residues: unresolvable operands stay silent at the constructor field AND at the matched `let`", () => {
@@ -700,9 +701,22 @@ describe("bug 0031 (d) — residues: unresolvable operands stay silent at the co
     expectSilent(R1B, "r1b — `let n: number = Ok(1)`");
   });
 
-  it("r2a/r2b: a call result stays silent (a call types as named `f`, unresolvable in the TypeEnv)", () => {
-    expectSilent(R2A, "r2a — `S { n: f() }`");
-    expectSilent(R2B, "r2b — `let n: number = f()`");
+  it("r2a: 0513 judges the annotated string call at the constructor field", () => {
+    expectExactly(R2A, [`error ${CODE}: ${fieldMismatch("n", "S", "number", "string")}`], "r2a known call");
+  });
+
+  it("r2b: 0513 judges the annotated string call at the matched let", () => {
+    expectExactly(R2B, [`error ${LET_RHS_CODE}: ${letRhsMessage("n", "number", "string")}`], "r2b known call, previously masked by r2a");
+  });
+
+  it("r2 unknown controls: annotation-less calls remain silent at BOTH sinks", () => {
+    expectSilent(R2A.replace("f(): string", "f()"), "r2a annotation-less");
+    expectSilent(R2B.replace("f(): string", "f()"), "r2b annotation-less");
+  });
+
+  it("r2 compatible controls: annotated number calls are admitted at BOTH sinks", () => {
+    expectExactly(R2A.replace('f(): string { "s" }', 'f(): number { 1 }'), [], "r2a compatible");
+    expectExactly(R2B.replace('f(): string { "s" }', 'f(): number { 1 }'), [], "r2b compatible");
   });
 
   /**

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as returns from "../src/parser/functions";
 import { StaticTypeInferencePass } from "../src/parser/static-type-inference";
+import { collectFnCallReturnTypes } from "../src/parser/fn-call-return-types";
+import { collectLocalBinderNames } from "../src/parser/local-binders";
 import { checkCompatible } from "../src/parser/type-compat";
 import { inferCalleeReturnPayload } from "../src/parser/type-layer-checks";
 import { TypeLayerWalk } from "../src/parser/type-layer-walk";
@@ -118,7 +120,7 @@ const branch = (body: Block): Stmt => ({
 
 function infer(body: Block) {
   const checker = new TypeLayerWalk(
-    new StaticTypeInferencePass({ checkCompatible, enumNames: new Set() }),
+    new StaticTypeInferencePass({ checkCompatible, enumNames: new Set(), fnCallReturnTypes: collectFnCallReturnTypes(body.statements, collectLocalBinderNames(body, [])) }),
     {}, FILE, new Map(), new Map(), new Set(), new Set(),
   );
   const resolve = vi.spyOn(returns, "resolveReturnType"); // observation only; real resolver runs

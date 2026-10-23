@@ -375,7 +375,7 @@ describe("RFC-0001 subagent-fn — `subagent`/`with` are contextual keywords (gu
 const EMPTY_TYPE_ENV: TypeEnv = {};
 
 function makeInferencePass(): StaticTypeInferencePass {
-  const deps: StaticTypeInferenceDeps = { checkCompatible, enumNames: new Set() };
+  const deps: StaticTypeInferenceDeps = { checkCompatible, enumNames: new Set(), fnCallReturnTypes: new Map() };
   return new StaticTypeInferencePass(deps);
 }
 

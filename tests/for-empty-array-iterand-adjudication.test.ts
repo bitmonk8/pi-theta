@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { Expr, ThetaDocument } from "../src/parser/theta-document";
 import { StaticTypeInferencePass } from "../src/parser/static-type-inference";
+import { collectFnCallReturnTypes } from "../src/parser/fn-call-return-types";
+import { collectLocalBinderNames } from "../src/parser/local-binders";
 import { checkCompatible, displayType, type TypeEnv } from "../src/parser/type-compat";
 import { corpus, section } from "./helpers/corpus-reader";
 import { parseDoc } from "./helpers/e2e-s1";
@@ -312,7 +314,7 @@ describe("bug 0195 (B) — the behaviour route (a) does not move", () => {
       `B/d2 PRECONDITION: the trailing expression must parse as an \`array\` node. Diagnostics: ${render(doc)}`,
     ).toBe("array");
     const spelling = displayType(
-      new StaticTypeInferencePass({ checkCompatible, enumNames: new Set() }).typeOf(
+      new StaticTypeInferencePass({ checkCompatible, enumNames: new Set(), fnCallReturnTypes: collectFnCallReturnTypes(doc.body.statements, collectLocalBinderNames(doc.body, (doc.frontmatter?.params?.fields ?? []).map((f) => f.wireName))) }).typeOf(
         tail as Expr,
         {} as TypeEnv,
       ),

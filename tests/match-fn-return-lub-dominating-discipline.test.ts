@@ -9,6 +9,8 @@ import type { Expr, ThetaDocument } from "../src/parser/theta-document";
 import { lexTheta, type ThetaSource } from "../src/lexer/lexer";
 import { parseThetaDocument } from "../src/parser/theta-document";
 import { StaticTypeInferencePass } from "../src/parser/static-type-inference";
+import { collectFnCallReturnTypes } from "../src/parser/fn-call-return-types";
+import { collectLocalBinderNames } from "../src/parser/local-binders";
 import {
   checkCompatible,
   displayType,
@@ -249,7 +251,7 @@ function typeOfMatchTail(cell: string, src: string, wantHits: string[]): string 
     (tail as Expr).kind,
     `PRECONDITION (${cell}): the tail must be a \`match\` expression, or this cell reads a node whose type \`#typeExpr\`'s \`case "match"\` never answers. Diagnostics: ${JSON.stringify(hitsOf(doc))}`,
   ).toBe("match");
-  const type = new StaticTypeInferencePass({ checkCompatible, enumNames: new Set() }).typeOf(
+  const type = new StaticTypeInferencePass({ checkCompatible, enumNames: new Set(), fnCallReturnTypes: collectFnCallReturnTypes(doc.body.statements, collectLocalBinderNames(doc.body, (doc.frontmatter?.params?.fields ?? []).map((f) => f.wireName))) }).typeOf(
     tail as Expr,
     ENV,
   );

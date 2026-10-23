@@ -114,6 +114,8 @@ import type { ThetaCompositionInput } from "./theta-composition-producer";
 // re-deriving a parallel type model for this pass.
 import { checkToolCallArguments } from "../parser/tool-call-static-checks";
 import { StaticTypeInferencePass } from "../parser/static-type-inference";
+import { collectFnCallReturnTypes } from "../parser/fn-call-return-types";
+import { collectLocalBinderNames } from "../parser/local-binders";
 import {
   collectEnumNames,
   collectTypeEnv,
@@ -690,6 +692,8 @@ export async function checkInvokeStaticResolution(
     const typePass = new StaticTypeInferencePass({
       checkCompatible,
       enumNames: collectEnumNames(input.body.statements),
+      fnCallReturnTypes: collectFnCallReturnTypes(input.body.statements,
+        collectLocalBinderNames(input.body, (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName))),
       ...(runtimeToolSuccessTypes !== undefined ? { runtimeToolSuccessTypes } : {}),
     });
 
@@ -770,6 +774,8 @@ export async function checkInvokeStaticResolution(
     const typePass = new StaticTypeInferencePass({
       checkCompatible,
       enumNames: collectEnumNames(statements),
+      fnCallReturnTypes: collectFnCallReturnTypes(scope.body.statements,
+        collectLocalBinderNames(scope.body, [])),
     });
     diagnostics.push(...await checkInvokeExprCallSurface(
       collectCallSites(scope.body).invokeExprs,

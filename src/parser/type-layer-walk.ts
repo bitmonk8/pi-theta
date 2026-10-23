@@ -792,8 +792,9 @@ class TypeLayerWalk implements TypeWalkContext {
    * subagent-fn boundary with `invoke`, and `): T` is the `invoke<T>`
    * analogue, so the invoke row covers this slot rather than coining a
    * parallel code. Conservative by construction, never a crash and no false
-   * positive: a statically-unresolvable payload (a query / unresolved-call
-   * tail — a `named` reference past the parser's static view) makes the `⊑`
+   * positive: a statically-unresolvable payload (a query / call without a
+   * known ordinary-fn annotation — a `named` reference past the parser's
+   * static view) makes the `⊑`
    * relation answer `"unknown"` and no diagnostic fires (the runtime AJV
    * boundary check is the net); a contribution set with no common upper bound
    * is left to the annotation (FN-3: an explicit annotation bypasses

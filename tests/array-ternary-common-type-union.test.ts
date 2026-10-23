@@ -5,6 +5,8 @@ import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { Block, Expr, Stmt, ThetaDocument } from "../src/parser/theta-document";
 import { StaticTypeInferencePass } from "../src/parser/static-type-inference";
+import { collectFnCallReturnTypes } from "../src/parser/fn-call-return-types";
+import { collectLocalBinderNames } from "../src/parser/local-binders";
 import { checkCompatible, displayType, type TypeEnv } from "../src/parser/type-compat";
 import { parseDoc } from "./helpers/e2e-s1";
 
@@ -472,7 +474,7 @@ function tailSpelling(src: string, kind: Expr["kind"], cell: string): string {
     `PRECONDITION (${cell}): the trailing expression must parse as a \`${kind}\` node. Diagnostics: ${render(doc)}`,
   ).toBe(kind);
   return displayType(
-    new StaticTypeInferencePass({ checkCompatible, enumNames: new Set() }).typeOf(
+    new StaticTypeInferencePass({ checkCompatible, enumNames: new Set(), fnCallReturnTypes: collectFnCallReturnTypes(doc.body.statements, collectLocalBinderNames(doc.body, (doc.frontmatter?.params?.fields ?? []).map((f) => f.wireName))) }).typeOf(
       tail as Expr,
       EMPTY_ENV,
     ),

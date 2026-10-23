@@ -146,7 +146,8 @@ const SUPPORTED_FORMS = "## Supported forms";
  * (verified: `wc -l docs/reference/grammar.md` = 755 at RFC 0009 erratum A′,
  * including the §Provenance bullet naming the new section). */
 const SPEC_GRAMMAR_LINES = 254; // bug 0517: approved +8 with coordinated current-citation migration
-const REF_GRAMMAR_LINES = 762; // bug 0517: approved +7; no previously stale reference citation is repaired
+// 0513's exact approved FN-6 mirror replacements add +1 then +2 lines.
+const REF_GRAMMAR_LINES = 765; // 0517's approved 762-line baseline + 0513's approved 3; old stale citations remain historical
 
 /** expressions.md:10's name for the bracket form; the name the bullet lacks. */
 const INDEXED_ACCESS = /indexed access/i;
@@ -342,7 +343,7 @@ describe("bug 0049 (C) — what the relabel must not move", () => {
     ).toBe(SPEC_GRAMMAR_LINES);
     expect(
       lineCount(corpus(REF_GRAMMAR)),
-      `${REF_GRAMMAR} must stay ${REF_GRAMMAR_LINES} lines: the mirror move (§Fix constraint 5) rewrites a clause in place, so it too preserves the line count unless it re-pins the citations naming this page`,
+      `${REF_GRAMMAR} must stay ${REF_GRAMMAR_LINES} lines: 0513's approved FN-6 replacements add +1/+2; its bounded citation audit distinguishes current affected references from historical or already-stale citations`,
     ).toBe(REF_GRAMMAR_LINES);
   });
 });

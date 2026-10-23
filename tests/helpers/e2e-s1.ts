@@ -52,6 +52,8 @@ import {
 } from "../../src/parser/discriminated-union-checks";
 import { site } from "./invoke-seam-scaffold";
 import { StaticTypeInferencePass } from "../../src/parser/static-type-inference";
+import { collectFnCallReturnTypes } from "../../src/parser/fn-call-return-types";
+import { collectLocalBinderNames } from "../../src/parser/local-binders";
 import { checkCompatible, displayType, type Compatibility, type TypeEnv } from "../../src/parser/type-compat";
 import type { LoweredSchema } from "../../src/seams/schema-validator";
 import { lowerQueryResponseSchema } from "../../src/parser/query-schema-lowering";
@@ -1576,7 +1578,7 @@ function typeOfTail(doc: ThetaDocument, cell: string): RawRead {
     tail,
     `PRECONDITION (${cell}): the fixture must end in a trailing expression, which is the node the read is taken on. Diagnostics: ${render(doc)}`,
   ).not.toBeNull();
-  const type = new StaticTypeInferencePass({ checkCompatible, enumNames: new Set() }).typeOf(
+  const type = new StaticTypeInferencePass({ checkCompatible, enumNames: new Set(), fnCallReturnTypes: collectFnCallReturnTypes(doc.body.statements, collectLocalBinderNames(doc.body, (doc.frontmatter?.params?.fields ?? []).map((f) => f.wireName))) }).typeOf(
     tail as Expr,
     EMPTY_TYPE_ENV,
   );

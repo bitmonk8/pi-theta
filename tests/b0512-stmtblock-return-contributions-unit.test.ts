@@ -41,7 +41,7 @@ const shapes: readonly (readonly [string, (body: Block) => Stmt])[] = [
 
 function checker(): TypeLayerWalk {
   return new TypeLayerWalk(
-    new StaticTypeInferencePass({ checkCompatible, enumNames: new Set() }),
+    new StaticTypeInferencePass({ checkCompatible, enumNames: new Set(), fnCallReturnTypes: new Map() }),
     {}, "b0512-unit.theta", new Map(), new Map(), new Set(), new Set(),
   );
 }

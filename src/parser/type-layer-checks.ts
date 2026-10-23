@@ -65,6 +65,7 @@ import {
   type TypeEnv,
 } from "./type-compat";
 import { StaticTypeInferencePass } from "./static-type-inference";
+import { collectFnCallReturnTypes } from "./fn-call-return-types";
 import { annotationSourceIsNotTypeExpression } from "./annotation-validation";
 export { annotationSourceIsNotTypeExpression } from "./annotation-validation";
 import {
@@ -364,11 +365,6 @@ function buildTypeLayerWalk(
   paramsFields: readonly ParamsFieldSource[],
   runtimeToolSuccessTypes?: ReadonlyMap<string, CompatType>,
 ): { readonly checker: TypeLayerWalk } {
-  const pass = new StaticTypeInferencePass({
-    checkCompatible,
-    enumNames: collectEnumNames(body.statements),
-    ...(runtimeToolSuccessTypes !== undefined ? { runtimeToolSuccessTypes } : {}),
-  });
   const env = collectTypeEnv(body.statements);
   const fnReturns = collectFnReturnAnnotations(body.statements);
   const fnDecls = collectTopLevelFns(body.statements);
@@ -377,6 +373,12 @@ function buildTypeLayerWalk(
     body,
     paramsFields.map((f) => f.name),
   );
+  const pass = new StaticTypeInferencePass({
+    checkCompatible,
+    enumNames: collectEnumNames(body.statements),
+    fnCallReturnTypes: collectFnCallReturnTypes(body.statements, shadowedNames),
+    ...(runtimeToolSuccessTypes !== undefined ? { runtimeToolSuccessTypes } : {}),
+  });
   const checker = new TypeLayerWalk(
     pass,
     env,
@@ -581,10 +583,8 @@ function placeholderSiteRange(): SourceRange {
  * The declared return-type annotation of every top-level `fn` that wrote one,
  * keyed by name (bug 0079 §Fix (a)). This is the static gate's only source for
  * a callee's declared `Result`-ness: `TypeEnv` (type-compat.ts) holds `schema`
- * declarations only, and a `call` node's inferred type is its callee's bare
- * NAME (static-type-inference.ts), never its declared return type — so an
- * annotated `fn`'s `Result<…>` return is otherwise invisible past the call
- * site. Top-level only, mirroring `collectTopLevelFns` (functions.ts): a
+ * declarations only. Reduced call typing now uses unshadowed ordinary-fn
+ * annotations, but does not replace this table's written-Result provenance. Top-level only, mirroring `collectTopLevelFns` (functions.ts): a
  * nested `fn`'s return annotation is not this gate's concern.
  *
  * An annotation deriving from none of `Type`'s six alternatives is OMITTED —

@@ -116,7 +116,7 @@ const EMPTY_ENV: TypeEnv = {};
 
 function makePass(): StaticTypeInferencePass {
   // Constructor-injected over the real `V2b` `⊑` engine — no module-level state.
-  const deps: StaticTypeInferenceDeps = { checkCompatible, enumNames: new Set() };
+  const deps: StaticTypeInferenceDeps = { checkCompatible, enumNames: new Set(), fnCallReturnTypes: new Map() };
   return new StaticTypeInferencePass(deps);
 }
 

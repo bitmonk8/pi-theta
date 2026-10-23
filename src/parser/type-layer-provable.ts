@@ -146,15 +146,13 @@ export function provableArgType(
       return provableMemberType(walk, expr, bindings);
     case "call":
     case "invoke":
-      // A `named` type minted from an author-chosen CALLEE is not a proof of
-      // the call's value type, for the reason the `method-call` arm above
-      // already states at the method namespace: `#typeExpr` answers
-      // `named <callee>` for `f(x)` and `named <path>` for an `invoke`, and
-      // neither names the type of the value the call produces. The operand a
-      // sound judgement needs is the callee's declared RETURN type, which
-      // the substrate does not carry to this position.
+      // Deliberately withhold callable-argument proofs even when an ordinary
+      // same-file annotation improves the reduced call value type (0513).
+      // That fix does not broaden this separate proof channel. Unknown,
+      // imported and subagent calls still mint `named <callee>`; invoke
+      // still mints `named <path>`, neither proving the returned value type.
       //
-      // No sound emission is lost by withholding. A minted name resolving to
+      // For those remaining nominal fallbacks, a minted name resolving to
       // nothing declared already defers at `checkCompatible` (`"unknown"`),
       // and the only env a name CAN resolve in here is the schema-only
       // `TypeEnv` (`collectTypeEnv` — `schema` declarations, object form and

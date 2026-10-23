@@ -299,9 +299,9 @@ function interpolationIsResult(
 /**
  * Whether `e`'s node kind alone makes it a `Result`: an `Ok`/`Err`
  * constructor, or a call to a `fn` whose own WRITTEN return annotation names a
- * `Result`. `walk.fnReturns` is the only source for the latter — `TypeEnv`
- * carries schema declarations only, and a `call` types as its callee's bare
- * NAME, so an annotated `Result` return is invisible past the call site.
+ * `Result`. `walk.fnReturns` supplies that written-annotation provenance.
+ * Reduced ordinary-call types can now carry annotations too, but an opaque
+ * nominal alone is not a substitute for this gate's existing provenance.
  *
  * The prefix match below is safe against text that names no type WITHOUT a
  * guard here, because the table it reads was seeded absent of such text

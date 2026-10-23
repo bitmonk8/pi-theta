@@ -598,17 +598,22 @@ describe("bug 0179 (e) — the same nominal value is admitted everywhere except 
   });
 
   it("e6 (row 18): `R8 { s: f3() }` at a `string` sink answers {\"s\":\"z\"}", async () => {
+    // 0513 now knows this written string return; admission is compatibility,
+    // not unknown deferral. The separate e7 counterpart retains that boundary.
     await expectAdmitted(ROW18, { s: "z" }, "e6 (row 18) — a `fn` call at a `string` sink");
   });
 
-  it("e7 (row 19): `let v: { x: string } = f2()` at an inline-object sink answers \"z\"", async () => {
-    // The TYPE-8 arm (src/parser/type-compat.ts:231–256) has the same
-    // non-`object` short-circuit as TYPE-7, and this is the one measured input
-    // in its neighbourhood. It is admitted today because the annotation
-    // lowering never presents an `object`-kind sup, so the arm is not reached.
-    // §Fix constraint 3 leaves it byte-untouched; pinning the row means a later
-    // move of that arm shows up here as a deliberate change.
-    await expectAdmitted(ROW19, "z", "e7 (row 19) — an inline-object sink, TYPE-8's neighbourhood");
+  it("e7 (row 19): 0513 refuses the known string call at an inline-object sink", () => {
+    // Keep the original annotated program; do not execute past its refusal.
+    const doc = parse(ROW19);
+    expect(doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`)).toEqual([
+      `error ${letRhsMismatch("v", "{ x: string }", "string")}`,
+    ]);
+  });
+
+  it("e7 unknown counterpart: annotation-less call still admits, executes and returns z", async () => {
+    // Historical executor behavior, not proof of object compatibility or AJV.
+    await expectAdmitted(ROW19.replace("f2(): string", "f2()"), "z", "e7 annotation-less return deferral");
   });
 });
 

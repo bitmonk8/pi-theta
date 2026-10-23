@@ -101,7 +101,9 @@ import {
 // "0247 — the conformance oracle over the FACE-1 rows" describe block below
 // scores exactly these four rows against it. A fence at the read seam cannot
 // close the render: those four sources contain no declaration for the fence to
-// refuse.
+// refuse. After 0513 b1 contributes a primitive integer fill instead; the
+// scorer still judges exactly four fills, and its separate unknown twin
+// preserves the author-name provenance case.
 //
 // RED / GREEN LEDGER at the pre-fix tree. RED: c1, c3, c5 (each still carries a
 // second, trigger-less code decided by the refused declaration) and the
@@ -316,16 +318,13 @@ describe("0135 (c) — a `schema <lowercase>` declaration the case rule refuses 
     ).toEqual([]);
   });
 
-  it("c5: `schema index = string` does not decide a CALL's type either", () => {
-    // The second route into the same collision: `#typeExpr`'s call arm
-    // (src/parser/static-type-inference.ts:296) types a call by its callee
-    // name, `fn index()` is legal (b4), and the refused declaration used to
-    // resolve that name. The fence is on the name's first character, so both
-    // routes lose the resolution together.
+  it("c5: `schema index = string` does not override the known integer call", () => {
+    // 0513 supplies the ordinary written integer return; the refused schema
+    // cannot override it. Annotation-less collision coverage follows below.
     const diags = diagsOf(C5);
     expect(
       diags.map((d: Diagnostic) => d.code),
-      "code-registry-parse.md:59 — a callee name that only the refused declaration resolves is not a statically resolvable RHS",
+      "0513 — the known integer call matches its sink; only the casing refusal remains",
     ).toEqual([CASE_MISMATCH]);
     expect(
       messageFor(diags, CASE_MISMATCH),
@@ -334,12 +333,11 @@ describe("0135 (c) — a `schema <lowercase>` declaration the case rule refuses 
   });
 
   it("c6: the same source with the callee renamed reports the casing refusal alone (control)", () => {
-    // The control that makes c5's red attributable to the name collision rather
-    // than to the typed `let` itself: rename the callee and the mismatch is
-    // already absent at the pre-fix tree.
+    // Historical renaming control: both written integer returns are now known
+    // and compatible, independent of the refused schema's spelling.
     expect(
       codesOf(C6),
-      "type-system.md:48 — a callee no declaration names is unresolvable, so the typed binding defers and only the casing refusal stands",
+      "0513 — the renamed ordinary integer call is compatible; only the casing refusal stands",
     ).toEqual([CASE_MISMATCH]);
   });
 
@@ -490,7 +488,9 @@ describe("0247 — the conformance oracle over the FACE-1 rows, scored against t
       "bug 0247 §Fix — every byte a category-1 placeholder can carry must be fixed by a clause (placeholder-rendering-a.md:5). A row here rendered a token that neither the seven original clauses nor the closed stand-in table admit, so `#typeExpr`'s fabrication family (src/parser/static-type-inference.ts) reaches a user-visible Message through no rule",
     ).toEqual([]);
     // ANTI-VACUITY. Measured, not assumed: the four rows supply exactly four
-    // category-1 fills — `got index` from a1, a2 and b1, `got object` from f1.
+    // category-1 fills — `got index` from a1/a2, `got integer` from b1 after
+    // 0513's ordinary-call typing, and `got object` from f1. b1 now uses the
+    // primitive clause, not the stand-in table; the four-fill count is intact.
     // The second row f1 draws, `bare-object-literal`, carries no category-1
     // placeholder, so it adds none. A drift in either direction means the
     // harness stopped reaching the render arm and the offenders list above went
@@ -581,10 +581,10 @@ describe("0135 (b) — `index` is a legal author identifier at three positions, 
     ).toEqual([]);
   });
 
-  it("b4: `index` is a legal FUNCTION name and its call defers (control)", () => {
+  it("b4: `index` is a legal FUNCTION name and its known integer call is compatible", () => {
     expect(
       codesOf(B4),
-      "lexical.md:16 + type-system.md:48 — a lowercase function name is conformant, and its call type is unresolvable so the typed binding defers",
+      "lexical.md:16 + FN-5 — lowercase function name is conformant, and its written integer return matches the binding",
     ).toEqual([]);
   });
 
@@ -608,8 +608,10 @@ describe("0135 (b) — `index` is a legal author identifier at three positions, 
 // ===========================================================================
 
 describe("0135 face 1 — the engine-minted lowercase render stays reachable and is pinned unmoved", () => {
-  // SCOPE: these four rows assert the PRE-EXISTING render, deliberately. The
-  // admitting rule is bug 0247's eighth category-1 clause and its closed
+  // SCOPE: a1/a2/f1 retain the pre-existing stand-in renders. After 0513 b1
+  // instead renders its known primitive return; its new unknown twin preserves
+  // the author-name fallback. For stand-ins the admitting rule remains bug
+  // 0247's eighth category-1 clause and its closed
   // undetermined-static-type table (placeholder-rendering-a.md), which reaches
   // `displayType`'s `named` arm returning an engine-minted lowercase name
   // verbatim (src/parser/type-compat.ts:368–382, the arm `:374–375`), and the
@@ -642,14 +644,9 @@ describe("0135 face 1 — the engine-minted lowercase render stays reachable and
     ).toBe(msg(NON_ARRAY_ITERAND, [["<type>", "index"]]));
   });
 
-  it("b1: a legal `fn index()` call renders the author's own name at the same gate", () => {
-    // The call arm (src/parser/static-type-inference.ts:296) mints a `named`
-    // from the callee's name, which lexical.md:16 requires to be
-    // lowercase-first — so this rendered string is byte-identical to a1's while
-    // naming the author's code rather than an engine fabrication. Bug 0247's
-    // clause admits this render because the closed table is keyed on rendered
-    // bytes rather than on provenance; no declaration is present, so the fence
-    // does not reach it.
+  it("b1: the annotated ordinary call renders integer, still refusing a non-array iterand", () => {
+    // 0513 replaces the author-name fallback with the available annotation.
+    // This is a primitive fill, not an engine sentinel; no iterand rule moves.
     const diags = diagsOf(B1);
     expect(
       diags.map((d: Diagnostic) => d.code),
@@ -657,8 +654,23 @@ describe("0135 face 1 — the engine-minted lowercase render stays reachable and
     ).toEqual([NON_ARRAY_ITERAND]);
     expect(
       messageFor(diags, NON_ARRAY_ITERAND),
-      "bug 0247's clause admits this render: a conformant lowercase FUNCTION name reaches `<type>` through the call arm, unchanged by the read-seam fence",
-    ).toBe(msg(NON_ARRAY_ITERAND, [["<type>", "index"]]));
+      "0513 — the known ordinary return supplies integer, not the callee-name stand-in",
+    ).toBe(msg(NON_ARRAY_ITERAND, [["<type>", "integer"]]));
+  });
+
+  it("b1 unknown counterpart: legal author name index still reaches the fallback", () => {
+    const diags = diagsOf(B1.map((s) => s.replace("index(): integer", "index()")));
+    expect(diags.map((d) => `${d.severity} ${d.code}: ${d.message}`)).toEqual([
+      `error ${NON_ARRAY_ITERAND}: ${msg(NON_ARRAY_ITERAND, [["<type>", "index"]])}`,
+    ]);
+  });
+
+  it("b4/c5/c6 unknown counterparts preserve author-name and refused-declaration collision coverage", () => {
+    for (const [source, expected] of [[B4, []], [C5, [CASE_MISMATCH]], [C6, [CASE_MISMATCH]]] as const) {
+      const diags = diagsOf(source.map((s) => s.replace("(): integer", "()")));
+      expect(diags.map((d) => d.code)).toEqual(expected);
+      expect(diags.map((d) => d.message)).toEqual(expected.map(() => msg(CASE_MISMATCH, [])));
+    }
   });
 
   it("f1: the second engine fabrication renders at the same gate", () => {

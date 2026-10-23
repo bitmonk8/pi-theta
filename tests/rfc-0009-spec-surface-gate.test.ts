@@ -108,7 +108,7 @@ describe("RFC 0009 spec surface — call-site with clause (theta 1.3)", () => {
     // The postfix-ordering rule the RFC pinned: the clause attaches before any
     // other postfix operator (grammar.md's own wording).
     expect(text).toMatch(/before any other postfix operator/);
-    expect(text).toMatch(/the clause binds to the call and `\?` then applies to the call's `Result`/);
+    expect(text).toContain("the clause binds to the call and `?` then applies to the call's value under its own [operand-type precondition](./expressions.md#err-18), without the clause establishing a `Result` type;");
   });
 
   it("the launch contract pins the identity/location enumeration for the per-call cwd", () => {

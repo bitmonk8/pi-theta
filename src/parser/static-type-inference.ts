@@ -22,8 +22,8 @@
 // node, and publishes the per-node inferred-type lookup keyed by node identity.
 // Composite nodes (binary / ternary / `match` / array) narrow to a common type
 // through the injected `V2b` `⊑` engine; nodes whose static type is not
-// resolvable past the parser's static view (identifiers, member / index / call
-// results, `Ok`/`Err`) are assigned a `named` reference type — the same shape
+// resolvable past the parser's static view (including calls without an
+// unshadowed same-file ordinary-fn annotation) are assigned a `named` reference type — the same shape
 // the `⊑` engine treats as `"unknown"` and defers to the runtime AJV safety net.
 //
 // Spec (narrative): type-system.md, expressions.md, control-flow.md,
@@ -107,6 +107,8 @@ export interface StaticTypeInferenceDeps {
    * variant.
    */
   readonly enumNames: ReadonlySet<string>;
+  /** Declaring-body ordinary-fn call values, excluding local shadows (FN-4/5/6). */
+  readonly fnCallReturnTypes: ReadonlyMap<string, CompatType>;
   /**
    * RFC 0011 (tool-calls.md #session-control-runtime-tools, seam sheet §0 C6):
    * SUCCESS-payload structural types for declared runtime tools, keyed by
@@ -125,11 +127,13 @@ export interface StaticTypeInferenceDeps {
 export class StaticTypeInferencePass {
   readonly #checkCompatible: CheckCompatible;
   readonly #enumNames: ReadonlySet<string>;
+  readonly #fnCallReturnTypes: ReadonlyMap<string, CompatType>;
   readonly #runtimeToolSuccessTypes: ReadonlyMap<string, CompatType>;
 
   constructor(deps: StaticTypeInferenceDeps) {
     this.#checkCompatible = deps.checkCompatible;
     this.#enumNames = deps.enumNames;
+    this.#fnCallReturnTypes = deps.fnCallReturnTypes;
     this.#runtimeToolSuccessTypes = deps.runtimeToolSuccessTypes ?? new Map();
   }
 
@@ -430,7 +434,13 @@ export class StaticTypeInferencePass {
             members: undefined,
           };
         }
-        return { type: { kind: "named", name: node.callee }, members: undefined };
+        // A known ordinary return improves reduced typing, not the separate
+        // callable-argument proof channel. Genuine unknowns retain the nominal.
+        const returnType = this.#fnCallReturnTypes.get(node.callee);
+        return {
+          type: returnType ?? { kind: "named", name: node.callee },
+          members: undefined,
+        };
       }
       // Each of the arms through "method-call" types as a `named` nominal
       // reference past the parser's static view, so each withholds its

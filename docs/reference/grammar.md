@@ -348,8 +348,9 @@ absent → return type inferred (see [Type system](./type-system.md)).
 
 **`subagent fn` (theta 1.2).** The `subagent` modifier is admissible **only** on a
 top-level `fn` (in both `.theta` and `.thetalib` files) and makes each call spawn a
-fresh isolated subagent session for the body; it does not change the parameter
-list, positional call form, or inferred-and-validated return type. The optional
+fresh isolated subagent session for the body. The parameter list and positional
+call form are unchanged; success-payload inference and boundary validation are
+distinct from the language call-value projection, as specified by FN-6. The optional
 `WithClause` overrides any subset of the five inherited session-config keys
 (`system`, `model`, `tools`, `tool_loop`, `respond_repair`); each `WithField`
 value obeys the same grammar and validation as the like-named frontmatter field,
@@ -527,7 +528,9 @@ time (a Pi-tool call draws `theta/parse/with-clause-pi-tool`; a plain or importe
 `theta/parse/with-clause-in-process-callee`: the callee runs in-process and
 spawns no child process). Attaches immediately after the call's closing `)`, before any other
 postfix operator (`.`, `[`, method-call, `?`): in `f(a) with { cwd: t }?` the
-clause binds to the call and `?` applies to the call's `Result`. `with` here is
+clause binds to the call and `?` applies to the call's value under its own
+[operand-type precondition](../spec_topics/expressions.md#err-18); the clause
+does not establish a `Result` type. `with` here is
 the second recognition position of the contextual keyword described under
 [Reserved keywords](#reserved-keywords) — recognised only immediately after a
 call expression's argument list and only when the next token is `{`.
