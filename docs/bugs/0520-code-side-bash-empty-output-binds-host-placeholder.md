@@ -1,12 +1,16 @@
 # Bug 0520 — a code-side `bash(...)` call whose command prints nothing binds `Ok("(no output)")`, not `Ok("")`: the host bash tool puts a model-facing placeholder into `content`, the tool-execution lowering passes it through verbatim, and no spec page warns that a code-side Pi-tool string is the host's model-facing rendering, so a theta's `== ""` / `!= ""` emptiness test on command output is silently inverted
 
-- **Status:** open — filed 2026-10-05 from the LPS tooling build (incident
+- **Status:** fixed (unreleased - commit/push only) — documentation/test fix;
+  rendered-text runtime behavior is unchanged. No new package release is
+  published. The existing published package version does not contain this fix;
+  no resolving commit SHA is assigned here.
+- **Filed:** 2026-10-05 from the LPS tooling build (incident
   `docs/process/pi-theta-incidents/20261005T071616Z-lane-incidents-S-001.md`,
   run r-20261004T132829, step S-001; incident text under "Observed",
-  offline repro under "Repro" below)
-- **Decision:** Option A approved — document rendered-text pass-through;
-  no placeholder normalization. See §Approved ruling. Open pending the
-  documentation/test fix; exact-output capture is separate future work.
+  offline repro under "Repro" below).
+- **Decision:** Option A implemented — document rendered-text pass-through;
+  no placeholder normalization. See §Approved ruling and §Fix record.
+  Exact-output capture is separate future work.
 - **Owning repo:** pi-theta
 - **Sev/Diff estimate (at filing, before ruling):** S2/D2. S2: a silent wrong value that drives control
   flow. A command that prints nothing yields the 11-byte string
@@ -54,6 +58,10 @@
   - `docs/spec_topics/tool-calls.md:47` (`compact` arm): "the runtime MUST
     NOT string-match or classify the host wording". This is the house stance
     that Option B below would depart from.
+
+The symptom, observations, expected/actual descriptions, root-cause analysis,
+options and offline repro below preserve the filing-time record. The current
+fix, verification and remaining limits are recorded in §Fix record.
 
 ## Symptom
 
@@ -185,3 +193,150 @@ stance.
 ## LPS incident
 
 `LocalProjectService/docs/process/pi-theta-incidents/20261005T071616Z-lane-incidents-S-001.md`
+
+## Fix record
+
+**Fixed in the working checkout, unreleased - commit/push only.** This closes
+only the approved documentation/test defect. A successful empty bash command
+still binds `Ok("(no output)")`; a genuine literal `(no output)` still binds the
+same value. No placeholder normalization, raw-output API or error-routing
+change is included. No new package release is published, and the existing
+published package version does not contain this fix. The shipment commit will
+supply any resolving SHA; the validation base below is not a fixing commit.
+
+### Cause and actual change
+
+The host formats a model-facing text channel, not raw process output.
+At the repo-pinned Pi 1.3.0 host, `formatOutput`
+(`node_modules/@earendil-works/pi-coding-agent/dist/core/tools/bash.js:233–250`)
+uses `snapshot.content || "(no output)"` and can append a truncation trailer.
+`resolvePiTool` (`src/extension/callable-pi-tool-resolver.ts:144–158`) retains
+only `result.content`. `filterJoinToolText` and `lowerResolvedToolEnvelope`
+(`src/runtime/tool-call-execute.ts:154–187`) preserve surviving text blocks,
+join them with one LF, and wrap the string in Ok. Equality and trim are not
+broken. The missing warning encouraged a raw-output assumption that the
+existing lowering contract does not support.
+
+The exact S1–S5 proposal, approved by the controller-recorded delegated Astra
+decision `6063b0f3-ca4d-43d8-9b61-33cf45609f24`, implements the owner's Option A:
+
+- [Tool Calls — Return type](../spec_topics/tool-calls.md) now defines the
+  Pi-tool string as model-facing host `content`, not raw capture, and warns
+  about empty/literal ambiguity, truncation/status presentation and unsafe
+  emptiness comparisons (`:64,70–74` in the validated checkout).
+- [Tool execution from theta code — Rendered-text boundary](../spec_topics/pi-integration-contract/host-interfaces-core.md#tool-execution-from-theta-code)
+  makes verbatim pass-through explicit while preserving legal `Ok("")` for
+  truly empty/no-text envelopes (`:110–118`). Empty envelope and empty shell
+  command are distinct cases. Caller markers require validation; missing,
+  malformed or truncated markers do not prove emptiness or success and must
+  not authorize destructive cleanup.
+- [Version-bump checklist item (aw)](../spec_topics/pi-integration-contract/version-bump-step2.md#bump-checklist-code-side-rendered-tool-text)
+  adds a SHOULD-level host-rendering audit with mandatory per-item outcome
+  recording; exactly four preamble range endpoints extend to (aw). Existing
+  (av) and checklist CRLF line endings are preserved.
+- Added `tests/live/acceptance/b0520-rendered-bash-output.test.ts` and
+  `tests/b0520-rendered-bash-output.test.ts`. Their accepted red-source bytes,
+  assertions and witness commands/signatures are unchanged after the fix.
+
+No runtime, harness, dependency, package-version or other bug fix is included.
+
+### Red → green evidence, controls and review
+
+Run artifacts are retained under:
+
+```text
+.pi/tmp/fix-bug-0520-75977a6f-ad5b-44c5-9d6b-00481c627316/
+```
+
+The run starts from validation base
+`1378c0abd44f0bafa35bedf993b296e72a580f7c`. `close.md` in that directory records
+full command/capture details, authority, hashes and closure checks. Earlier
+reports, interrupted attempts, decisions and original red artifacts remain
+intact.
+
+Exact witness commands (from the checkout root):
+
+```sh
+npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/b0520-rendered-bash-output.test.ts
+npx vitest run tests/b0520-rendered-bash-output.test.ts tests/tool-calls-execute-lowering.test.ts
+```
+
+| Evidence | Exit | Retained artifact / result |
+| --- | --- | --- |
+| Accepted pre-fix live witness | 1 | `reproduce-attempt-2-live-doc-red.log`; missing-documentation assertion after real-host controls succeed. |
+| Pre-fix offline isolation | 1 | `diagnose-attempt-1-unit-red-controls.log`; 11 documentation failures, 37 passing controls. Independent evidence review repeats this in `evidence-review-independent-unit.log`. |
+| Post-fix live witness | 0 | `implement-attempt-1-live-green.log`; unchanged case passes. Controller repeats in `green-1-0.json` and `gate-1-initial-2.json`; independent review repeats in `fix-review-independent-live.log`. |
+| Post-fix offline witness | 0 | `implement-attempt-1-unit-green.log`; 48/48 pass. Controller repeats in `green-1-1.json`; independent review repeats in `fix-review-independent-unit.log`. |
+| Full offline gate, `npm test` | 0 | `implement-attempt-2-default.log` and controller `gate-1-initial-1.json`; each has 758 passing files / 12,926 passing tests, including committed-fixture and provider-free real-child controls. |
+| Typecheck, `npm run typecheck` | 0 | `implement-attempt-1-typecheck.log` and controller `gate-1-initial-0.json`; no diagnostics. |
+| Lint, `npm run lint` | 0 | `implement-attempt-1-lint.log`; no diagnostics. |
+| Operator Pi 1.4.0 real-host control | 0 | `fix-review-operator-host.log`; checkout extension and preserved witness theta exercise the same empty/healthy/literal/sentinel values. |
+
+The accepted live red is specifically:
+
+```text
+AssertionError: B0520 tool-calls rendered bash warning: empty placeholder: expected false to be true // Object.is equality
+```
+
+This is a documentation red with a real production-path prerequisite, not an
+invented runtime-normalization failure or provider error. The original green
+runtime-control capture is separately preserved. The delegated reproduce
+decision `a57eeef8-c58f-44cb-b3aa-e1ad8ebf59f9` authorizes this bounded hybrid
+witness; it does not waive host/provider assertions.
+
+Live captures prove production discovery, registration, interpreter, direct
+built-in bash, lowering, query interpolation and an actual successful
+`openai/gpt-6.1-sol` turn. The full JSONL streams show host exit 0, empty stderr,
+no `theta_result` envelope or fail-closed system note, exact theta-computed
+bindings, and one assistant with stop reason `stop` and arithmetic answer
+`777`. Empty and trimmed-empty comparisons are false; healthy output, genuine
+literal output and the caller sentinel are checked separately. Runtime-oracle
+controls reject normalization, inverted emptiness and a lost sentinel.
+Editorial controls independently reject each removed topic marker; offline
+controls additionally preserve true empty/no-text envelopes, whitespace,
+synthetic trailers and content-only lowering despite auxiliary metadata.
+
+`reviews.md` records **CLEAN — no actionable in-scope must-fix findings for fix
+focus**. The independent review checks actual prose semantics, exact approved
+bytes, literal ambiguity, marker limitations, checklist ranges/recording,
+original red preservation and green gates; it is not a token-only review.
+`evidence-review.md` separately records CLEAN evidence review.
+
+The first `npm test` attempt was interrupted by a 240-second tool timeout;
+`implement-attempt-1-default.log` has no final result or saved exit and is not
+counted as a pass. The recorded existing-scope retry completed the unchanged
+full gate with a 900-second tool budget. No quality loop, gate waiver, test
+weakening, staging, commit, push, tag or publication occurred in this fix run's
+stage work.
+
+### Residuals and limits
+
+- The broader preexisting `isError`/nonzero-routing and host-shape prose
+  inconsistency remains: `tool-calls.md:76,93` describes an `isError` failure
+  arm, while `host-interfaces-core.md:110` and the content-only direct adapter
+  describe different consumption. The new warning documents nonzero text as
+  presentation only; it neither resolves nor newly endorses that discrepancy.
+- Real truncation and nonzero execution are source-supported examples, not
+  live-exercised B0520 cases. A synthetic trailer proves pass-through only.
+  Remote/custom/subagent bash, exact stdout/stderr/status capture and the
+  historical external LPS destructive incident are not established here.
+- The operator-host control additionally covers Pi 1.4.0; it is not a claim
+  about every compatible host or backend. Checklist (aw) addresses future
+  wording drift without classifying host text in the runtime.
+- Exact-output capture remains separate future work. Caller markers are not
+  guaranteed complete capture or trustworthy status channels. External LPS
+  callers were not changed and no destructive cleanup was run.
+- Related open [0495](./0495-h9a-area-f-code-tool-loop-vacuous-enoent.md) and
+  [0505](./0505-invoked-prompt-callee-missing-imports.md) remain outside this
+  fix. No full unrelated live-suite success is claimed and no known failing
+  gate was waived.
+
+## Provenance
+
+Historical incident and offline observations above retain their original
+filing attribution. The current cause is supported by the installed host
+formatter, `resolvePiTool`, `filterJoinToolText` and
+`lowerResolvedToolEnvelope`; the contract comes from the owner's §Approved
+ruling and exact recorded S1–S5 approval. Current red/green, gate and review
+claims come from the named captures and reports in the retained run directory,
+not from the existing published package version or an invented fixing SHA.
