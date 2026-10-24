@@ -1,10 +1,61 @@
 # Bug 0485 — a visible child lingering after its DELIVERED Err envelope spins at a sustained 100% of one core instead of idling
 
-- **Status:** open — pi-theta runtime EXONERATED by the 2026-09-20 diagnosis
-  below; the spin is localized upstream (pi host TUI/pty or herdr placement
-  backend). Awaiting an upstream file/pin and/or the operator-side placement
-  decision (run fixer lanes headless vs. keep visible + sweep). No pi-theta
-  runtime fix is available — there is no spin site in this codebase.
+- **Status:** closed — not reproduced on the tested current versions;
+  owner-directed disposition, 2026-10-24. No fix or upstream remediation is claimed.
+
+## Resolution — not reproduced, not fixed
+
+The owner requested closure after the real placement-backed experiment completed
+without reproducing the reported CPU spin. At pi-theta 0.497.0, checkout
+`4775d5f4759af848a86c3c505aa88853f83a14e9`, Pi 1.3.0, Herdr 0.9.3 and
+`@bitmonk8/pi-theta-herdr` 0.3.0, a production-dispatched visible child delivered
+its intended pure `Err` and remained alive with its parent throughout the sample:
+
+| Observable | Measurement |
+| --- | --- |
+| Wall time | 15.020 seconds |
+| Delivered-Err child CPU | 0.19 seconds, approximately 1.27% of one core |
+| Independent idle TUI control CPU | 0.22 seconds, approximately 1.46% of one core |
+| Historical reported symptom | Approximately 15 CPU seconds per 15 wall seconds |
+
+Real credentials, placement, authenticated result delivery, CPU accounting and
+owned-resource cleanup succeeded. The parent later exited normally; cleanup
+closed only the two experiment-owned panes and left no owned processes alive.
+
+**Limits.** This is one bounded current-version pure-Err observation, not a
+reproduction of the historical provider-failure or hours-long incidents. It does
+not establish that the historical report was invalid, identify its cause, prove
+that an upstream change fixed it, or independently establish the historical
+runtime-exoneration claim retained below. Synthetic assertion controls reject
+busy input but are not a production CPU-spin witness.
+
+The `/fix-bug` reproduction checkpoint remains `not_reproduced`; no diagnosis,
+implementation, passing reproduction gate, completion review or runtime release
+is claimed. Closure is an owner-directed triage disposition, not advancement of
+the incomplete fix pipeline. No production behavior, linger contract, test
+oracle, dependency or package version changes accompany it.
+
+**Reopen** on a fresh supported-version case with a real visible child, delivered
+Err, living parent and sustained excessive post-settlement CPU. Retain exact
+versions, trigger and lifecycle evidence, child/pane identity, raw CPU deltas and
+a healthy independent idle control. A lingering pane alone is expected behavior,
+not sufficient evidence of this defect.
+
+The preserved experiment, raw samples, cleanup records, prior reports and
+workflow decisions are under
+`.pi/tmp/fix-bug-0485-91b61794-d8e1-4b59-9e17-f259f4c304e3/`, especially
+`reproduce-attempt-5-placement/` and `reproduce.md`. These are local artifacts,
+not a newly committed regression test.
+
+## Historical report — retained, not current causal findings
+
+The diagnosis, recommendations and proposed fix directions below record the
+2026-09 investigation. They do not supersede the bounded disposition above.
+
+- **Historical status (2026-09-20):** open — pi-theta runtime EXONERATED by the
+  diagnosis below; the spin was attributed upstream (pi host TUI/pty or Herdr
+  placement backend). The current experiment does not independently establish
+  that attribution.
 - **Sev/Diff estimate:** S2/D3 — S2: six-for-six reproduction in one night
   (quality-loop waves qw20260918155535/202006/220713): every `fix-cluster`
   child whose invoke settled `invoke_callee` (Err envelope DELIVERED, so the
@@ -137,3 +188,14 @@ spin site to fix. Two levers ARE in pi-theta's / the operator's control:
   implicit idleness obligation into — the fix should make that explicit).
 - RFC 0014 (persisted child sessions) — would let automation lanes skip the
   live linger entirely.
+
+## Provenance
+
+- Owner disposition (2026-10-24): close as non-reproducible, release the bug-fix
+  token, and commit/push; no runtime-fix claim or reproduction-gate waiver.
+- The run's `reproduce.md`, `reproduce-attempt-5-placement/measurements.json`,
+  `settled.json`, `events.jsonl`, `cpu-samples.jsonl`, `run.log` and `cleanup.json`
+  supply the current observation, intended error delivery, liveness and cleanup
+  evidence. Earlier dated sections retain the historical incident report.
+- [Subagent — Visible presentation](../spec_topics/pi-integration-contract/subagent.md)
+  supplies the delivered-Err linger contract; closure does not change it.
