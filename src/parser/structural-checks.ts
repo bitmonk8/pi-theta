@@ -390,6 +390,7 @@ function walkStatements(
 
 function walkBlock(
   block: Block,
+  role: "statement" | "value",
   scope: WalkCtx,
   refs: StructuralRefs,
   file: string,
@@ -410,6 +411,19 @@ function walkBlock(
         ? checkUnreachableCode({ hasCodeAfterReturn: true }, { file, range: block.tail.range })
         : undefined,
     );
+    // QRY-19 applies to a direct bare query in a discarded StmtBlock tail,
+    // regardless of whether promotion put it here or in a QueryStmt slot.
+    if (role === "statement" && block.tail.kind === "query") {
+      pushDiag(
+        out,
+        checkDiscardedQueryResult({
+          isQuery: true,
+          disposition: "bare-expr-statement",
+          file,
+          range: block.tail.range,
+        }),
+      );
+    }
     walkExpr(block.tail, scope, refs, file, out);
   }
 }
@@ -470,10 +484,10 @@ function walkStatement(
       return;
     case "if": {
       walkExpr(s.condition, scope, refs, file, out);
-      walkBlock(s.then, { ...scope, topLevel: false }, refs, file, out);
+      walkBlock(s.then, "statement", { ...scope, topLevel: false }, refs, file, out);
       if (s.otherwise !== null) {
         if ("statements" in s.otherwise) {
-          walkBlock(s.otherwise, { ...scope, topLevel: false }, refs, file, out);
+          walkBlock(s.otherwise, "statement", { ...scope, topLevel: false }, refs, file, out);
         } else {
           walkStatement(
             s.otherwise,
@@ -490,6 +504,7 @@ function walkStatement(
       walkExpr(s.condition, scope, refs, file, out);
       walkBlock(
         s.body,
+        "statement",
         { ...scope, inLoop: true, topLevel: false },
         refs,
         file,
@@ -500,6 +515,7 @@ function walkStatement(
       walkExpr(s.iterand, scope, refs, file, out);
       walkBlock(
         s.body,
+        "statement",
         { ...scope, inLoop: true, topLevel: false },
         refs,
         file,
@@ -532,6 +548,7 @@ function walkStatement(
       validateFnAnnotations(s, refs, file, out);
       walkBlock(
         s.body,
+        "value",
         { inLoop: false, topLevel: false, voidReturn: s.returnType === "void" },
         refs,
         file,
@@ -553,19 +570,11 @@ function walkStatement(
       }
       return;
     case "query":
-      // QRY-19 (query-escapes-stringification.md#qry-19): a bare `@`...`` in
-      // expression-statement position drops the must-use `Result` without
-      // acknowledgement. A `QueryStmt` is produced only for a NON-tail bare
-      // query: `parseForms` promotes a trailing query to `Block.tail` as the
-      // final form of a `FnBody` / `ParForBody` / `BlockExpr`, and as a
-      // line-start final form of the `ThetaBody` or a `StmtBlock` (see
-      // `TailPromotion`, ./body-parser.ts). A promoted query is the block's
-      // tail value (QRY-20 territory), not a statement. Every other bare
-      // query — a non-final one, or a `StmtBlock` / `ThetaBody` final one
-      // that did not begin a logical line — is a `QueryStmt`; the
-      // `?`-propagate / `let _ =`-discard / `let x = …` binding forms parse to
-      // `try` / `let` nodes, so a `QueryStmt`'s disposition is always
-      // `bare-expr-statement`, the sole QRY-19 trigger.
+      // QRY-19: a QueryStmt drops the must-use Result without acknowledgement.
+      // Promotion can instead encode a final query in Block.tail: value-body
+      // tails retain their own rules, while walkBlock checks discarded
+      // StmtBlock tails too. The `?` / `let _ =` / binding forms parse to
+      // `try` / `let` nodes, not QueryStmt.
       pushDiag(
         out,
         checkDiscardedQueryResult({
@@ -965,14 +974,14 @@ function walkExpr(
       if (e.max !== null) {
         walkExpr(e.max, scope, refs, file, out);
       }
-      walkBlock(e.body, { ...scope, inLoop: true, topLevel: false }, refs, file, out);
+      walkBlock(e.body, "value", { ...scope, inLoop: true, topLevel: false }, refs, file, out);
       return;
     case "block":
       // Descend into the block's own body so a diagnostic raised by a nested
       // statement or its tail still surfaces (bug 0082 §Fix) — the
       // block is not a loop, so only `topLevel` is cleared, mirroring the
       // `if`/`while` arms above.
-      walkBlock(e.body, { ...scope, topLevel: false }, refs, file, out);
+      walkBlock(e.body, "value", { ...scope, topLevel: false }, refs, file, out);
       return;
     default:
       // number / string / bool / null — no nested expressions.

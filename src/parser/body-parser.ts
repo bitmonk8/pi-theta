@@ -197,9 +197,9 @@ function promoteTrailingExprToTail(block: Block): Block {
  *   - `"line-start"` — the final form is the tail only when it is an
  *     expression form that began a logical line. Used for the `StmtBlock`
  *     bodies of `if` / `else` / `while` / `for`,
- *     whose value the executor discards (grammar.md §Blocks) but whose
- *     promoted tail the static checks read as a value position
- *     (`type-as-value`, the QRY-19 discarded-query judgment).
+ *     whose value the executor discards (grammar.md §Blocks). Static checks
+ *     still read promoted tails for `type-as-value`; QRY-19 judges a direct
+ *     bare query as discarded in either AST slot, using the block's role.
  */
 type TailPromotion = "final-form" | "line-start";
 

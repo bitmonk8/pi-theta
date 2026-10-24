@@ -625,3 +625,17 @@ schema slot reds on the `string`-return row.
   controls), 6 in the third (the schema-field sink, its non-query control,
   `Result<void, QueryError>`, and the untyped call-arg control).
 - Existing reports read for separation: 0093, 0130, 0044, 0014.
+
+## Coordination with bug 0511 (unreleased)
+
+The approved Resolution A for [bug 0511](./0511-qry19-stmtblock-tail-single-vs-multi.md#approved-ruling)
+supersedes this report's historical v10 treatment of bare `if`/`else` branch
+queries as function-tail sink positions. A `StmtBlock` tail discards its
+value; a bare query there now draws `theta/parse/discarded-query-result` at
+each query, including inside a `void` function. The v10 diagnostic oracle
+therefore becomes two QRY-19 errors in branch order. Its response-schema
+oracle remains `[null, null]`; root `void` is still not a response-schema
+sink. Genuine `FnBody` query tails, explicit `return` operands and all other
+bug-0220 controls retain their existing expectations. Historical evidence
+above is preserved. This coordination change is unreleased and no new
+package release is published.

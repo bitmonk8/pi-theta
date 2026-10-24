@@ -307,10 +307,10 @@ class QuerySchemaResolveWalk {
 
   /**
    * Rewrite a block inside a `fn`: every statement keeps the return sink
-   * (`rewriteReturnAware`), and the tail rewrites with `tailFrames` — the fn
-   * body and an `if` branch pass the return sink (their tail is the fn's
-   * implicit return / branch value); a loop body passes fresh sink-less frames
-   * (its tail is not the fn's implicit return).
+   * (`rewriteReturnAware`), and the tail rewrites with `tailFrames`. Only the
+   * owning fn body passes the return sink for its implicit return; every
+   * StmtBlock (if/else/while/for) passes fresh sink-less tail frames because
+   * its tail is discarded, even when it ends in postfix `?`.
    */
   private rewriteReturnAwareBlock(
     block: Block,
@@ -333,7 +333,7 @@ class QuerySchemaResolveWalk {
           : { ...stmt, operand: this.rewriteExpr(stmt.operand, returnFrames) };
       case "if": {
         const rewriteBranch = (b: Block): Block =>
-          this.rewriteReturnAwareBlock(b, returnFrames, returnFrames);
+          this.rewriteReturnAwareBlock(b, returnFrames, []);
         const otherwise =
           stmt.otherwise === null
             ? null

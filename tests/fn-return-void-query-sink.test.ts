@@ -1,3 +1,8 @@
+// Bug 0511 coordination: the historical bug-0220 v10 discussion below described
+// the old if/else sink traversal. Resolution A now rejects both bare StmtBlock
+// query tails with QRY-19; they are not FnBody return sinks. Only a1's v10
+// diagnostic list changes. Its f1 schema oracle remains [null, null], and all
+// other bug-0220 diagnostic, schema and provenance assertions are unchanged.
 // Bug 0220 — a `void`-returning `fn` whose tail expression is a bare `@`-query
 // draws `theta/parse/void-in-non-return-position` at the QUERY's range, for a
 // `void` the author wrote only at the one position the grammar admits it
@@ -105,10 +110,11 @@ import { body, collectByKind, parseDoc, rangeDiagnosticTable } from "./helpers/e
 
 const VOID_POS = "theta/parse/void-in-non-return-position";
 const UNRESOLVED = "theta/parse/unresolved-named-type";
+const DISCARDED = "theta/parse/discarded-query-result";
 
 const REGISTRY = readRegistry(["parse"]);
 
-for (const code of [VOID_POS, UNRESOLVED]) {
+for (const code of [VOID_POS, UNRESOLVED, DISCARDED]) {
   expect(
     registryMessage(REGISTRY, code) as string | undefined,
     `bug 0220: ${code} has no row in docs/spec_topics/diagnostics/code-registry-parse.md — ` +
@@ -206,7 +212,7 @@ const VOID_MATCH_ARM = blockBody([
   "  }",
   "}",
 ]);
-/** v10 — both branches of an `if`/`else` tail are in sink position. */
+/** v10 — discarded StmtBlock query tails: QRY-19 under bug 0511 Resolution A, not return sinks. */
 const VOID_IF_ELSE = blockBody([
   "fn f(): void {",
   "  if true {",
@@ -265,7 +271,7 @@ const SCHEMA_FIELD_VOID_NUMBER = blockBody([
 // ===========================================================================
 
 describe("bug 0220 (a) — a `void` return type is no sink and draws no diagnostic", () => {
-  it("RED a1: the tail, `return`-operand, multi-branch and called spellings are silent", () => {
+  it("a1: genuine void return positions stay silent; discarded if/else queries draw QRY-19", () => {
     // The four rows separate four candidate explanations. `tail` is the minimal
     // subject. `return-operand` proves the sink's second position behaves
     // alike, so a repair keyed on tail-expression position only would still red.
@@ -277,7 +283,10 @@ describe("bug 0220 (a) — a `void` return type is no sink and draws no diagnost
       [
         ["tail", VOID_TAIL, []],
         ["return-operand", VOID_RETURN, []],
-        ["if-else-branches", VOID_IF_ELSE, []],
+        ["if-else-branches", VOID_IF_ELSE, [
+  at(DISCARDED, "6:5-6:10"),
+  at(DISCARDED, "8:5-8:10"),
+]],
         ["called", VOID_TAIL_CALLED, []],
       ],
       "a1 — a red row carrying `void-in-non-return-position` at the query's range IS bug 0220: " +

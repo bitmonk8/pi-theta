@@ -15,7 +15,7 @@ params:
 // has to know about, no loss of typing.
 let summary = summarise_doc(document)?
 if summary.word_count > 5000 {
-  @`Long document (${summary.word_count} words): ${summary.headline}`
+  let _ = @`Long document (${summary.word_count} words): ${summary.headline}`
 } else {
-  @`Summary: ${summary.headline}`
+  let _ = @`Summary: ${summary.headline}`
 }

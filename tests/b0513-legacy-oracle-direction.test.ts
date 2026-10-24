@@ -40,7 +40,8 @@ describe("B0513 authorized legacy oracle rejecting directions", () => {
   it("approved grammar gates reject the old count and the blanket Result promise", () => {
     const reference = readFileSync("docs/reference/grammar.md", "utf8");
     const count = reference.trimEnd().split("\n").length;
-    expect(count).toBe(765);
+    expect(count).toBe(772);
+    expect(() => expect(count, "B0513 exact reference count").toBe(765)).toThrow(/exact reference count/);
     expect(() => expect(count, "B0513 exact reference count").toBe(762)).toThrow(/exact reference count/);
     const text = readFileSync("docs/spec_topics/grammar.md", "utf8");
     expect(text).toContain("the clause binds to the call and `?` then applies to the call's value under its own [operand-type precondition](./expressions.md#err-18), without the clause establishing a `Result` type;");

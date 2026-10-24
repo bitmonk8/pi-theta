@@ -306,6 +306,13 @@ ParForBody ::= "{" Stmt* Expr? "}"      // per-iteration body; tail Expr optiona
   expression position (the ternary `cond ? a : b` is the expression form). A tail
   `Expr` in a `StmtBlock` is evaluated and discarded — except a tail expression
   ending in postfix `?`, which still early-returns on failure.
+  A bare query directly occupying a `StmtBlock` tail is subject to
+  [QRY-19](../spec_topics/query/query-escapes-stringification.md#qry-19),
+  independently of form count or source-line packing, and the tail is not an
+  enclosing-function return-type sink under
+  [QRY-2](../spec_topics/query/query-forms.md#qry-2). The `void`-function-tail
+  exception applies to the function's own `FnBody` tail, not to a nested
+  `StmtBlock` tail.
 - **`par for` is the expression form of `for`** (theta 1.1). Plain `for` remains a
   statement (`ForStmt`, no value); `par for` is an expression whose value is
   `array<Result<T, QueryError>>`, `T` the `ParForBody` tail type (absent tail →

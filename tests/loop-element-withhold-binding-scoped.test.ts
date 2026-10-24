@@ -1,3 +1,8 @@
+// Bug 0511 coordination: the historical e1/e4ctl no-change prose below predates
+// Resolution A. Their plain-for StmtBlock tails now add QRY-19 before the
+// existing expression checks. e1 still requires interpolated-result; e4ctl
+// still forbids it. Only these two full diagnostic lists change; their source,
+// binder sites, e2/e3ctl and every other provenance/unknown-type control stay put.
 import { CLEAN, expectSiteRow, one, two, type SiteRow } from "./helpers/load-row-harness";
 import {
   fillParseMessage as fill,
@@ -160,6 +165,8 @@ const FN_ARG = "theta/parse/fn-arg-type-mismatch";
 const LET_RHS = "theta/parse/let-rhs-type-mismatch";
 const INTERP_RESULT = "theta/parse/interpolated-result";
 const PAR_QUERY = "theta/parse/par-query-in-body";
+const DISCARDED = "theta/parse/discarded-query-result";
+const DISCARDED_MESSAGE = registered(DISCARDED);
 
 const { fnArg, letRhs } = typeMismatchMessages(fill);
 
@@ -854,7 +861,8 @@ describe("bug 0194 (e) — the copy carries bug 0079's `resultBindings` provenan
       label: "e1 [plain for, result element]",
       src: RESULT_ELEMENT_SRC + "for b in xs {\n  @`x${b}`\n}\n1\n",
       sites: [...RESULT_SITES, "for b@6:10-6:12"],
-      expected: one(INTERP_RESULT, INTERP_MESSAGE),
+      expected: two(one(DISCARDED, DISCARDED_MESSAGE), one(INTERP_RESULT, INTERP_MESSAGE)),
+      located: [`error ${DISCARDED} @7:3-7:11`, `error ${INTERP_RESULT} @7:3-7:11`],
       reason:
         "QRY-18's `Result<T, E>` interpolation row, reached through bug 0079's provenance channel: `b`'s recorded type is a copy of the object `resultBindings` holds for `r`, and a copy that did not inherit the membership would flip `interpolationIsResult`'s `ident` arm false and withhold a registered `E` — GOV-15 observable (b) moving in the REMOVAL direction, which §Fix (d) constraint 3 does not licence. Green at HEAD; this row pins NO CHANGE",
     });
@@ -887,7 +895,8 @@ describe("bug 0194 (e) — the copy carries bug 0079's `resultBindings` provenan
       label: "e4ctl [CTL provable loop]",
       src: "let ys: array<integer> = [1, 2]\nfor b in ys {\n  @`x${b}`\n}\n1\n",
       sites: ["let ys@4:1-4:32", "for b@5:10-5:12"],
-      expected: CLEAN,
+      expected: one(DISCARDED, DISCARDED_MESSAGE),
+      located: [`error ${DISCARDED} @6:3-6:11`],
       reason:
         "the discrimination: an annotated iterand is a proof, so no copy is taken and no provenance exists to carry — the carry fires only where the copied object already carried the membership, which is why it can restore no verdict beyond that object's own and can add no emission",
     });

@@ -147,7 +147,7 @@ const SUPPORTED_FORMS = "## Supported forms";
  * including the §Provenance bullet naming the new section). */
 const SPEC_GRAMMAR_LINES = 254; // bug 0517: approved +8 with coordinated current-citation migration
 // 0513's exact approved FN-6 mirror replacements add +1 then +2 lines.
-const REF_GRAMMAR_LINES = 765; // 0517's approved 762-line baseline + 0513's approved 3; old stale citations remain historical
+const REF_GRAMMAR_LINES = 772; // prior approved 765-line baseline + bug 0511's exact S5 seven-line cross-reference
 
 /** expressions.md:10's name for the bracket form; the name the bullet lacks. */
 const INDEXED_ACCESS = /indexed access/i;
@@ -343,7 +343,7 @@ describe("bug 0049 (C) — what the relabel must not move", () => {
     ).toBe(SPEC_GRAMMAR_LINES);
     expect(
       lineCount(corpus(REF_GRAMMAR)),
-      `${REF_GRAMMAR} must stay ${REF_GRAMMAR_LINES} lines: 0513's approved FN-6 replacements add +1/+2; its bounded citation audit distinguishes current affected references from historical or already-stale citations`,
+      `${REF_GRAMMAR} must stay ${REF_GRAMMAR_LINES} lines: 0511's approved S5 cross-reference adds +7 after the approved 765-line baseline; the bounded citation audit preserves historical and already-stale references`,
     ).toBe(REF_GRAMMAR_LINES);
   });
 });

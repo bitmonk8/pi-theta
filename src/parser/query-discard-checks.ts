@@ -1,13 +1,12 @@
 // QRY-19 — the discarded-query parse check.
 //
 // This module owns the `theta/parse/discarded-query-result` parse error on a
-// bare `@`...`` expression-statement (the `Result` dropped without `?`,
-// `let _ =`, or an annotation): its registry code / message / hint, the
-// statement-disposition input shape, and `checkDiscardedQueryResult`, which the
-// parser's structural walk (structural-checks.ts) calls on each query
-// statement. Only the bare expression-statement position triggers the error;
-// the `?`-propagate, `let _ =`-discard, and `let x = ...?`-bind forms are all
-// accepted. The QRY-20 runtime discard-observability half stays in
+// bare `@`...`` expression-statement or direct StmtBlock query tail: its
+// registry code / message / hint, the disposition input shape, and
+// `checkDiscardedQueryResult`. The structural walk (structural-checks.ts)
+// calls it on both discarded AST encodings with `bare-expr-statement`.
+// The `?`-propagate, `let _ =`-discard, and binding forms acknowledge the
+// Result and are accepted. The QRY-20 runtime discard-observability half stays in
 // src/runtime/query-discard.ts.
 //
 // Spec: query/query-escapes-stringification.md (QRY-19).
@@ -32,12 +31,12 @@ export const DISCARDED_QUERY_RESULT_HINT =
   "Use `?` to propagate failure or `let _ = @`...`` to discard explicitly.";
 
 /**
- * The statement-position disposition of a query (`@`...``) result (QRY-19). Only
- * the bare expression-statement position triggers the parse error; the other
- * three forms acknowledge the `Result` at the call site.
+ * The discard disposition of a query (`@`...``) result (QRY-19). Bare
+ * expression statements and direct StmtBlock query tails share the bare
+ * disposition; the other three forms acknowledge the Result at the call site.
  */
 export type QueryStatementDisposition =
-  /** `@`...`` alone in statement position — the `Result` is dropped. */
+  /** Bare query statement or direct StmtBlock query tail — Result dropped. */
   | "bare-expr-statement"
   /** `@`...``? — early-return propagation. */
   | "propagate"
@@ -47,31 +46,32 @@ export type QueryStatementDisposition =
   | "bind";
 
 /**
- * A statement whose expression may be a must-use `@`...`` query result, with
+ * A discarded expression that may be a must-use `@`...`` query result, with
  * the disposition the author gave it and its source location.
  */
 export interface QueryStatement {
-  /** Whether the statement's expression is a must-use `@`...`` query result. */
+  /** Whether the discarded expression is a must-use `@`...`` query result. */
   readonly isQuery: boolean;
   /** The disposition the author chose at the call site. */
   readonly disposition: QueryStatementDisposition;
-  /** Source file of the statement. */
+  /** Source file of the discarded expression. */
   readonly file: string;
-  /** Source range of the statement (used as the diagnostic location). */
+  /** Source range of the query site (used as the diagnostic location). */
   readonly range: SourceRange;
 }
 
 /**
  * QRY-19. Return `theta/parse/discarded-query-result` when a must-use `@`...``
- * query result sits in bare expression-statement position; `undefined` for the
+ * query result sits in bare expression-statement or direct StmtBlock tail
+ * position; `undefined` for the
  * `?`-propagate, `let _ =`-discard, and `let x = ...?`-bind forms (and for any
  * non-query statement).
  */
 export function checkDiscardedQueryResult(
   stmt: QueryStatement,
 ): Diagnostic | undefined {
-  // QRY-19: only a must-use `@`...`` query result in bare expression-statement
-  // position drops the `Result` without acknowledgement. The `?`-propagate,
+  // QRY-19: a bare query statement or direct StmtBlock query tail drops the
+  // Result without acknowledgement. The `?`-propagate,
   // `let _ =`-discard, and `let x = ...?`-bind forms acknowledge it at the call
   // site and are accepted.
   if (!stmt.isQuery || stmt.disposition !== "bare-expr-statement") {
