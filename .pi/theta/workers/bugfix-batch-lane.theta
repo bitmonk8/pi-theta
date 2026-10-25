@@ -12,4 +12,9 @@ params:
 // forces ship false. No model is asked to improvise or reimplement the workflow.
 // Completion text is diagnostic only; the parent independently checks persisted
 // final gates, review binding, decisions and exact checkout before integration.
-invoke<string>("../fix-bug.theta", "batch " + manifest_path)?
+fn quote(value: string): string { "'" + value.replace("'", "'\\''") + "'" }
+let arguments = bash({ command: "node tools/bugfix/batch.mjs lane-arguments " + quote(manifest_path) })?.trim()
+if arguments != "batch " + manifest_path && arguments != "batch-resume " + manifest_path {
+  return "Lane stopped — controller did not authorize this exact source manifest: " + arguments
+}
+invoke<string>("../fix-bug.theta", arguments)?

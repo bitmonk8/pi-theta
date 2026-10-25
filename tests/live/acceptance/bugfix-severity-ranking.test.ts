@@ -26,7 +26,7 @@ describe("live /fix-bug impact-ranked listing", () => {
     writeFileSync(join(cwd, ".gitignore"), ".pi/tmp/\n/.trees/\n");
     writeFileSync(join(cwd, "question.mjs"), 'export default function(pi) { pi.registerTool({ name:"question", label:"Question", description:"Must not run for listing", parameters:{type:"object",properties:{}}, async execute(){throw new Error("Listing must not request approval");} }); }\n');
     copyFileSync(join(root, ".pi", "theta", "fix-bug.theta"), join(theta, "fix-bug.theta"));
-    for (const file of ["run.mjs", "update-pi-config.mjs"]) {
+    for (const file of ["run.mjs", "worktree-env.mjs", "update-pi-config.mjs"]) {
       copyFileSync(join(root, "tools/bugfix", file), join(cwd, "tools/bugfix", file));
     }
     const rank = readFileSync(join(root, ".pi", "theta", "workers", "bugfix-rank.theta"), "utf8");

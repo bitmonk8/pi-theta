@@ -2634,7 +2634,9 @@ describe("bug 0124 (x) — the committed corpus declares no annotation in this c
     // worker adds one corpus member; workflow returns remain inferred.
     // Worktree dispatch adds one annotated run-path parameter. Batch workers
     // and the coordinator add four sinks, six fn parameters and four returns.
-    ).toEqual([53, 54, 22]);
+    // Batch recovery replaces two annotated local sinks and adds ten explicit
+    // helper parameters/four returns; no annotation acquires a new disposition.
+    ).toEqual([51, 64, 26]);
     expect(
       offenders,
       `x1: ZERO offenders — no committed fixture changes disposition when the refusal lands, so ` +

@@ -23,29 +23,37 @@ const header = (params: string, tools = "bash") => `---\nmode: subagent\ntools: 
 const quoteFn = `fn q(s: string): string { "'" + s.replace("'", "'\\\\''") + "'" }\n`;
 const stageValue = (status: string) => `BugStage { status: "${status}", summary: "Deterministic batch stage.", environment: "No infrastructure blocker.", bug_validity: "Witness proves reported failure.", fixability: "Bounded fixture fix.", progress: "See durable stage and gate evidence.", next_action: "Continue within recorded scope.", recommendation: "Preserve original witnesses." }`;
 
-type Scenario = "complete" | "ungated" | "empty";
+type Scenario = "complete" | "ungated" | "isolated" | "uncertain" | "resume" | "planner-failure" | "empty";
 function workers(cwd: string, scenario: Scenario) {
   const theta = join(cwd, ".pi/theta");
-  const ids = scenario === "complete" ? ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009"] : scenario === "empty" ? [] : ["0001"];
-  const items = ids.map(id => `BatchBug { id: "${id}", ready: ${id !== "0008"}, reason: "${id === "0008" ? "Existing owner hold is unresolved." : "Ready under existing contract."}", dependencies: [${id === "0006" ? '"0001"' : id === "0009" ? '"0007"' : ""}], files: ["src/${["0001", "0002"].includes(id) ? "shared" : id}.txt"] }`);
+  const ids = scenario === "complete" ? ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009"]
+    : scenario === "isolated" ? ["0001", "0002", "0003", "0004"] : scenario === "resume" ? ["0001", "0002"] : scenario === "empty" ? [] : ["0001"];
+  const items = ids.map(id => `BatchBug { id: "${id}", ready: ${id !== "0008"}, reason: "${id === "0008" ? "Existing owner hold is unresolved." : "Ready under existing contract."}", dependencies: [${id === "0006" || (scenario === "isolated" && id === "0003") ? '"0001"' : scenario === "isolated" && id === "0004" ? '"0002"' : id === "0009" ? '"0007"' : ""}], files: ["src/${["0001", "0002"].includes(id) ? "shared" : id}.txt"] }`);
   writeFileSync(join(theta, "workers/bugfix-batch-plan.theta"), header("  catalog_path: string\n", "read")
     + schema("BatchBug", "workers/bugfix-batch-plan.theta") + "\n" + schema("BatchPlan", "workers/bugfix-batch-plan.theta")
     + '\nread({ path: catalog_path })?\n'
-    + (scenario === "empty" ? 'read({ path: "EMPTY_INVENTORY_MUST_NOT_CALL_PLANNER" })?\n' : "")
+    + (["empty", "resume", "planner-failure"].includes(scenario) ? 'read({ path: "PLANNER_MUST_NOT_RETURN_A_PLAN" })?\n' : "")
     + `BatchPlan { bugs: [${items.join(", ")}], guidance: ["Overlap is advisory; only causal prerequisites create dependencies."] }\n`);
   writeFileSync(join(theta, "workers/bugfix-stage.theta"), header("  run_dir: string\n  phase: string\n  feedback: string\n")
     + schema("BugStage", "workers/bugfix-stage.theta") + "\n" + quoteFn
     + 'let status = bash({ command: "node fixture.mjs stage " + q(run_dir) + " " + q(phase) })?.trim()\n'
-    + `if status == "DECISION" { return ${stageValue("needs_decision")} }\n${stageValue("pass")}\n`);
+    + `if status == "DECISION" { return ${stageValue("needs_decision")} }\nif status == "BLOCKED" { return ${stageValue("blocked")} }\n${stageValue("pass")}\n`);
   writeFileSync(join(theta, "workers/bugfix-review.theta"), header("  run_dir: string\n  focus: string\n", "read")
     + 'schema Review { ok: boolean, findings: string }\nread({ path: run_dir + "/state.json" })?\nReview { ok: true, findings: "CLEAN — deterministic independent batch review" }\n');
   writeFileSync(join(theta, "workers/bugfix-decide.theta"), header("  context_path: string\n", "read")
     + schema("BugDecision", "workers/bugfix-decide.theta") + '\nread({ path: context_path })?\n'
-    + 'BugDecision { disposition: "human", clear_preference: false, has_tradeoff: true, evidence_sufficient: true, summary: "A material fixture policy tradeoff remains.", recommendation: "Apply the exact provisional fixture repair.", rationale: "Both outcomes are viable; owner must approve before shipment.", basis: ["Fixture AGENTS.md preserves both choices for owner approval."], alternatives: ["Apply the scoped repair.", "Retain the existing fixture."] }\n');
-  // The unchanged lane calls the unchanged /fix-bug, not a mock implementation.
-  writeFileSync(join(theta, "workers/bugfix-batch-merge.theta"), header("  context_path: string\n")
+    + (scenario === "resume"
+      ? 'BugDecision { disposition: "blocked", clear_preference: false, has_tradeoff: false, evidence_sufficient: false, summary: "Fixture stage intentionally paused; resume its original source when the prerequisite marker is present.", recommendation: "Resume the retained source; no policy choice or owner approval is needed.", rationale: "Objective fixture prerequisite is not yet available.", basis: ["Original red and plan remain valid."], alternatives: ["Wait for the prerequisite marker."] }\n'
+      : 'BugDecision { disposition: "human", clear_preference: false, has_tradeoff: true, evidence_sufficient: true, summary: "A material fixture policy tradeoff remains.", recommendation: "Apply the exact provisional fixture repair.", rationale: "Both outcomes are viable; owner must approve before shipment.", basis: ["Fixture AGENTS.md preserves both choices for owner approval."], alternatives: ["Apply the scoped repair.", "Retain the existing fixture."] }\n'));
+  // The production lane delegates start/resume to the production /fix-bug.
+  writeFileSync(join(theta, "workers/bugfix-batch-merge.theta"), header("  context_path: string\n", "bash, read")
     + schema("BatchMerge", "workers/bugfix-batch-merge.theta") + "\n" + quoteFn
-    + (scenario === "ungated" ? "" : 'bash({ command: "node fixture.mjs merge " + q(context_path) })?\n')
+    + (scenario === "uncertain"
+      ? 'bash({ command: "node fixture.mjs merge-interrupted " + q(context_path) })?\nread({ path: "WORKER_TRANSPORT_FAILURE_NO_TYPED_VERDICT" })?\n'
+      : scenario === "ungated" ? ""
+      : scenario === "isolated"
+        ? 'let failed = bash({ command: "node fixture.mjs merge-isolated " + q(context_path) })?.trim()\nif failed == "NEGATIVE" { return BatchMerge { ok: false, findings: "Integration mandatory test failed before push; original source remains verified. Inspect gate-1/1.json and retained integration worktree." } }\n'
+        : 'bash({ command: "node fixture.mjs merge " + q(context_path) })?\n')
     + 'BatchMerge { ok: true, findings: "CLEAN — deterministic integration review; actual gates remain controller authority." }\n');
   // No ranker is involved when /fix-bug receives its private batch manifest.
   writeFileSync(join(theta, "workers/bugfix-rank.theta"), header("  catalog_path: string\n", "read")
@@ -56,7 +64,7 @@ function workers(cwd: string, scenario: Scenario) {
 // This fixture runs inside each real stage child's cwd, never edits controller
 // state, and supplies real failing/passing commands to the production gate code.
 const fixture = String.raw`
-import { appendFileSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 const read = p => JSON.parse(readFileSync(p, 'utf8'));
@@ -73,18 +81,25 @@ if (op === 'stage') {
   if (process.cwd() !== s.root || git(s.root, 'branch', '--show-current') !== s.branch) throw new Error('Stage escaped its isolated branch/worktree');
   if (s.root !== join(s.ownerRoot, '.trees', basename(path)) || git(s.ownerRoot, 'check-ignore', s.root) !== s.root) throw new Error('Source worktree is not in ignored owner-root .trees');
   if (s.options.ship !== false || s.options.review_rounds !== 5) throw new Error('Lane has shipping authority or wrong review bound');
-  if (git(s.ownerRoot, 'rev-parse', 'HEAD') !== s.ownerBase || git(s.ownerRoot, 'ls-remote', 'origin', 'refs/heads/main').split(/\s/)[0] !== s.ownerBase) throw new Error('Owner/remote shipped while a lane is active');
+  const batchBase = read(join(s.batchRun, 'state.json')).base;
+  if (git(s.ownerRoot, 'rev-parse', 'HEAD') !== batchBase || git(s.ownerRoot, 'ls-remote', 'origin', 'refs/heads/main').split(/\s/)[0] !== batchBase) throw new Error('Owner/remote shipped while a lane is active');
   writeFileSync(join(path, phase + '.md'), 'Deterministic ' + phase + ' for ' + s.id + '\n');
   if (phase === 'reproduce') {
     event(s.ownerRoot, { type: 'lane-start', id: s.id, root: s.root, branch: s.branch, base: s.base });
     const program = "if(!require('fs').existsSync('src/" + s.id + ".txt')){console.error('AssertionError: bug " + s.id + " expected fixed behavior');process.exit(1)}";
     writeFileSync(join(path, 'witnesses.json'), JSON.stringify({ e2e: [{ argv: ['node', '-e', program], failure_pattern: 'AssertionError: bug ' + s.id + ' expected fixed behavior' }], unit: [], unit_omission_reason: 'Single inline filesystem regression has no smaller meaningful unit.', live_required: false, live: [] }));
   }
-  if (phase === 'plan') writeFileSync(join(path, 'spec-proposal.md'), 'No specification change needed.');
-  if (phase === 'implement') {
+  if (phase === 'plan') {
+    writeFileSync(join(path, 'spec-proposal.md'), 'No specification change needed.');
     if (s.id === '0007' && !existsSync(join(path, 'decision-authorizations.md'))) {
-      writeFileSync(join(path, 'decision-request.md'), 'Exact provisional scope: create src/0007.txt with fixed fixture behavior. This is a genuine fixture-policy tradeoff requiring owner approval before shipment; preserve all assertions and original red evidence.');
+      writeFileSync(join(path, 'decision-request.md'), 'Exact provisional scope: create src/0007.txt with fixed fixture behavior. This is a genuine fixture-policy tradeoff requiring owner approval before shipment; preserve all assertions and original red evidence.\n' + 'RETAIN_FULL_SCOPE_ON_DISK: preserve each compatibility and review obligation.\n'.repeat(1600));
       process.stdout.write('DECISION'); process.exit(0);
+    }
+  }
+  if (phase === 'implement') {
+    if (s.id === '0001' && existsSync(join(s.ownerRoot, '.pi/tmp/resume-fixture')) && !existsSync(join(s.ownerRoot, '.pi/tmp/resume-enabled'))) {
+      event(s.ownerRoot, { type: 'lane-paused', id: s.id });
+      process.stdout.write('BLOCKED'); process.exit(0);
     }
     writeFileSync(join(s.root, 'src', s.id + '.txt'), 'fixed\n');
   }
@@ -93,7 +108,7 @@ if (op === 'stage') {
     event(s.ownerRoot, { type: 'lane-close', id: s.id });
   }
   process.stdout.write('PASS');
-} else if (op === 'merge') {
+} else if (op.startsWith('merge')) {
   const c = read(path);
   if (c.root !== join(c.ownerRoot, '.trees', basename(c.batchRun) + '-integrate-' + c.id) || git(c.ownerRoot, 'check-ignore', c.root) !== c.root) throw new Error('Integration worktree is not in ignored owner-root .trees');
   for (const name of readdirSync(join(c.ownerRoot, '.pi/tmp')).filter(n => n.startsWith('fix-bug-'))) {
@@ -105,6 +120,15 @@ if (op === 'stage') {
   event(c.ownerRoot, { type: 'merge-start', id: c.id, base: c.base, source: c.sourceSha });
   if (git(c.ownerRoot, 'rev-parse', 'HEAD') !== c.base) throw new Error('Owner changed before integration');
   run(c.root, c.mergeArgv);
+  if (op === 'merge-interrupted') { process.stdout.write('PASS'); process.exit(0); }
+  if (op === 'merge-isolated' && c.id === '0001') {
+    mkdirSync(join(c.root, '.pi/tmp'), { recursive: true });
+    writeFileSync(join(c.root, '.pi/tmp/reject-integration'), 'Known integration-only prepush failure.');
+    const failure = spawnSync(c.gateArgv[0], c.gateArgv.slice(1), { cwd: c.ownerRoot, encoding: 'utf8' });
+    if (failure.status === 0 || !(failure.stdout + failure.stderr).includes('Integration gate failed')) throw new Error('Expected genuine integration gate failure: ' + failure.stdout + failure.stderr);
+    event(c.ownerRoot, { type: 'merge-rejected', id: c.id });
+    process.stdout.write('NEGATIVE'); process.exit(0);
+  }
   if (run(c.ownerRoot, c.gateArgv) !== 'PASS') throw new Error('Gate did not pass exactly');
   if (git(c.ownerRoot, 'rev-parse', 'HEAD') !== c.base || git(c.ownerRoot, 'ls-remote', 'origin', 'refs/heads/main').split(/\s/)[0] !== c.base) throw new Error('Integration shipped before merged-tree gate/review');
   event(c.ownerRoot, { type: 'merge-gated', id: c.id, sha: git(c.root, 'rev-parse', 'HEAD') });
@@ -132,12 +156,12 @@ function probe(scenario: Scenario) {
     writeFileSync(join(cwd, "src/initial.txt"), "initial\n");
     writeFileSync(join(cwd, "tests/initial.txt"), "initial\n");
     writeFileSync(join(cwd, "AGENTS.md"), "Preserve all witnesses; fixture policy tradeoffs require owner approval before shipment.\n");
-    writeFileSync(join(cwd, "package.json"), JSON.stringify({ name: "batch-host-fixture", scripts: { typecheck: 'node -e "process.exit(0)"', test: 'node -e "process.exit(0)"' } }));
+    writeFileSync(join(cwd, "package.json"), JSON.stringify({ name: "batch-host-fixture", scripts: { typecheck: 'node --check fixture.mjs', test: 'node -e "if(require(\'fs\').existsSync(\'.pi/tmp/reject-integration\')){console.error(\'INTEGRATION_ONLY_FAILURE\');process.exit(1)}"' } }));
     writeFileSync(join(cwd, "fixture.mjs"), fixture);
     writeFileSync(join(agent, "auth.json"), JSON.stringify({ openai: { type: "api_key", key: "pi-theta-no-network" } }));
     writeFileSync(join(agent, "settings.json"), JSON.stringify({ defaultProvider: "openai", defaultModel: "gpt-6.1-sol", defaultProjectTrust: "always", theta: { binderModel: "openai/gpt-6.1-sol" } }));
     for (const file of ["fix-all-bugs.theta", "fix-bug.theta", "workers/bugfix-batch-lane.theta"]) writeFileSync(join(theta, file), production(file));
-    for (const file of ["batch.mjs", "run.mjs", "update-pi-config.mjs"]) copyFileSync(join(root, "tools/bugfix", file), join(cwd, "tools/bugfix", file));
+    for (const file of ["batch.mjs", "run.mjs", "worktree-env.mjs", "update-pi-config.mjs"]) copyFileSync(join(root, "tools/bugfix", file), join(cwd, "tools/bugfix", file));
     const ids = workers(cwd, scenario);
     for (const id of ids) writeFileSync(join(cwd, "docs/bugs", id + "-fixture.md"), `# Fixture ${id}\n- **Status:** open\n${id === "0008" ? "Explicit owner hold; do not attempt.\n" : ""}`);
     // Refusal fallback must never accidentally turn a parse regression into a
@@ -150,13 +174,47 @@ function probe(scenario: Scenario) {
     const base = git("rev-parse", "HEAD");
     const remote = join(cwd, ".pi/tmp/origin.git");
     git("init", "--bare", "-b", "main", remote); git("remote", "add", "origin", remote); git("push", "origin", "main");
-    const result = spawnSync(process.execPath, [cli, "-ne", "-e", join(cwd, "question.mjs"), "-e", join(root, "extensions"), "--theta", theta, "--theta", join(theta, "workers"), "--session", join(cwd, ".pi/tmp/session.jsonl"), "-p", "/fix-all-bugs"], {
-      cwd, encoding: "utf8", timeout: 240000, maxBuffer: 8 * 1024 * 1024,
-      env: topLevelThetaHostEnv(process.env, join(root, "extensions"), process.pid, { PI_OFFLINE: "1", PI_CODING_AGENT_DIR: agent }),
-    });
-    // Keep a complete captured transcript on failure; never rerun an expensive
-    // host invocation merely to refilter its console output.
-    writeFileSync(join(tmpdir(), `fix-all-bugs-${scenario}-${process.pid}.log`), result.stdout + "\nSTDERR:\n" + result.stderr);
+    const host = (request: string, label: string) => {
+      const result = spawnSync(process.execPath, [cli, "-ne", "-e", join(cwd, "question.mjs"), "-e", join(root, "extensions"), "--theta", theta, "--theta", join(theta, "workers"), "--session", join(cwd, `.pi/tmp/${label}-session.jsonl`), "-p", request], {
+        cwd, encoding: "utf8", timeout: 240000, maxBuffer: 8 * 1024 * 1024,
+        env: topLevelThetaHostEnv(process.env, join(root, "extensions"), process.pid, { PI_OFFLINE: "1", PI_CODING_AGENT_DIR: agent }),
+      });
+      writeFileSync(join(tmpdir(), `fix-all-bugs-${scenario}-${label}-${process.pid}.log`), result.stdout + "\nSTDERR:\n" + result.stderr);
+      expect(result.error, result.stdout + result.stderr).toBeUndefined();
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout).not.toContain("theta_result");
+      return result;
+    };
+    const controller = (...args: string[]) => {
+      const result = spawnSync(process.execPath, [join(cwd, "tools/bugfix/batch.mjs"), ...args], { cwd, encoding: "utf8" });
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      return result.stdout.trim();
+    };
+    let originals: Record<string, { run: string; root: string; branch: string; manifest: Buffer; claim: Buffer; witness: Buffer; red: Buffer }> = {};
+    let beforeResumeEvents = 0;
+    if (scenario === "resume") {
+      writeFileSync(join(cwd, ".pi/tmp/resume-fixture"), "Initial source 0001 pauses safely during implementation.");
+      const batch = controller("start");
+      controller("catalog", batch);
+      writeFileSync(join(batch, "plan.json"), JSON.stringify({ bugs: ids.map(id => ({ id, ready: true, reason: "Established fixture contract", dependencies: [], files: [`src/${id}.txt`] })), guidance: [] }));
+      expect(controller("plan", batch)).toBe("PASS");
+      const manifests = controller("next", batch).split("\n");
+      for (const manifest of manifests) {
+        const id = json(manifest).id;
+        host("/fix-bug batch " + manifest, "prepare-" + id);
+        expect(controller("collect", batch, id)).toBe(id === "0001" ? "BLOCKED" : "VERIFIED");
+      }
+      const state = json(join(batch, "state.json"));
+      originals = Object.fromEntries(ids.map(id => {
+        const source = state.jobs[id].sourceRun;
+        const s = json(join(source, "state.json"));
+        return [id, { run: source, root: s.root, branch: s.branch, manifest: readFileSync(state.jobs[id].manifest), claim: readFileSync(join(batch, "jobs", id + ".launch/owner.json")), witness: readFileSync(join(source, "witnesses.json")), red: readFileSync(join(source, "red-0.json")) }];
+      }));
+      beforeResumeEvents = readFileSync(join(cwd, ".pi/tmp/events.jsonl"), "utf8").trim().split("\n").length;
+      writeFileSync(join(cwd, ".pi/tmp/resume-enabled"), "Continue the same retained source.");
+    }
+    const result = host("/fix-all-bugs" + (scenario === "resume" ? " resume" : ""), "batch");
     expect(result.error, result.stdout + result.stderr).toBeUndefined();
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stderr).toBe("");
@@ -181,9 +239,26 @@ function probe(scenario: Scenario) {
       const binding = join(context.reportDirectory, "review-binding.json");
       expect(context.root).toBe(join(cwd, ".trees", basename(run) + "-integrate-" + id));
       expect(git("check-ignore", context.root)).toBe(context.root);
-      return [id, { context, retained: existsSync(context.root), gate: existsSync(context.gatePath) ? json(context.gatePath) : null, binding: existsSync(binding) ? json(binding) : null }];
+      const gateLogs = readdirSync(context.reportDirectory).filter(name => /^gate-\d+$/.test(name)).flatMap(name => {
+        const folder = join(context.reportDirectory, name);
+        return readdirSync(folder).filter(file => /^\d+\.json$/.test(file)).map(file => json(join(folder, file)));
+      });
+      return [id, { context, retained: existsSync(context.root), active: existsSync(join(context.reportDirectory, "active")), verdict: existsSync(context.verdictPath) ? json(context.verdictPath) : null, gateLogs, gate: existsSync(context.gatePath) ? json(context.gatePath) : null, binding: existsSync(binding) ? json(binding) : null }];
     }));
-    const observation = { state, sources, integrations, events, stdout: result.stdout, base, main: git("rev-parse", "HEAD"), remote: git("--git-dir", remote, "rev-parse", "main"), status: git("status", "--porcelain"), branches: git("branch", "--format=%(refname:short)"), worktrees: git("worktree", "list", "--porcelain"), lease: existsSync(join(cwd, ".pi/tmp/fix-bug.lock")), integrationLock: existsSync(join(run, "integration.lock")) };
+    for (const [id, original] of Object.entries(originals)) {
+      expect(state.jobs[id].sourceRun).toBe(original.run);
+      expect(readFileSync(state.jobs[id].manifest)).toEqual(original.manifest);
+      expect(readFileSync(join(run, "jobs", id + ".launch/owner.json"))).toEqual(original.claim);
+      expect(readFileSync(join(original.run, "witnesses.json"))).toEqual(original.witness);
+      expect(readFileSync(join(original.run, "red-0.json"))).toEqual(original.red);
+      expect(sources[id]!.state.root).toBe(original.root);
+      expect(sources[id]!.state.branch).toBe(original.branch);
+    }
+    const sourceRunCount = readdirSync(join(cwd, ".pi/tmp")).filter(name => /^fix-bug-\d{4}-/.test(name)).length;
+    const detail = json(join(run, "report.json"));
+    const overview = controller("render-report", run);
+    const fullAudit = readFileSync(join(run, "report.txt"), "utf8");
+    const observation = { state, sources, integrations, events, detail, overview, fullAudit, sourceRunCount, beforeResumeEvents, stdout: result.stdout, base, main: git("rev-parse", "HEAD"), remote: git("--git-dir", remote, "rev-parse", "main"), status: git("status", "--porcelain"), branches: git("branch", "--format=%(refname:short)"), worktrees: git("worktree", "list", "--porcelain"), lease: existsSync(join(cwd, ".pi/tmp/fix-bug.lock")), integrationLock: existsSync(join(run, "integration.lock")) };
     writeFileSync(join(tmpdir(), `fix-all-bugs-${scenario}-${process.pid}.json`), JSON.stringify(observation, null, 2));
     return observation;
   } finally { rmSync(cwd, { recursive: true, force: true }); }
@@ -195,8 +270,13 @@ describe("/fix-all-bugs through the real host with deterministic workers", () =>
     expect(r.stdout).not.toContain("BATCH STOP");
     expect(r.stdout).toContain("FIX ALL BUGS — COMPLETE");
     expect(r.stdout).not.toContain("STOPPED / NOT FINALIZED");
-    expect(r.stdout).toContain("PENDING OWNER APPROVAL");
-    expect(r.stdout).toContain("Rationale:");
+    expect(r.overview).toContain("owner decision pending");
+    expect(r.fullAudit).toContain("PENDING OWNER APPROVAL");
+    expect(r.fullAudit).toContain("Rationale:");
+    expect(Buffer.byteLength(r.overview, "utf8")).toBeLessThan(48000);
+    expect(r.overview).not.toContain("RETAIN_FULL_SCOPE_ON_DISK");
+    for (let id = 1; id <= 9; id++) expect(r.overview).toContain(String(id).padStart(4, "0"));
+    expect(r.detail).toBeDefined();
     expect(r.status).toBe("");
     const starts = r.events.filter(e => e.type === "lane-start");
     expect(starts.map(e => e.id).sort()).toEqual(["0001", "0002", "0003", "0004", "0005", "0006", "0007"]);
@@ -260,15 +340,16 @@ describe("/fix-all-bugs through the real host with deterministic workers", () =>
     expect(r.worktrees).toContain(pending.state.root);
     expect(r.integrations["0007"]).toBeUndefined();
     expect(r.state.jobs["0008"]).toBeUndefined();
-    expect(r.state.outcomes["0008"].status).toBe("excluded");
+    expect(r.state.outcomes["0008"].status).toBe("authorization-required");
     expect(r.state.jobs["0009"]).toBeUndefined();
     expect(r.state.outcomes["0009"]).toMatchObject({ status: "blocked", reason: expect.stringContaining("0007") });
     expect(r.lease, "settled batch releases execution lease, not pending artifacts").toBe(false);
   }, 300000);
 
-  it("refuses a claimed clean merge without fresh merged-tree gates and retains both branches/worktrees without pushing", () => {
+  it("parks a settled claimed clean merge without fresh gates, retaining both branches/worktrees without pushing", () => {
     const r = probe("ungated");
-    expect(r.stdout).toContain("BATCH STOP");
+    expect(r.stdout).not.toContain("BATCH STOP");
+    expect(r.state.jobs["0001"].status).toBe("integration-blocked");
     expect(r.main).toBe(r.base);
     expect(r.remote).toBe(r.base);
     expect(r.status).toBe("");
@@ -284,13 +365,80 @@ describe("/fix-all-bugs through the real host with deterministic workers", () =>
     expect(integration.gate).toBeNull();
     expect(integration.binding).toBeNull();
     expect(r.worktrees).toContain(integration.context.root);
-    expect(r.integrationLock).toBe(true);
-    expect(r.lease, "an unfinished integration keeps its lease").toBe(true);
+    expect(r.integrationLock).toBe(false);
+    expect(r.lease, "known settled prepush failures can release the lease, not their artifacts").toBe(false);
   }, 120000);
+
+  it("parks a valid negative integration verdict, ships unrelated fixes and blocks only true dependents", () => {
+    const r = probe("isolated");
+    expect(r.stdout).not.toContain("BATCH STOP");
+    expect(r.state.jobs["0001"].status).toBe("integration-blocked");
+    expect(r.state.jobs["0002"].status).toBe("integrated");
+    expect(r.state.jobs["0004"].status).toBe("integrated");
+    expect(r.state.jobs["0003"]).toBeUndefined();
+    expect(r.state.outcomes["0003"]).toMatchObject({ status: "blocked", reason: expect.stringContaining("0001") });
+    expect(r.events.filter(e => e.type === "lane-start").map(e => e.id).sort()).toEqual(["0001", "0002", "0004"]);
+    const rejected = r.events.findIndex(e => e.type === "merge-rejected" && e.id === "0001");
+    expect(rejected).toBeGreaterThan(-1);
+    expect(r.events.findIndex(e => e.type === "merge-gated" && e.id === "0002")).toBeGreaterThan(rejected);
+    expect(r.overview).toMatch(/mandatory test failed|Integration gate failed/i);
+    expect(r.overview).not.toContain("Worker verdict must be");
+    expect(r.sources["0001"]!.retained).toBe(true);
+    expect(r.integrations["0001"]!.retained).toBe(true);
+    expect(r.integrations["0001"]!.binding).toBeNull();
+    expect(r.integrations["0001"]!.active).toBe(false);
+    expect(r.integrations["0001"]!.verdict).toMatchObject({ ok: false, findings: expect.stringContaining("mandatory test failed") });
+    expect(r.integrations["0001"]!.gateLogs).toEqual(expect.arrayContaining([expect.objectContaining({ argv: ["npm", "test"], code: 1, output: expect.stringContaining("INTEGRATION_ONLY_FAILURE") })]));
+    expect(r.main).toBe(r.remote);
+    expect(r.main).not.toBe(r.base);
+    expect(r.integrationLock).toBe(false);
+    expect(r.lease).toBe(false);
+  }, 180000);
+
+  it("keeps the integration marker and checkout lease after an interrupted worker without a typed verdict", () => {
+    const r = probe("uncertain");
+    expect(r.stdout).toContain("BATCH STOP");
+    expect(r.stdout).toContain("liveness is uncertain");
+    expect(r.state.jobs["0001"].status).toBe("integrating");
+    expect(r.integrations["0001"]!.active).toBe(true);
+    expect(r.integrations["0001"]!.verdict).toBeNull();
+    expect(r.integrations["0001"]!.binding).toBeNull();
+    expect(r.sources["0001"]!.retained).toBe(true);
+    expect(r.integrations["0001"]!.retained).toBe(true);
+    expect(r.main).toBe(r.base);
+    expect(r.remote).toBe(r.base);
+    expect(r.integrationLock).toBe(true);
+    expect(r.lease).toBe(true);
+  }, 120000);
+
+  it("resumes the accepted plan and original incomplete sources without duplicate lanes, draining verified work first", () => {
+    const r = probe("resume");
+    expect(r.stdout).not.toContain("BATCH STOP");
+    expect(r.sourceRunCount).toBe(2);
+    expect(r.events.filter(e => e.type === "lane-start").map(e => e.id).sort()).toEqual(["0001", "0002"]);
+    const resumedEvents = r.events.slice(r.beforeResumeEvents);
+    expect(resumedEvents[0]).toMatchObject({ type: "merge-start", id: "0002" });
+    expect(resumedEvents.findIndex(e => e.type === "lane-close" && e.id === "0001")).toBeGreaterThan(resumedEvents.findIndex(e => e.type === "merge-gated" && e.id === "0002"));
+    for (const id of ["0001", "0002"]) expect(r.state.jobs[id].status).toBe("integrated");
+    expect(r.main).toBe(r.remote);
+    expect(r.lease).toBe(false);
+  }, 180000);
+
+  it("does not label a planner failure COMPLETE merely because the settled lease can be released", () => {
+    const r = probe("planner-failure");
+    expect(r.stdout).toContain("BATCH STOP");
+    expect(r.overview).not.toContain("FIX ALL BUGS — COMPLETE");
+    expect(r.overview).toContain("0001");
+    expect(r.events).toEqual([]);
+    expect(r.main).toBe(r.base);
+    expect(r.remote).toBe(r.base);
+    expect(r.lease).toBe(false);
+  }, 60000);
 
   it("does not invoke a planner or start lanes for an empty inventory", () => {
     const r = probe("empty");
-    expect(r.stdout).toContain("No open bugs.");
+    expect(r.stdout).toContain("Batch scheduling complete");
+    expect(r.overview).toContain("FIX ALL BUGS — COMPLETE");
     expect(r.stdout).not.toContain("BATCH STOP");
     expect(r.events).toEqual([]);
     expect(r.state.jobs).toEqual({});

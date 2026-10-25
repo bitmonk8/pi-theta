@@ -37,6 +37,9 @@ Explain why the alternatives are inferior under the existing principles. Convers
 a personal preference, majority vote, "simpler", confidence, or the desire to pass a
 test is NOT a derivation from an established principle. Do not invent owner precedent.
 Cite exact artifact/source/spec locations in basis; distinguish facts from assumptions.
+When the exact proposal labels its selected course (e.g. Option A), name that label
+explicitly in recommendation, followed by the concrete authorized behavior. This
+makes the later owner queue unambiguous; never list options without choosing one.
 
 Return disposition:
 - continue: enough evidence establishes one clearly preferred course, no unresolved
@@ -88,8 +91,15 @@ without a governing ruling are material choices, not routine baseline maintenanc
 Normative edits require the EXACT PLAN proposal, independent evidence/plan review
 and controller recording before implementation. An early-phase ruling may clarify
 what tests to write but may not authorize production/spec edits before planning.
-A revised implementation/repair proposal must replan and be independently reviewed;
-never rewrite a completed plan/proposal or grant broad future spec authority.
+A revised implementation/repair proposal (including non-spec routine scope changes)
+must enter the typed needs_replan transition BEFORE authorization. The controller
+preserves the old plan and exact request, reruns PLAN and independent evidence
+review, then presents phase scope with that exact original request. For phase scope,
+verify the clean bound evidence review, revised plan, original archived request and
+named cases/controls; authorize only the unchanged request. Replanning itself is
+report-writing permission, not an accepted scope decision or waiver. A legacy
+blocked decision remains blocked; resuming never converts it into authority.
+Never rewrite a completed plan/proposal or grant broad future spec authority.
 Rejection by an independent reviewer requires correction and a fresh review; your
 verdict is not a substitute for that review or any green gate.
 

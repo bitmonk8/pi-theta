@@ -7,10 +7,11 @@ import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync, rmSync
 import { resolve, join, isAbsolute, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { updatePiConfig } from './update-pi-config.mjs';
+import { prepareWorktreeEnvironment } from './worktree-env.mjs';
 
-export function command(argv, cwd, timeout = 30 * 60 * 1000) {
+export function command(argv, cwd, timeout = 30 * 60 * 1000, env = process.env) {
   if (!Array.isArray(argv) || !argv.length || argv.some(x => typeof x !== 'string')) throw new Error('Command must be a nonempty argv array');
-  const r = spawnSync(argv[0], argv.slice(1), { cwd, encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024 });
+  const r = spawnSync(argv[0], argv.slice(1), { cwd, encoding: 'utf8', env, timeout, maxBuffer: 64 * 1024 * 1024 });
   return { code: r.error || r.signal ? -1 : r.status, output: (r.stdout ?? '') + (r.stderr ?? ''), error: r.error?.message };
 }
 export function worktreePath(root, name) {
@@ -108,11 +109,11 @@ export function approved(text, label) { return text.trim() === `User selected: 2
 export function parseBugRequest(text) {
   // The manifest is the entire remainder, not shell words: spaces are valid
   // path bytes, while line breaks cannot cross the four-line theta protocol.
-  const batch = /^batch[ \t]+([^\r\n]+)$/.exec(text.trim());
+  const batch = /^(batch|batch-resume)[ \t]+([^\r\n]+)$/.exec(text.trim());
   if (batch) {
-    const manifest = batch[1];
+    const manifest = batch[2];
     if (!isAbsolute(manifest) || resolve(manifest) !== manifest || /[\x00-\x1f\x7f]/.test(manifest)) throw new Error('Batch requires a canonical absolute manifest path');
-    return ['BATCH', manifest, 'false', '5'].join('\n');
+    return [batch[1] === 'batch-resume' ? 'BATCH_RESUME' : 'BATCH', manifest, 'false', '5'].join('\n');
   }
   const words = text.trim().split(/\s+/);
   const resume = words[0] === 'resume';
@@ -218,8 +219,34 @@ function renderRanking(root, catalogPath) {
 }
 const PHASES = new Set(['reproduce', 'diagnose', 'plan', 'implement', 'repair', 'close']);
 function assertControls(state) {
-  for (const root of [state.ownerRoot, state.root]) {
-    if (!root || JSON.stringify(controlPaths(root)) !== JSON.stringify(state.controlPaths) || digest(root, state.controlPaths) !== state.controlDigest) throw new Error('Workflow/control files changed since this run started; reconcile manually');
+  const original = root => root && JSON.stringify(controlPaths(root)) === JSON.stringify(state.controlPaths) && state.controlPaths.every(path => localText(root, path, null) !== null) && digest(root, state.controlPaths) === state.controlDigest;
+  // A repair never alters the retained source's controls or original digest.
+  if (!original(state.root)) throw new Error('Workflow/control files changed since this run started; reconcile manually');
+  const parent = state.batchRun ? JSON.parse(localText(state.ownerRoot, state.batchRun.slice(state.ownerRoot.length + 1) + '/state.json')) : null;
+  const latest = parent?.workflowUpgrades?.at(-1);
+  if (original(state.ownerRoot) && !latest) return;
+  if (!state.batchRun) throw new Error('Workflow/control files changed since this run started; reconcile manually');
+  const manifest = batchManifest(state.ownerRoot, state.batchManifest, false);
+  if (manifest.batchRun !== state.batchRun || manifest.id !== state.id || manifest.base !== state.base || manifest.manifestDigest !== state.batchManifestDigest) throw new Error('Workflow upgrade belongs to a different batch/source');
+  const claim = JSON.parse(localText(state.ownerRoot, state.batchRun.slice(state.ownerRoot.length + 1) + '/jobs/' + state.id + '.launch/owner.json') ?? 'null');
+  const run = join(state.ownerRoot, '.pi/tmp', basename(state.root));
+  if (claim?.run !== run || claim.version !== 1 || claim.batchRun !== state.batchRun || claim.id !== state.id || claim.manifest !== state.batchManifest || claim.manifestDigest !== state.batchManifestDigest || claim.base !== state.base || parent.jobs?.[state.id]?.sourceRun !== run) throw new Error('Workflow upgrade requires the original registered launch claim');
+  const ownerPaths = executionControlPaths(state.ownerRoot);
+  const union = new Set([...controlPaths(state.root), ...ownerPaths]);
+  if (!latest || !/^[0-9a-f]{40,64}$/.test(latest.base ?? '') || !/^[0-9a-f]{40,64}$/.test(latest.sha ?? '') || command(['git', 'merge-base', '--is-ancestor', latest.base, latest.sha], state.ownerRoot).code !== 0 || command(['git', 'merge-base', '--is-ancestor', latest.sha, parent.base], state.ownerRoot).code !== 0 || !Array.isArray(latest.ownerControls)) throw new Error('Missing authenticated owner workflow upgrade');
+  const entries = latest.ownerControls;
+  if (entries.some(item => !item || !union.has(item.path) || !/^[0-9a-f]{64}$/.test(item.digest ?? '')) || new Set(entries.map(item => item.path)).size !== entries.length || [...state.controlPaths, ...ownerPaths].some(path => !entries.some(item => item.path === path))) throw new Error('Invalid owner workflow control path union/subset');
+  if (latest.path || latest.digest) {
+    if (!latest.path?.startsWith(state.batchRun + '/') || resolve(latest.path) !== latest.path) throw new Error('Invalid workflow upgrade artifact path');
+    const raw = localText(state.ownerRoot, latest.path.slice(state.ownerRoot.length + 1));
+    const record = raw && JSON.parse(raw);
+    if (hash(raw ?? '') !== latest.digest || record?.base !== latest.base || record.sha !== latest.sha || JSON.stringify(record.ownerControls) !== JSON.stringify(entries)) throw new Error('Workflow upgrade artifact changed');
+  }
+  // Check every captured control, including one deleted from the owner after
+  // adoption (existence-filtered current paths alone would miss that loss).
+  for (const entry of entries) {
+    const bytes = localText(state.ownerRoot, entry.path, null);
+    if (bytes === null || hash(bytes) !== entry.digest) throw new Error('Owner workflow controls differ from the latest authenticated upgrade');
   }
 }
 function assertOwner(state) {
@@ -231,7 +258,10 @@ function assertOwner(state) {
   if (git(state.ownerRoot, 'rev-parse', 'HEAD') !== expected || git(state.ownerRoot, 'branch', '--show-current') !== state.ownerBranch) throw new Error('Owner HEAD/branch changed during workflow; stop and inspect');
 }
 function controlPaths(root) {
-  return ['tools/bugfix/run.mjs', 'tools/bugfix/update-pi-config.mjs', '.pi/theta/fix-bug.theta', '.pi/theta/workers/bugfix-stage.theta', '.pi/theta/workers/bugfix-review.theta', '.pi/theta/workers/bugfix-rank.theta', '.pi/theta/workers/bugfix-decide.theta'].filter(p => existsSync(join(root, p)));
+  return ['tools/bugfix/run.mjs', 'tools/bugfix/worktree-env.mjs', 'tools/bugfix/update-pi-config.mjs', '.pi/theta/fix-bug.theta', '.pi/theta/workers/bugfix-stage.theta', '.pi/theta/workers/bugfix-review.theta', '.pi/theta/workers/bugfix-rank.theta', '.pi/theta/workers/bugfix-decide.theta'].filter(p => existsSync(join(root, p)));
+}
+export function executionControlPaths(root) {
+  return [...new Set([...controlPaths(root), 'tools/bugfix/batch.mjs', '.pi/theta/fix-all-bugs.theta', '.pi/theta/workers/bugfix-batch-plan.theta', '.pi/theta/workers/bugfix-batch-lane.theta', '.pi/theta/workers/bugfix-batch-merge.theta'])].filter(path => existsSync(join(root, path))).sort();
 }
 function leasePath(run, state) { return state.batchRun ? join(run, 'lease') : join(state.ownerRoot, '.pi/tmp/fix-bug.lock'); }
 function batchManifest(cwd, manifestPath, requireCurrentBase = true) {
@@ -256,7 +286,9 @@ function batchManifest(cwd, manifestPath, requireCurrentBase = true) {
   const owner = JSON.parse(localText(ownerRoot, '.pi/tmp/fix-bug.lock/owner.json') ?? 'null');
   if (owner?.run !== batchRun || owner.kind !== 'batch') throw new Error('Batch does not own the checkout lease');
   const current = git(ownerRoot, 'rev-parse', 'HEAD');
-  if (git(ownerRoot, 'branch', '--show-current') !== 'main' || current !== (requireCurrentBase ? base : parent.base)) throw new Error('Batch job base must equal current owner main HEAD or its authenticated parent advancement');
+  const upgrade = entry.launchUpgrade;
+  const adopted = requireCurrentBase && upgrade?.base === base && (parent.workflowUpgrades ?? []).some(item => item.base === base && item.sha === upgrade.sha) && command(['git', 'merge-base', '--is-ancestor', upgrade.sha, parent.base], ownerRoot).code === 0;
+  if (git(ownerRoot, 'branch', '--show-current') !== 'main' || current !== parent.base || (requireCurrentBase && current !== base && !adopted)) throw new Error('Batch job base must equal current owner main HEAD or its authenticated parent advancement');
   return { ...manifest, manifest: manifestPath, manifestDigest: rawDigest };
 }
 function claimBatchLaunch(cwd, batch, run) {
@@ -282,6 +314,9 @@ function claimBatchLaunch(cwd, batch, run) {
     const claim = join(batch.batchRun, 'jobs', batch.id + '.launch');
     try { mkdirSync(claim); } catch { throw new Error('Batch job already has a launch claim; reconcile its original source run, never replay start-file'); }
     save(join(claim, 'owner.json'), { version: 1, batchRun: batch.batchRun, id: batch.id, manifest: batch.manifest, manifestDigest: batch.manifestDigest, base: batch.base, run, pid: process.pid });
+    const parent = json(join(batch.batchRun, 'state.json'));
+    parent.jobs[batch.id].sourceRun = run;
+    parent.revision++; save(join(batch.batchRun, 'state.json'), parent);
   } finally { rmSync(guard, { recursive: true }); }
 }
 function assertLease(run, state, settledBatchExport = false) {
@@ -299,7 +334,7 @@ function assertLease(run, state, settledBatchExport = false) {
 function stagePaths(phase) { return [`stage-${phase}-result.txt`, `${phase}.md`, ...(phase === 'plan' ? ['spec-proposal.md'] : [])]; }
 // Decision snapshots are controller-owned, run-local authority, never Git or
 // release authority. Do not let supplied paths turn this into a general reader.
-const DECISION_PHASES = new Set([...PHASES, 'evidence', 'fix', 'final']);
+const DECISION_PHASES = new Set([...PHASES, 'evidence', 'fix', 'final', 'scope']);
 const DECISION_LIMITS = [
   'Only the exact archived proposal/request is authorized; absent a request, retry within existing scope only.',
   'Specification edits require the exact approved plan/spec-proposal.md; stage requests cannot approve a new contract.',
@@ -343,13 +378,14 @@ function decisionMaterial(run, state, phase, options = {}) {
   assertControls(state);
   if (state.stages.includes('red')) redEvidence(run, state);
   for (const [name, checkpoint] of Object.entries(state.checkpoints ?? {})) {
-    if (['pass', 'needs_spec', 'needs_decision'].includes(checkpoint.status) && digest(run, stagePaths(name)) !== checkpoint.reportDigest) throw new Error('Completed stage report/result changed: ' + name);
+    if (['pass', 'needs_spec', 'needs_decision', 'needs_replan'].includes(checkpoint.status) && digest(run, stagePaths(name)) !== checkpoint.reportDigest) throw new Error('Completed stage report/result changed: ' + name);
   }
   const request = localText(run, 'decision-request.md');
-  const status = state.checkpoints?.[phase]?.status ?? null;
+  const status = phase === 'scope' ? 'needs_decision' : state.checkpoints?.[phase]?.status ?? null;
+  if (status === 'needs_replan') throw new Error('Typed scope revision requires stage-replan, fresh PLAN/evidence review and a scope decision before authorization');
   if (status === 'needs_decision' && !request?.trim()) throw new Error('needs_decision requires a nonempty decision-request.md');
-  if (status === 'needs_decision' && state.checkpoints[phase].decisionRequest !== request) throw new Error('Decision request changed since the stage checkpoint');
-  const reportName = ({ evidence: 'evidence-review.md', fix: 'reviews.md', final: 'final-review.md' })[phase] ?? phase + '.md';
+  if (status === 'needs_decision' && (phase === 'scope' ? state.pendingScopeReplan?.exactRequest : state.checkpoints[phase].decisionRequest) !== request) throw new Error('Decision request changed since the stage checkpoint');
+  const reportName = ({ evidence: 'evidence-review.md', fix: 'reviews.md', final: 'final-review.md', scope: 'plan.md' })[phase] ?? phase + '.md';
   const specDecision = isSpecDecision({ phase, status });
   const proposalName = specDecision ? 'spec-proposal.md' : request?.trim() ? 'decision-request.md' : reportName;
   const proposal = localText(run, proposalName);
@@ -443,8 +479,9 @@ function approvalReport(records) {
   })].join('\n');
 }
 function requireDecisionApproval(run, state, context) {
-  if (!isSpecDecision(context)) return;
+  if (!isSpecDecision(context) && context.phase !== 'scope' && !(context.phase === 'plan' && state.pendingScopeReplan)) return;
   requireCleanEvidenceReview(run, state);
+  if (context.phase === 'scope' && (!state.pendingScopeReplan || context.proposal !== state.pendingScopeReplan.exactRequest)) throw new Error('Scope decision must authorize the exact independently reviewed replan request');
 }
 function authorizationText(records) {
   const lines = ['# Run-local decision authorizations', '', ...DECISION_LIMITS.map(line => '- ' + line), '', '# History'];
@@ -507,6 +544,11 @@ function validateDecisionIntegrity(run, state, options = {}) {
   }
   const history = Object.hasOwn(options, 'authorizationText') ? options.authorizationText : localText(run, 'decision-authorizations.md');
   if ((records.length || history !== null) && history !== authorizationText(records)) throw new Error('Worker-facing decision-authorizations.md changed or has no matching decision records');
+  if (state.pendingScopeReplan) {
+    const pending = state.pendingScopeReplan;
+    const archive = state.planArchives?.find(item => item.path === pending.archive && item.reason === 'stage-scope-replan');
+    if (!archive || !['implement', 'repair'].includes(pending.phase) || pending.requestDigest !== hash(pending.exactRequest) || hash(pending.exactRequest) !== archive.files['decision-request.md']) throw new Error('Pending replan request differs from its immutable original');
+  }
   for (const archive of state.planArchives ?? []) {
     if (!archive.path?.startsWith(run + '/history/') || resolve(archive.path) !== archive.path) throw new Error('Invalid plan archive');
     for (const [name, expected] of Object.entries(archive.files)) {
@@ -544,12 +586,42 @@ function archivePlan(run, state, reason, additional = {}) {
   const path = join(run, 'history', 'plan-' + randomUUID());
   mkdirSync(path, { recursive: true });
   const files = {};
-  const artifacts = { ...Object.fromEntries([...stagePaths('plan'), 'decision-request.md', 'evidence-review.md', 'evidence-review-result.json'].map(name => [name, localText(run, name)])), ...additional, 'checkpoint.json': JSON.stringify({ reason, checkpoint }, null, 2) + '\n' };
+  const artifacts = { ...Object.fromEntries([...stagePaths('plan'), 'decision-request.md', 'evidence-review.md', 'evidence-review-result.json'].map(name => [name, localText(run, name)])), ...additional, 'original-plan-decision-request.md': checkpoint.decisionRequest ?? null, 'checkpoint.json': JSON.stringify({ reason, checkpoint }, null, 2) + '\n' };
   for (const [name, text] of Object.entries(artifacts)) if (text !== null) {
     writeFileSync(join(path, name), text, { flag: 'wx' }); files[name] = hash(text);
   }
   state.planArchives = [...(state.planArchives ?? []), { path, reason, checkpoint, files }];
   return path;
+}
+function stageReplan(run, state, phase) {
+  if (!['implement', 'repair'].includes(phase)) throw new Error('Only implementation/repair may request a scope replan');
+  const checkpoint = state.checkpoints?.[phase];
+  const request = localText(run, 'decision-request.md');
+  if (!['needs_replan', 'needs_decision', 'blocked'].includes(checkpoint?.status) || !request?.trim() || checkpoint.decisionRequest !== request || digest(run, stagePaths(phase)) !== checkpoint.reportDigest) throw new Error('Scope replan requires the unchanged completed stage and its exact recorded request');
+  if (checkpoint.checkoutDigest !== digest(state.root, changes(state.root))) throw new Error('Scope replan stage checkout changed since its exact request was recorded');
+  validateDecisionIntegrity(run, state);
+  if (state.stages.includes('red')) redEvidence(run, state);
+  // No CONTINUE is inferred from a blocked legacy decision. Replanning only
+  // grants report-writing; the new plan must earn review and exact authority.
+  const archive = archivePlan(run, state, 'stage-scope-replan', {
+    [phase + '.md']: localText(run, phase + '.md'),
+    ['stage-' + phase + '-result.txt']: localText(run, 'stage-' + phase + '-result.txt'),
+    'stage-checkpoint.json': JSON.stringify(checkpoint, null, 2) + '\n',
+  });
+  const feedbackPath = join(archive, 'decision-request.md');
+  state.pendingScopeReplan = { phase, exactRequest: request, requestDigest: hash(request), archive };
+  state.replanFeedback = { path: feedbackPath, digest: hash(request), archive, checkoutDigest: hash(JSON.stringify(checkoutIdentity(state.root))) };
+  delete state.scopeReplanAuthorization;
+  delete state.checkpoints.plan;
+  delete state.evidenceReviewBinding;
+  state.replanRequired = true;
+}
+function requireScopeApproval(run, state) {
+  if (!state.pendingScopeReplan) return;
+  const request = state.pendingScopeReplan;
+  const approval = state.scopeReplanAuthorization;
+  const decision = state.decisions?.find(item => item.path === approval?.decisionPath);
+  if (!approval || approval.planDigest !== state.checkpoints.plan?.reportDigest || approval.requestDigest !== hash(request.exactRequest) || decision?.phase !== 'scope' || decision.outcome !== 'CONTINUE' || decision.authority?.exactRequest !== request.exactRequest) throw new Error('Revised implementation scope requires fresh plan/evidence review and exact scope authorization');
 }
 function archiveDecision(run, state, selected, verdict, source, verdictRaw, answerRaw) {
   const { context, folder, entry } = selected;
@@ -579,6 +651,7 @@ function archiveDecision(run, state, selected, verdict, source, verdictRaw, answ
   writeFileSync(path, raw, { flag: 'wx' });
   state.decisions = [...(state.decisions ?? []), { path, digest: hash(raw), contextPath: selected.full, outcome, phase: record.phase, source, authority, rationale: verdict.rationale }];
   if (specApproval) { state.specApproved = true; state.approvedProposal = context.proposal; }
+  if (source === 'astra' && authority && context.phase === 'scope') state.scopeReplanAuthorization = { decisionPath: path, planDigest: state.checkpoints.plan.reportDigest, requestDigest: hash(context.proposal) };
   entry.status = source === 'human' ? 'answered' : verdict.disposition;
   renderAuthorizations(run, state);
   return outcome;
@@ -586,6 +659,14 @@ function archiveDecision(run, state, selected, verdict, source, verdictRaw, answ
 function redEvidence(run, state) {
   if (digest(run, ['witnesses.json']) !== state.witnessDigest) throw new Error('Witness commands/signatures changed after baseline');
   const w = json(join(run, 'witnesses.json')); validateWitnesses(w);
+  const originals = [...w.e2e, ...w.unit].map((_, index) => `red-${index}.json`);
+  if (state.redDigest && digest(run, originals) !== state.redDigest) throw new Error('Original red evidence changed');
+  // Older runs may predate redDigest, but immutable decision contexts already
+  // captured the original raw red hashes. Do not lose that protection on resume.
+  for (const entry of Object.values(state.decisionContexts ?? {})) {
+    const { context } = decisionContext(run, state, entry.path);
+    for (const proof of context.proofs ?? []) if (originals.includes(proof.path) && hash(localText(run, proof.path) ?? '') !== proof.digest) throw new Error('Original red evidence differs from its immutable decision snapshot');
+  }
   [...w.e2e, ...w.unit].forEach((item, index) => {
     const r = json(join(run, `red-${index}.json`));
     if (JSON.stringify(item.argv) !== JSON.stringify(r.argv) || !Number.isInteger(r.code) || r.code <= 0 || typeof r.output !== 'string' || !new RegExp(item.failure_pattern).test(r.output)) throw new Error('Recorded red evidence is missing or invalid');
@@ -609,21 +690,33 @@ function activate(run, pidText) {
     return token;
   } finally { rmSync(activation, { recursive: true }); }
 }
-function resumeRun(cwd, request, pidText) {
+function resumeRun(cwd, request, pidText, batchResume = false) {
   const ownerRoot = git(cwd, 'rev-parse', '--show-toplevel');
   const [mode, id, ship, rounds] = parseBugRequest(request).split('\n');
-  if (mode !== 'RESUME') throw new Error('Expected a resume request');
+  if (mode !== (batchResume ? 'BATCH_RESUME' : 'RESUME')) throw new Error('Expected a ' + (batchResume ? 'batch-resume' : 'resume') + ' request');
   const lock = join(ownerRoot, '.pi/tmp/fix-bug.lock');
   if (!existsSync(join(lock, 'owner.json'))) throw new Error('No paused run owns this checkout; resume does not guess from old artifact directories.');
-  const run = realpathSync(json(join(lock, 'owner.json')).run);
+  const batch = batchResume ? batchManifest(cwd, id, false) : null;
+  const parent = batch ? JSON.parse(localText(ownerRoot, batch.batchRun.slice(ownerRoot.length + 1) + '/state.json')) : null;
+  const job = parent?.jobs?.[batch?.id];
+  if (batch && (parent.finished || job?.status !== 'scheduled' || job.resumeRequested !== true || typeof job.sourceRun !== 'string')) throw new Error('Batch resume requires an unfinished parent and an explicitly scheduled original source retry');
+  if (!batch && json(join(lock, 'owner.json')).kind === 'batch') throw new Error('Batch sources require authenticated batch-resume with their original manifest');
+  const selectedRun = batch ? job.sourceRun : json(join(lock, 'owner.json')).run;
+  const run = realpathSync(selectedRun);
+  if (batch && (run !== selectedRun || !run.startsWith(join(ownerRoot, '.pi/tmp', 'fix-bug-' + batch.id + '-')))) throw new Error('Batch source run path is not canonical/original');
   if (!run.startsWith(join(realpathSync(ownerRoot), '.pi/tmp/fix-bug-'))) throw new Error('Run directory is outside this checkout');
   const token = activate(run, pidText); // acquire before reading/validating authoritative state
   try {
-  if (realpathSync(json(join(lock, 'owner.json')).run) !== run) throw new Error('Checkout lease changed during resume');
+  if (!batch && realpathSync(json(join(lock, 'owner.json')).run) !== run) throw new Error('Checkout lease changed during resume');
   const state = json(join(run, 'state.json'));
   const expected = stateRevision(state);
   validateDecisionIntegrity(run, state);
-  if (state.ownerRoot !== ownerRoot || (id && id !== state.id)) throw new Error('Requested run does not match this checkout or bug number');
+  if (state.ownerRoot !== ownerRoot || (!batch && id && id !== state.id)) throw new Error('Requested run does not match this checkout or bug number');
+  if (batch) {
+    if (state.batchRun !== batch.batchRun || state.batchManifest !== batch.manifest || state.batchManifestDigest !== batch.manifestDigest || state.id !== batch.id || state.base !== batch.base || state.ownerBase !== batch.base || state.root !== worktreePath(ownerRoot, basename(run))) throw new Error('Batch resume source identity differs from its original manifest');
+    assertLease(run, state);
+    if (state.batchCommit || existsSync(join(run, 'batch-commit.json')) || existsSync(join(run, 'shipment.json'))) throw new Error('Committed/shipped sources cannot resume implementation');
+  }
   const root = state.root;
   assertOwner(state);
   if (git(root, 'rev-parse', 'HEAD') !== state.base || git(root, 'branch', '--show-current') !== state.branch) throw new Error('HEAD/branch changed; cannot resume this run');
@@ -635,12 +728,22 @@ function resumeRun(cwd, request, pidText) {
   if (state.stages.includes('red')) redEvidence(run, state);
   for (const [phase, checkpoint] of Object.entries(state.checkpoints)) {
     if (!PHASES.has(phase)) throw new Error('Unknown recorded checkpoint');
-    if (['pass', 'needs_spec', 'needs_decision'].includes(checkpoint.status) && digest(run, stagePaths(phase)) !== checkpoint.reportDigest) throw new Error('Completed stage report/result changed: ' + phase + '; reconcile the handoff explicitly');
+    if (['pass', 'needs_spec', 'needs_decision', 'needs_replan'].includes(checkpoint.status) && digest(run, stagePaths(phase)) !== checkpoint.reportDigest) throw new Error('Completed stage report/result changed: ' + phase + '; reconcile the handoff explicitly');
   }
   const options = state.options;
   if (!options || typeof options.ship !== 'boolean' || !Number.isInteger(options.review_rounds) || options.review_rounds < 1 || options.review_rounds > 5) throw new Error('Invalid saved workflow options');
   if (ship !== 'keep') options.ship = ship === 'true';
   if (rounds !== 'keep') options.review_rounds = Number(rounds);
+  if (batch) { options.ship = false; options.review_rounds = 5; }
+  // Legacy scope stops enter the same authority-free transition. Structural
+  // checkpoint + exact request identity, never a keyword in reviewer prose.
+  for (const phase of ['implement', 'repair']) {
+    const checkpoint = state.checkpoints[phase];
+    if (!state.replanRequired && state.checkpoints.plan && ['needs_replan', 'needs_decision', 'blocked'].includes(checkpoint?.status) && checkpoint.decisionRequest?.trim()) {
+      stageReplan(run, state, phase);
+      break;
+    }
+  }
   state.generation = (state.generation ?? 0) + 1;
   state.resumeCount = (state.resumeCount ?? 0) + 1;
   // Keep audit history and standing ship permission, but require fresh gates/reviews.
@@ -654,7 +757,15 @@ function resumeRun(cwd, request, pidText) {
   for (const file of ['evidence-review.md', 'evidence-review-result.json', 'reviews.md', 'final-review.md', 'ship-answer.txt']) {
     if (existsSync(join(run, file))) copyFileSync(join(run, file), join(history, `resume-${state.resumeCount}-before-${file}`));
   }
-  persistState(run, state, expected, () => validateDecisionIntegrity(run, state));
+  persistState(run, state, expected, () => {
+    validateDecisionIntegrity(run, state);
+    assertControls(state);
+    if (batch) {
+      assertLease(run, state);
+      const current = JSON.parse(localText(ownerRoot, batch.batchRun.slice(ownerRoot.length + 1) + '/state.json'));
+      if (current.finished || current.jobs?.[batch.id]?.sourceRun !== run || current.jobs[batch.id].status !== 'scheduled' || current.jobs[batch.id].resumeRequested !== true) throw new Error('Batch resume scheduling changed during admission');
+    }
+  });
   rmSync(join(run, 'ship-answer.txt'), { force: true });
   return run;
   } catch (error) {
@@ -720,7 +831,7 @@ export function main(args, cwd = process.cwd()) {
     writeFileSync(path, '', { flag: 'wx' });
     console.log(path); return;
   }
-  if (op === 'resume-file') { console.log(resumeRun(cwd, readFileSync(resolve(cwd, arg), 'utf8'), phase)); return; }
+  if (op === 'resume-file' || op === 'resume-batch-file') { console.log(resumeRun(cwd, readFileSync(resolve(cwd, arg), 'utf8'), phase, op === 'resume-batch-file')); return; }
   if (op === 'parse-file') { console.log(parseBugRequest(readFileSync(resolve(cwd, arg), 'utf8'))); return; }
   if (op === 'rank-start' || op === 'rank-render') {
     const root = git(cwd, 'rev-parse', '--show-toplevel');
@@ -742,7 +853,7 @@ export function main(args, cwd = process.cwd()) {
     if (!/^- \*\*Status:\*\* open\b/m.test(readFileSync(join(root, bug), 'utf8'))) throw new Error('Bug is not marked open');
     const ownerBranch = git(root, 'branch', '--show-current');
     if (!ownerBranch) throw new Error('Detached HEAD is not supported');
-    const ownerBase = git(root, 'rev-parse', 'HEAD');
+    const ownerBase = batch?.base ?? git(root, 'rev-parse', 'HEAD');
     const nonce = randomUUID();
     const branch = `fix-bug/${id}-${nonce}`;
     const run = join(root, '.pi/tmp', `fix-bug-${id}-${nonce}`);
@@ -752,7 +863,6 @@ export function main(args, cwd = process.cwd()) {
     try { mkdirSync(lock); } catch { throw new Error('Another bug workflow owns the checkout; inspect .pi/tmp/fix-bug.lock/owner.json and release only after it has stopped'); }
     try {
       if (batch) claimBatchLaunch(cwd, batch, run); // durable before active/worktree creation
-      const controls = controlPaths(root);
       // start-file is the interactive entry: publish the lease owner only AFTER
       // the original options and active execution claim are durable. Raw init is
       // retained for administrative/test creation of an explicitly paused run.
@@ -760,7 +870,8 @@ export function main(args, cwd = process.cwd()) {
       prepareWorktreePath(root, basename(run));
       git(root, 'worktree', 'add', '-b', branch, worktree, ownerBase);
       mkdirSync(join(worktree, '.pi/tmp'), { recursive: true });
-      save(join(run, 'state.json'), { root: worktree, ownerRoot: root, ownerBranch, ownerBase, bug, id, branch, base: ownerBase, spec: digest(worktree, specFiles(worktree)), stages: [], resumeVersion: 1, revision: 0, generation: startOptions ? 1 : 0, checkpoints: {}, options: startOptions ?? { ship: true, review_rounds: 5 }, controlPaths: controls, controlDigest: digest(root, controls), ...(batch ? { batchRun: batch.batchRun, batchManifest: batch.manifest, batchManifestDigest: batch.manifestDigest } : {}) });
+      const controls = controlPaths(worktree);
+      save(join(run, 'state.json'), { root: worktree, ownerRoot: root, ownerBranch, ownerBase, bug, id, branch, base: ownerBase, spec: digest(worktree, specFiles(worktree)), stages: [], resumeVersion: 1, revision: 0, generation: startOptions ? 1 : 0, checkpoints: {}, options: startOptions ?? { ship: true, review_rounds: 5 }, controlPaths: controls, controlDigest: digest(worktree, controls), ...(batch ? { batchRun: batch.batchRun, batchManifest: batch.manifest, batchManifestDigest: batch.manifestDigest } : {}) });
       if (batch) batchManifest(cwd, batch.manifest, false);
       save(join(lock, 'owner.json'), { run });
     } catch (error) {
@@ -790,16 +901,22 @@ export function main(args, cwd = process.cwd()) {
   }
   if (op === 'ship' && state.batchRun) throw new Error('Batch runs cannot ship; only the parent batch controller may integrate/push');
   const lock = leasePath(run, state);
-  assertLease(run, state, op === 'export-verified' || op === 'commit-verified');
+  assertLease(run, state, op === 'export-verified' || op === 'commit-verified' || op === 'verify-integrity');
   if (op === 'release') { rmSync(lock, { recursive: true }); console.log('PASS'); return; }
   assertOwner(state);
   assertControls(state);
-  const committedExport = op === 'export-verified' && state.batchRun && state.batchCommit;
+  const committedExport = ['export-verified', 'verify-integrity'].includes(op) && state.batchRun && state.batchCommit;
   if (git(root, 'rev-parse', 'HEAD') !== (committedExport ? state.batchCommit.sha : state.base) || git(root, 'branch', '--show-current') !== state.branch) throw new Error('HEAD/branch changed during workflow; stop and inspect');
   const paths = committedExport ? committedPaths(run, state) : changes(root);
   const specTouched = paths.some(p => p === 'docs/spec.md' || p.startsWith('docs/spec_topics/') || p.startsWith('docs/reference/'));
   if (!state.specApproved && (specTouched || digest(root, specFiles(root)) !== state.spec)) throw new Error('Specification changed without owner approval');
-  if (op === 'decision-kind') {
+  if (op === 'verify-integrity') {
+    if (state.stages.includes('red')) redEvidence(run, state);
+    for (const [name, checkpoint] of Object.entries(state.checkpoints ?? {})) {
+      if (['pass', 'needs_spec', 'needs_decision', 'needs_replan'].includes(checkpoint.status) && digest(run, stagePaths(name)) !== checkpoint.reportDigest) throw new Error('Completed stage report/result changed: ' + name);
+    }
+    console.log('PASS'); return;
+  } else if (op === 'decision-kind') {
     const { context, entry } = decisionContext(run, state, phase);
     if (entry.status === 'pending') assertDecisionCurrent(run, state, context);
     // A deferred owner decision is historical: implementation and fresh review
@@ -850,6 +967,16 @@ export function main(args, cwd = process.cwd()) {
     const history = localText(run, 'decision-authorizations.md');
     persist(() => decisionCommitFence(run, priorState, selected, baseline, verdictRaw, history, answer));
     console.log('PASS'); return;
+  } else if (op === 'stage-replan') {
+    stageReplan(run, state, phase);
+  } else if (op === 'scope-approved') {
+    if (!state.pendingScopeReplan) throw new Error('No pending revised scope request');
+    requireScopeApproval(run, state);
+  } else if (op === 'scope-status') {
+    if (!state.pendingScopeReplan) { console.log('NONE'); return; }
+    try { requireScopeApproval(run, state); console.log('APPROVED'); }
+    catch { console.log('REQUIRED'); }
+    return;
   } else if (op === 'enter') {
     activate(run, phase);
     state.generation = (state.generation ?? 0) + 1;
@@ -860,6 +987,9 @@ export function main(args, cwd = process.cwd()) {
     state.options = { ship: phase === 'true', review_rounds: Number(extra) };
   } else if (op === 'info') {
     console.log([state.id, String(state.options.ship), String(state.options.review_rounds)].join('\n')); return;
+  } else if (op === 'prepare') {
+    prepareWorktreeEnvironment(root, run, command);
+    console.log('PASS'); return;
   } else if (['cached', 'begin', 'record'].includes(op)) {
     if (!PHASES.has(phase) || state.resumeVersion !== 1) throw new Error('Unknown phase or legacy checkpoint format');
     const checkpoint = state.checkpoints[phase];
@@ -871,6 +1001,7 @@ export function main(args, cwd = process.cwd()) {
       console.log('PASS'); return;
     }
     if (op === 'begin') {
+      if (['implement', 'repair'].includes(phase)) requireScopeApproval(run, state);
       if (phase === 'plan') {
         if (['pass', 'needs_spec'].includes(checkpoint?.status)) {
           // An explicit begin can supersede an unrejected plan, but must first
@@ -901,15 +1032,18 @@ export function main(args, cwd = process.cwd()) {
       if (phase === 'plan') requireReplanInputs(run, state);
       const text = readFileSync(join(run, `stage-${phase}-result.txt`), 'utf8');
       const [status, ...summary] = text.split('\n');
-      if (!['pass', 'blocked', 'not_reproduced', 'needs_spec', 'needs_decision'].includes(status) || !summary.join('\n').trim()) throw new Error('Invalid stage result');
+      if (!['pass', 'blocked', 'not_reproduced', 'needs_spec', 'needs_decision', 'needs_replan'].includes(status) || !summary.join('\n').trim()) throw new Error('Invalid stage result');
+      if (status === 'needs_replan' && !['implement', 'repair'].includes(phase)) throw new Error('Only implementation/repair may request a scope replan');
       if (status === 'needs_spec' && !['plan', 'implement', 'repair'].includes(phase)) throw new Error('This phase cannot request a specification transition');
-      if (['pass', 'needs_spec', 'needs_decision'].includes(status) && !existsSync(join(run, `${phase}.md`))) throw new Error('Completed stage report is missing');
+      if (['pass', 'needs_spec', 'needs_decision', 'needs_replan'].includes(status) && !existsSync(join(run, `${phase}.md`))) throw new Error('Completed stage report is missing');
       if (phase === 'plan' && ['pass', 'needs_spec', 'needs_decision'].includes(status) && !existsSync(join(run, 'spec-proposal.md'))) throw new Error('Plan specification disposition is missing');
       const decisionRequest = localText(run, 'decision-request.md');
-      if (status === 'needs_decision' && !decisionRequest?.trim()) throw new Error('needs_decision requires a nonempty decision-request.md');
+      if (['needs_decision', 'needs_replan'].includes(status) && !decisionRequest?.trim()) throw new Error(status + ' requires a nonempty decision-request.md');
+      if (phase === 'plan' && state.pendingScopeReplan && ['pass', 'needs_spec', 'needs_decision'].includes(status) && decisionRequest !== state.pendingScopeReplan.exactRequest) throw new Error('Revised PLAN must preserve the exact pending scope request for independent review/authorization');
       state.checkpoints[phase] = { ...checkpoint, status, ...(decisionRequest?.trim() ? { decisionRequest } : {}), reportDigest: digest(run, stagePaths(phase)), checkoutDigest: digest(root, paths), ...(phase === 'implement' ? { planDigest: state.checkpoints.plan?.reportDigest } : {}) };
       if (['implement', 'repair'].includes(phase) && status === 'needs_spec') {
         if (!existsSync(join(run, 'spec-revision-proposal.md'))) throw new Error('Revised specification proposal is missing');
+        archivePlan(run, state, 'implementation-spec-revision', { 'spec-revision-proposal.md': localText(run, 'spec-revision-proposal.md') });
         const history = join(run, 'history'); mkdirSync(history, { recursive: true });
         for (const file of stagePaths('plan')) if (existsSync(join(run, file))) copyFileSync(join(run, file), join(history, `${phase}-${checkpoint.attempt}-before-replan-${file}`));
         delete state.checkpoints.plan;
@@ -956,6 +1090,8 @@ export function main(args, cwd = process.cwd()) {
       if (paths.some(p => !p.startsWith('tests/'))) throw new Error('Reproduction/diagnosis may change tests only');
       witnessRuns(root, run, 'red'); state.stages.push('red');
       state.witnessDigest = digest(run, ['witnesses.json']);
+      const witnesses = json(join(run, 'witnesses.json'));
+      state.redDigest = digest(run, [...witnesses.e2e, ...witnesses.unit].map((_, index) => `red-${index}.json`));
     }
   } else if (op === 'gate') {
     if (!state.stages.includes('red')) throw new Error('Missing pre-fix red evidence');
@@ -970,8 +1106,9 @@ export function main(args, cwd = process.cwd()) {
     const gateIdentity = checkoutIdentity(root).digest;
     const w = witnessRuns(root, run, `green-${state.gateCount}`);
     const commands = [['npm', 'run', 'typecheck'], ['npm', 'test'], ...w.live];
+    const prepared = prepareWorktreeEnvironment(root, run, command);
     for (let i = 0; i < commands.length; i++) {
-      const r = command(commands[i], root);
+      const r = command(commands[i], root, undefined, prepared.env);
       save(join(run, `gate-${state.gateCount}-${phase}-${i}.json`), { argv: commands[i], ...r });
       if (r.code !== 0) throw new Error('Verification gate failed; inspect captured logs. No skip/waiver allowed.');
     }

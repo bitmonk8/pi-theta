@@ -6,12 +6,14 @@ import { spawnSync } from 'node:child_process';
 
 const helper = join(process.cwd(), 'tools/bugfix/batch.mjs');
 const single = join(process.cwd(), 'tools/bugfix/run.mjs');
+// Compose a file path, not a synthetic diagnostic-code literal (DIAG-2).
+const fixBugControl = ['.pi', 'theta', 'fix-bug.theta'].join('/');
 function git(root: string, ...args: string[]) {
   const r = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
   if (r.status !== 0) throw new Error(r.stderr + r.stdout);
   return r.stdout.trim();
 }
-function fixture(count = 6, remote = false, piTheta = false) {
+function fixture(count = 6, remote = false, piTheta = false, controls = false) {
   const root = mkdtempSync(join(tmpdir(), 'bugfix-batch-'));
   const put = (path: string, value: unknown) => {
     mkdirSync(dirname(path), { recursive: true });
@@ -19,6 +21,7 @@ function fixture(count = 6, remote = false, piTheta = false) {
   };
   git(root, 'init', '-b', 'main'); git(root, 'config', 'user.email', 'test@example.invalid'); git(root, 'config', 'user.name', 'Batch Test');
   put(join(root, '.gitignore'), '.pi/tmp/\n/.trees/\n');
+  if (controls) put(join(root, fixBugControl), 'original retained control bytes\n');
   put(join(root, 'package.json'), { ...(piTheta ? { name: '@bitmonk8/pi-theta' } : {}), scripts: { typecheck: 'node -e "process.exit(0)"', test: 'node -e "process.exit(0)"' } });
   const bugs = Array.from({ length: count }, (_, i) => ({ id: String(i + 1).padStart(4, '0'), ready: true, reason: 'Concrete regression with a settled contract', dependencies: [] as string[], files: [`src/value-${i + 1}.js`] }));
   for (const [i, bug] of bugs.entries()) {
@@ -65,7 +68,8 @@ function fixture(count = 6, remote = false, piTheta = false) {
   };
   const context = (id: string) => {
     const ctx = JSON.parse(readFileSync(ok('integration-start', run, id), 'utf8'));
-    expect(ctx.root).toBe(join(root, '.trees', basename(run) + '-integrate-' + id));
+    const attempt = state().jobs[id].integrationAttempt;
+    expect(ctx.root).toBe(join(root, '.trees', basename(run) + '-integrate-' + id + (attempt > 1 ? '-attempt-' + attempt : '')));
     expect(git(root, 'check-ignore', ctx.root)).toBe(ctx.root);
     expect(ctx.reportDirectory.startsWith(run + '/')).toBe(true);
     expect(ctx.root.startsWith(run + '/')).toBe(false);
@@ -168,13 +172,13 @@ describe('deterministic four-lane bug batch controller', () => {
     } finally { f.cleanup(); }
   });
 
-  it('excludes not-ready predecessors, propagates blocks, and permits resolved historical dependencies', () => {
+  it('queues authorization prerequisites, propagates blocks, and permits resolved historical dependencies', () => {
     const f = fixture(5);
     try {
       f.bugs[0]!.ready = false; f.bugs[0]!.reason = 'Pending owner contract decision';
       f.bugs[1]!.dependencies = ['0001']; f.bugs[2]!.dependencies = ['0002']; f.bugs[3]!.dependencies = ['9999']; f.bugs[4]!.dependencies = ['0004'];
       f.plan(); expect(f.ok('next', f.run)).toBe(join(f.run, 'jobs/0004.json'));
-      expect(f.state().outcomes).toMatchObject({ '0001': { status: 'excluded' }, '0002': { status: 'blocked' }, '0003': { status: 'blocked' } });
+      expect(f.state().outcomes).toMatchObject({ '0001': { status: 'authorization-required', attempted: false, authority: 'required' }, '0002': { status: 'blocked' }, '0003': { status: 'blocked' } });
       expect(f.ok('collect', f.run, '0004')).toBe('BLOCKED'); expect(f.ok('next', f.run)).toBe('DONE');
       expect(f.state().outcomes['0005'].status).toBe('blocked'); f.ok('finish', f.run);
       const report = JSON.parse(f.ok('report', f.run)); expect(report.finished).toBe(true); expect(report.bugs).toHaveLength(5);
@@ -275,7 +279,10 @@ describe('deterministic four-lane bug batch controller', () => {
         rationale: 'There is no established owner policy selecting between these valid outcomes.', basis: ['docs/bugs/0001-example.md:1'],
         alternatives: ['Preserve legacy compatibility.', 'Use the new compatibility boundary.'] });
       f.one('decision-record', source.run, context); f.one('pause', source.run);
-      expect(f.ok('collect', f.run, '0001')).toBe('PENDING'); expect(f.state().jobs['0001'].status).toBe('pending-approval');
+      expect(f.ok('collect', f.run, '0001')).toBe('BLOCKED');
+      expect(f.state().jobs['0001']).toMatchObject({ status: 'blocked', authority: 'pending', verification: 'incomplete', checkpoint: { phase: 'implement', status: 'needs_decision' } });
+      expect(f.state().jobs['0001'].reason).toBe('Exact scoped owner choice remains');
+      expect(f.state().jobs['0001'].approvals).toHaveLength(1);
       expect(f.ok('next', f.run)).toBe('DONE'); expect(f.state().outcomes['0002'].status).toBe('blocked');
       f.ok('finish', f.run); expect(existsSync(source.root)).toBe(true); expect(existsSync(join(source.run, 'decision-authorizations.md'))).toBe(true);
     } finally { f.cleanup(); }
@@ -341,6 +348,202 @@ describe('deterministic four-lane bug batch controller', () => {
       expect(text).toContain('INCOMPLETE. Do not rerun shipment blindly.');
       expect(existsSync(ctx.root)).toBe(true);
       expect(existsSync(join(f.root, '.pi/tmp/fix-bug.lock'))).toBe(true);
+    } finally { f.cleanup(); }
+  }, 30000);
+
+  it('parks a settled negative verdict, ships an unrelated fix, and blocks only the failed dependency', () => {
+    const f = fixture(3, true);
+    try {
+      f.bugs[2]!.dependencies = ['0001']; f.plan(); f.ok('next', f.run);
+      const first = f.verified('0001'); f.verified('0002');
+      f.ok('collect', f.run, '0001'); f.ok('collect', f.run, '0002');
+      const ctx = f.context('0001'); f.merge(ctx);
+      expect(existsSync(join(ctx.root, '.pi/tmp'))).toBe(true);
+      expect(JSON.parse(readFileSync(f.state().jobs['0001'].environment, 'utf8')).status).toBe('ready');
+      f.verdict(ctx, { ok: false, findings: 'Required fixture prerequisite is unavailable; do not ship.' });
+      expect(f.call('integrate-record', f.run, '0001').stderr).toContain('Integration declined: Required fixture prerequisite');
+      expect(f.ok('integration-park', f.run, '0001')).toBe('PARKED');
+      expect(existsSync(ctx.root)).toBe(true); expect(existsSync(first.root)).toBe(true);
+      expect(f.state().jobs['0001']).toMatchObject({ status: 'integration-blocked', shipmentState: 'not-attempted' });
+      expect(f.ok('ready', f.run)).toBe('0002');
+      const second = f.context('0002'); f.merge(second); f.ok('integration-gate', f.run, '0002'); f.verdict(second); f.ok('integrate-record', f.run, '0002');
+      expect(f.ok('next', f.run)).toBe('DONE'); f.ok('finish', f.run);
+      const r = JSON.parse(f.ok('report', f.run));
+      expect(r).toMatchObject({ schedulingComplete: true, finished: true, counts: { total: 3, shipped: 1 } });
+      expect(r.bugs.find((b: any) => b.id === '0003')).toMatchObject({ status: 'blocked', prerequisite: '0001', attempted: false });
+      expect(git(f.root, 'show', 'HEAD:src/value-1.js')).toContain('value = 1');
+      expect(git(f.root, 'show', 'HEAD:src/value-2.js')).toContain('value = 2');
+    } finally { f.cleanup(); }
+  }, 30000);
+
+  it.each(['active', 'push-intent', 'remote-drift'])('never parks an integration with %s uncertainty', hazard => {
+    const f = fixture(1, true);
+    try {
+      f.plan(); f.ok('next', f.run); f.verified('0001'); f.ok('collect', f.run, '0001'); const ctx = f.context('0001');
+      if (hazard === 'active') f.ok('integration-enter', f.run, '0001');
+      if (hazard === 'push-intent') f.put(join(ctx.reportDirectory, 'push-attempt.json'), { sha: f.base });
+      if (hazard === 'remote-drift') {
+        f.put(join(f.root, '.pi/tmp/new-root.txt'), 'untracked ignored evidence');
+        const tree = git(f.root, 'rev-parse', 'HEAD^{tree}');
+        const drift = git(f.root, 'commit-tree', tree, '-p', f.base, '-m', 'external remote advancement');
+        git(f.root, 'push', 'origin', drift + ':refs/heads/main');
+      }
+      expect(f.call('integration-park', f.run, '0001').status).not.toBe(0);
+      expect(existsSync(join(f.run, 'integration.lock'))).toBe(true);
+      expect(f.state().jobs['0001'].status).toBe('integrating');
+      expect(git(f.root, 'rev-parse', 'HEAD')).toBe(f.base);
+    } finally { f.cleanup(); }
+  }, 30000);
+
+  it('resumes a pre-push stopped integration using the exact committed source and a new retained attempt', () => {
+    const f = fixture(1, true);
+    try {
+      f.plan(); f.ok('next', f.run); const source = f.verified('0001'); f.ok('collect', f.run, '0001');
+      const originalClaim = readFileSync(join(f.run, 'jobs/0001.launch/owner.json'), 'utf8');
+      const first = f.context('0001'); f.merge(first); f.verdict(first, { ok: false, findings: 'Bootstrap failed before any push.' });
+      expect(f.call('integrate-record', f.run, '0001').status).not.toBe(0);
+      const committed = readFileSync(join(source.run, 'batch-commit.json'), 'utf8');
+      expect(f.ok('resume', f.run)).toBe(f.run);
+      expect(f.ok('ready', f.run)).toBe('0001');
+      const second = f.context('0001');
+      expect(second.sourceSha).toBe(first.sourceSha); expect(second.root).not.toBe(first.root);
+      expect(existsSync(first.root)).toBe(true); expect(existsSync(first.verdictPath)).toBe(true);
+      expect(readFileSync(join(source.run, 'batch-commit.json'), 'utf8')).toBe(committed);
+      expect(readFileSync(join(f.run, 'jobs/0001.launch/owner.json'), 'utf8')).toBe(originalClaim);
+      f.merge(second); f.ok('integration-gate', f.run, '0001'); f.verdict(second); f.ok('integrate-record', f.run, '0001');
+      f.ok('next', f.run); f.ok('finish', f.run);
+    } finally { f.cleanup(); }
+  }, 30000);
+
+  it('adopts a committed workflow-only repair without editing original source controls or redoing launch claims', () => {
+    const f = fixture(1, true, false, true);
+    try {
+      f.plan(); f.ok('next', f.run); const source = f.verified('0001'); f.ok('collect', f.run, '0001');
+      const originalControl = readFileSync(join(source.root, fixBugControl), 'utf8');
+      const originalDigest = source.state().controlDigest;
+      f.put(join(f.root, fixBugControl), 'repaired workflow bytes\n');
+      git(f.root, 'add', fixBugControl); git(f.root, 'commit', '-m', 'repair orchestration');
+      const repairedMain = git(f.root, 'rev-parse', 'HEAD');
+      expect(f.ok('resume', f.run)).toBe(f.run);
+      expect(f.state().base).toBe(repairedMain);
+      expect(f.state().workflowUpgrades[0]).toMatchObject({ base: f.base, sha: repairedMain });
+      expect(f.ok('ready', f.run)).toBe('0001');
+      expect(source.state().controlDigest).toBe(originalDigest);
+      const retainedControl = readFileSync(join(source.root, fixBugControl), 'utf8');
+      expect(retainedControl).toBe(originalControl);
+      const ctx = f.context('0001'); expect(ctx.base).toBe(repairedMain);
+      f.merge(ctx); f.ok('integration-gate', f.run, '0001'); f.verdict(ctx); f.ok('integrate-record', f.run, '0001');
+      const integratedControl = git(f.root, 'show', 'HEAD:' + fixBugControl);
+      expect(integratedControl).toBe('repaired workflow bytes');
+    } finally { f.cleanup(); }
+  }, 30000);
+
+  it.each(['missing', 'corrupt', 'deleted-owner-control'])('hash-binds complete upgraded owner controls for a legacy source (%s)', damage => {
+    const f = fixture(1, true, false, true);
+    try {
+      f.plan(); f.ok('next', f.run); const source = f.verified('0001'); f.ok('collect', f.run, '0001');
+      const oldDigest = source.state().controlDigest;
+      f.put(join(f.root, 'tools/bugfix/worktree-env.mjs'), 'new execution helper\n');
+      git(f.root, 'add', 'tools/bugfix/worktree-env.mjs'); git(f.root, 'commit', '-m', 'introduce bootstrap control');
+      f.ok('resume', f.run);
+      const state = f.state(); const upgrade = state.workflowUpgrades[0];
+      const entry = upgrade.ownerControls.find((e: any) => e.path === 'tools/bugfix/worktree-env.mjs');
+      expect(entry).toBeDefined();
+      if (damage === 'missing') upgrade.ownerControls = upgrade.ownerControls.filter((e: any) => e !== entry);
+      else if (damage === 'corrupt') entry.digest = '0'.repeat(64);
+      else rmSync(join(f.root, fixBugControl));
+      f.put(join(f.run, 'state.json'), state);
+      const result = spawnSync(process.execPath, [single, 'export-verified', source.run], { cwd: f.root, encoding: 'utf8' });
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toMatch(/workflow.*(control|artifact)|control.*(union|subset)/i);
+      expect(source.state().controlDigest).toBe(oldDigest);
+      expect(existsSync(join(source.root, 'tools/bugfix/worktree-env.mjs'))).toBe(false);
+    } finally { f.cleanup(); }
+  }, 30000);
+
+  it('launches an original unclaimed manifest once across an audited workflow upgrade', () => {
+    const f = fixture(1, true, false, true);
+    try {
+      f.plan(); const manifest = f.ok('next', f.run); const original = readFileSync(manifest);
+      f.put(join(f.root, fixBugControl), 'repaired execution policy\n');
+      git(f.root, 'add', fixBugControl); git(f.root, 'commit', '-m', 'repair workflow before launch');
+      f.ok('resume', f.run); expect(f.ok('next', f.run)).toBe(manifest);
+      expect(f.ok('lane-arguments', manifest)).toBe('batch ' + manifest);
+      const source = f.startSource('0001');
+      expect(source.state().base).toBe(f.base);
+      expect(readFileSync(manifest)).toEqual(original);
+      f.one('info', source.run); // authenticates upgraded owner and original source controls
+      const request = join(f.run, 'duplicate.txt'); f.put(request, 'batch ' + manifest);
+      expect(spawnSync(process.execPath, [single, 'start-file', request, String(process.pid)], { cwd: f.root, encoding: 'utf8' }).stderr).toContain('launch claim');
+      f.one('pause', source.run);
+    } finally { f.cleanup(); }
+  }, 30000);
+
+  it('never parks lost source evidence integrity as an ordinary setup failure', () => {
+    const f = fixture(2, true);
+    try {
+      f.plan(); f.ok('next', f.run); const source = f.verified('0001'); f.verified('0002');
+      f.ok('collect', f.run, '0001'); f.ok('collect', f.run, '0002');
+      const red = join(source.run, 'red-0.json');
+      f.put(red, readFileSync(red, 'utf8') + ' '); // semantically same JSON, original bytes changed
+      expect(f.call('integration-start', f.run, '0001').status).not.toBe(0);
+      expect(f.call('integration-park', f.run, '0001').status).not.toBe(0);
+      expect(existsSync(join(f.run, 'integration.lock'))).toBe(true);
+      expect(f.call('integration-start', f.run, '0002').stderr).toContain('already active');
+      expect(git(f.root, 'rev-parse', 'HEAD')).toBe(f.base);
+    } finally { f.cleanup(); }
+  }, 30000);
+
+  it('refuses adopting unrelated committed production changes as a workflow repair', () => {
+    const f = fixture(1, true);
+    try {
+      f.plan(); f.ok('next', f.run); const source = f.verified('0001'); f.ok('collect', f.run, '0001');
+      f.put(join(f.root, 'src/unrelated.js'), 'unreviewed production change');
+      git(f.root, 'add', 'src/unrelated.js'); git(f.root, 'commit', '-m', 'unrelated');
+      expect(f.call('resume', f.run).stderr).toContain('outside the bounded workflow repair scope');
+      expect(f.state().base).toBe(f.base); expect(existsSync(source.root)).toBe(true);
+    } finally { f.cleanup(); }
+  });
+
+  it('requeues an incomplete original source and authenticates batch-resume without creating another run', () => {
+    const f = fixture(1, true);
+    try {
+      f.plan(); const manifest = f.ok('next', f.run); const source = f.startSource('0001'); f.one('pause', source.run);
+      f.ok('collect', f.run, '0001');
+      const claim = readFileSync(join(f.run, 'jobs/0001.launch/owner.json'), 'utf8');
+      expect(f.ok('resume', f.run)).toBe(f.run);
+      expect(f.ok('next', f.run)).toBe(manifest);
+      expect(f.ok('lane-arguments', manifest)).toBe('batch-resume ' + manifest);
+      const request = join(f.run, 'resume-request.txt'); f.put(request, 'batch-resume ' + manifest);
+      expect(f.one('resume-batch-file', request, String(process.pid))).toBe(source.run);
+      expect(source.state().options).toEqual({ ship: false, review_rounds: 5 });
+      expect(readFileSync(join(f.run, 'jobs/0001.launch/owner.json'), 'utf8')).toBe(claim);
+      expect(f.call('resume', f.run).stderr).toContain('still marked active');
+      f.one('pause', source.run);
+    } finally { f.cleanup(); }
+  }, 30000);
+
+  it('reports a failed planner as unassessed, not COMPLETE, even after safe lease finalization', () => {
+    const f = fixture(2);
+    try {
+      f.ok('catalog', f.run); f.ok('finish', f.run);
+      const r = JSON.parse(f.ok('report', f.run));
+      expect(r).toMatchObject({ finished: true, schedulingComplete: false, counts: { total: 2, attempted: 0 } });
+      expect(r.bugs.every((b: any) => b.status === 'not-assessed')).toBe(true);
+      expect(f.ok('render-report', f.run)).not.toContain('— COMPLETE');
+    } finally { f.cleanup(); }
+  });
+
+  it('keeps all 1000 authorization/prerequisite dispositions below the real transport limits', () => {
+    const f = fixture(1000);
+    try {
+      for (const b of f.bugs) { b.ready = false; b.reason = 'A'.repeat(2000); }
+      f.plan(); f.ok('next', f.run); f.ok('finish', f.run);
+      const text = f.ok('render-report', f.run);
+      expect(Buffer.byteLength(text)).toBeLessThan(50 * 1024);
+      expect(text.split('\n').length).toBeLessThan(2000);
+      for (const bug of f.bugs) expect(text).toContain(bug.id + ' authorization-required');
+      expect(readFileSync(join(f.run, 'report.txt'), 'utf8')).toContain('A'.repeat(2000));
     } finally { f.cleanup(); }
   }, 30000);
 

@@ -181,8 +181,28 @@ essential proof in the tracked bug report before shipment.
 
 A stage needing authorization writes `decision-request.md` with exact files/cases,
 old/new outcomes, alternatives, recommendation, cited decisions/principles, risks
-and preserved/replacement controls, then returns `needs_decision` BEFORE editing
-that scope. Each blocked or decision-ready stage receives a fresh Astra assessment.
+and preserved/replacement controls BEFORE editing that scope. Early-phase
+clarifications return `needs_decision`. Implementation/repair revisions to a
+completed plan return **`needs_replan`**, including routine non-spec changes such
+as a common-prefix fixture adjustment, synthetic diagnostic baseline addition or
+CRLF-plan exception. Implementation/repair `needs_decision` also takes this route.
+The controller's `stage-replan RUN implement|repair` transition grants only
+read-only planning permission, not expanded implementation authority:
+
+1. Verify the exact checkpoint/request and preserve the old plan, proposal,
+   request, stage report/checkpoint and evidence review in digest-checked `history/`.
+2. Invalidate the old plan/review binding. PLAN incorporates the request and
+   reproduces its exact bytes in `decision-request.md`; no old plan is rewritten.
+3. Obtain a fresh independent evidence/plan review bound to the revised plan and
+   unchanged checkout. An old clean report cannot authorize the new scope.
+4. Present the original exact request to a fresh Astra **scope** assessment.
+   Only its recorded CONTINUE (possibly provisional) authorizes those exact edits.
+   A normative change additionally requires the exact PLAN specification approval.
+
+Original requests, decision records, witness manifests and accepted red captures
+remain immutable; a different request requires another explicit replan. The same
+three-cycle invocation ceiling bounds these transitions. Ordinary blocked stages
+without an exact scope-revision request receive a fresh Astra assessment.
 An ordinary blocked report without an exact request can receive only existing-scope
 retry guidance, not unspecified test/spec authority. Early phases remain tests-only.
 Normative authority is recorded only for the exact PLAN proposal following evidence
@@ -235,8 +255,9 @@ then run **`/fix-bug resume`**. The controller:
 - Selects only the current lease owner, not the newest-looking artifact folder.
 - Validates checkout/root identity, HEAD/branch, control-file identity, saved
   options, completed report/result digests, original red records, frozen witness
-  manifest and required specification approval. Changes to workflow code or a
-  completed plan/report require explicit manual reconciliation, not guessing.
+  manifest and required specification approval. Changes to source workflow code or
+  completed plan/report require explicit reconciliation, not guessing. The narrow
+  authenticated parent-owner upgrade exception below never changes source controls.
 - Reuses recorded completed reproduction, diagnosis and planning stages. The
   completed plan/proposal are immutable; actual implementation outcomes belong
   in implementation/repair reports. A new ruling is written separately to
@@ -246,8 +267,13 @@ then run **`/fix-bug resume`**. The controller:
   for an unresolved tradeoff. A rejected evidence-review plan can likewise be
   explicitly archived/invalidated, revised with its findings and scoped decision,
   and independently reviewed again; it is never reused as an unchanged cached
-  plan or silently overwritten. A report file alone is not a completed checkpoint.
-  Interrupted/blocked stages
+  plan or silently overwritten. For legacy implementation/repair checkpoints with
+  status `needs_decision` or `blocked` and an exact recorded `decision-request.md`,
+  resume conservatively enters the same authority-free scope-replan transition.
+  This is based on structured checkpoint/request identity, never keywords in a
+  reviewer's prose; a prior BLOCKED decision stays BLOCKED. A missing, edited or
+  stale request/report is refused, not treated as permission. A report file alone
+  is not a completed checkpoint. Interrupted/blocked stages
   rerun, inspecting their partial edits. A completed implementation reruns if
   the checkout digest has changed; repair and closure are never cached.
 - Archives prior stage reports/results and independent evidence/fix/final-review
@@ -298,6 +324,36 @@ delete tests/evidence to hide a failed gate. Runs created before resumable
 checkpoints were introduced are refused with a legacy-handoff explanation;
 the command cannot safely reconstruct completed stages from prose reports.
 
+### Authenticated parent-owned source continuation
+
+A parent-owned source is **not** selected by ordinary `/fix-bug resume`. The
+parent uses `/fix-bug batch-resume /absolute/path/to/original/jobs/NUMBER.json`;
+`parseBugRequest` emits exactly `BATCH_RESUME`, the manifest path, `false`, `5`
+(on four lines), and `resume-batch-file REQUEST_FILE HOST_PID` performs admission.
+This never initializes a run or replays its launch claim. It requires the original
+manifest bytes/digest, original launch claim, live parent checkout lease and
+`jobs[NUMBER].sourceRun`, with status `scheduled` and `resumeRequested: true` on an
+unfinished parent. It reuses that exact uncommitted source run, worktree, branch,
+base and evidence; source commits/shipments and unexplained execution markers
+block continuation. The options remain **ship false / review_rounds 5**, and the
+normal resume stage-validation and fresh gate/review requirements still apply.
+Owner main may have advanced only as recorded by the authenticated parent;
+the source still validates against its **original manifest base**, never new main.
+
+A workflow-only owner repair may be recorded by the parent as a
+`workflowUpgrades` entry with `{base, sha, ownerControls: [{path, digest}]}`;
+digests are SHA-256 of raw file bytes. The newest entry must name an ancestral
+upgrade and contain a unique, validated workflow-control path union covering
+all of this source's original `controlPaths` and the complete current owner
+execution-control set, including newly introduced bootstrap/batch helpers. Every
+captured owner control must still exist with its recorded raw bytes; an omitted,
+changed or deleted control is refused, under the same manifest/claim/lease
+identity. The retained source must **still** match its exact original control path
+list and `controlDigest`. This does not update source controls, transplant a new
+base, approve decisions or adopt arbitrary owner changes. Ordinary single-bug
+runs have no upgrade exception. Parent orchestration and recovery are documented
+separately in [Fix all bugs](fix-all-bugs.md).
+
 ## Trust boundary
 
 Commands, Git guards, recorded explicit owner confirmations, snapshots, decision
@@ -339,7 +395,10 @@ live testing of a real model's diagnosis or repair.
 
 `tests/bugfix-decisions.test.ts` covers delegated/human decisions, malformed or
 inconsistent verdicts, stale contexts, original evidence and retained gate/shipment
-boundaries. Real-host reporting tests cover automatic scoped retries and default
+boundaries, typed non-spec scope replanning, immutable archived requests and stale
+review/decision rejection. Resume tests cover the original parent manifest/claim,
+scheduled-source retry admission, fixed options and owner-only control upgrades
+without changing source controls/base. Real-host reporting tests cover automatic scoped retries and default
 commit/push against a local bare remote, the local-only opt-out, exact spec
 authorization without a dialog and deferred material-tradeoff approval after
 clean final gates/review, with branch/worktree retention.

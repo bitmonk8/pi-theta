@@ -199,7 +199,7 @@ describe("live Astra production bugfix batch workers", () => {
       expect(invoke(cwd, batchHelper, "plan", run)).toBe("PASS");
       const jobs = invoke(cwd, batchHelper, "next", run).split("\n").map(path => json(path).id);
       expect(jobs.sort()).toEqual(["0001", "0004"]);
-      expect(json(join(run, "state.json")).outcomes["0003"].status).toBe("excluded");
+      expect(json(join(run, "state.json")).outcomes["0003"].status).toBe("authorization-required");
       expect(git(cwd, "rev-parse", "HEAD")).toBe(head);
       expect(git(cwd, "status", "--porcelain")).toBe("");
     } finally { rmSync(cwd, { recursive: true, force: true }); }
@@ -313,7 +313,12 @@ describe("live Astra production bugfix batch workers", () => {
           expect(conflict.status, conflict.stderr + conflict.stdout).toBe(1);
           expect(conflict.stdout).toContain("CONFLICT (content): Merge conflict in src/format.cjs");
         }
+        const verdictPath = invoke(cwd, batchHelper, "integration-verdict-path", run, source.id);
+        expect(verdictPath.startsWith(run + "/")).toBe(true);
+        expect(verdictPath).not.toBe(join(run, "integration-result-" + source.id + ".json"));
+        expect(invoke(cwd, batchHelper, "integration-enter", run, source.id)).toBe("PASS");
         const actual = await drive(cwd, theta, "merge", contextPath) as { ok: boolean; findings: string };
+        expect(invoke(cwd, batchHelper, "integration-settled", run, source.id)).toBe("PASS");
         expect(actual.ok, actual.findings).toBe(true);
         expect(actual.findings.trim().length).toBeGreaterThan(0);
         expect(actual.findings).toMatch(/gate|verif|test|PASS/i);
@@ -340,7 +345,7 @@ describe("live Astra production bugfix batch workers", () => {
         }
         // Persist ONLY the actual typed production worker verdict. The real
         // controller verifies the fresh gated SHA before push/main promotion.
-        writeFileSync(ctx.verdictPath, JSON.stringify(actual));
+        writeFileSync(verdictPath, JSON.stringify(actual));
         expect(invoke(cwd, batchHelper, "integrate-record", run, source.id)).toBe("PASS");
         expect(git(cwd, "rev-parse", "HEAD")).toBe(merged);
         expect(git(bare, "rev-parse", "refs/heads/main")).toBe(merged);

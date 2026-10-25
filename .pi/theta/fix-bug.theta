@@ -47,7 +47,7 @@ fn checkpoint_stop(bug: string, stage: string, reason: string, action: string,
 // Same wire shape as the stage worker; fallback values keep transport failures
 // on the same card surface and preserve the orchestrator's known stage.
 schema StageFailure {
-  status: "pass" | "blocked" | "not_reproduced" | "needs_spec" | "needs_decision",
+  status: "pass" | "blocked" | "not_reproduced" | "needs_spec" | "needs_decision" | "needs_replan",
   summary: string, environment: string, bug_validity: string, fixability: string,
   progress: string, next_action: string, recommendation: string
 }
@@ -185,6 +185,21 @@ fn run_stage(run: string, phase: string, feedback: string) {
   while attempt < 3 {
     attempt += 1
     let result = stage_attempt(run, phase, guidance)?
+    if result.status == "needs_replan" || ((phase == "implement" || phase == "repair") && result.status == "needs_decision") {
+      if !control("node tools/bugfix/run.mjs stage-replan " + shell_path(run) + " " + phase) {
+        return worker_failure("Could not preserve the exact revised scope and archive the prior plan.")
+      }
+      return StageFailure { status: "needs_replan", summary: result.summary,
+        environment: result.environment, bug_validity: result.bug_validity,
+        fixability: result.fixability, progress: result.progress,
+        next_action: result.next_action, recommendation: result.recommendation }
+    }
+    // Revised implementation scope is assessed only AFTER PLAN/evidence review.
+    if phase == "plan" && result.status == "needs_decision" {
+      let scope = bash({ command: "node tools/bugfix/run.mjs scope-status " + shell_path(run) })?.trim()
+      if scope == "REQUIRED" || scope == "APPROVED" { return result }
+      if scope != "NONE" { return worker_failure("Could not validate the revised PLAN scope checkpoint.") }
+    }
     if result.status == "pass" || result.status == "needs_spec" { return result }
     let decision = resolve_decision(run, phase)?
     if !decision.proceed { return result }
@@ -247,6 +262,7 @@ let mut bug = ""
 let mut ship = true
 let mut review_rounds = 5
 let mut resumed = false
+let mut batch_resumed = false
 let mut request_path = ""
 if arguments.trim() != "" {
   // Allocate before writing: overlapping invocations must never share a handoff file.
@@ -258,7 +274,7 @@ if arguments.trim() != "" {
   }
   let fields = parsed.trim().split("\n")
   // BATCH is a controller-validated job manifest, not independent ship authority.
-  if fields.length != 4 || (fields[0] != "FIX" && fields[0] != "RESUME" && fields[0] != "BATCH") {
+  if fields.length != 4 || (fields[0] != "FIX" && fields[0] != "RESUME" && fields[0] != "BATCH" && fields[0] != "BATCH_RESUME") {
     return stop_report("(not selected)", "Argument validation (before reproduction)",
       "Invalid arguments. " + parsed, "No — invalid command arguments.",
       "Unknown — no bug examined.", "Unknown — no fix attempted.",
@@ -266,7 +282,8 @@ if arguments.trim() != "" {
       "Use /fix-bug NUMBER or /fix-bug resume [NUMBER], with optional ship/review_rounds.",
       "Correct the arguments and retry.", "No run directory created.")
   }
-  resumed = fields[0] == "RESUME"
+  batch_resumed = fields[0] == "BATCH_RESUME"
+  resumed = fields[0] == "RESUME" || batch_resumed
   bug = fields[1]
   ship = fields[2] == "true"
   if !resumed {
@@ -290,7 +307,7 @@ if review_rounds < 1 || review_rounds > 5 {
 }
 // Pass the untrusted slash argument through a file, never shell interpolation.
 let initial: string = match bash({ command: resumed
-  ? "node tools/bugfix/run.mjs resume-file " + shell_path(request_path) + " \"$PPID\""
+  ? "node tools/bugfix/run.mjs " + (batch_resumed ? "resume-batch-file " : "resume-file ") + shell_path(request_path) + " \"$PPID\""
   : "node tools/bugfix/run.mjs start-file " + shell_path(request_path) + " \"$PPID\"" }) {
   Ok(text) => text,
   Err(error) => error.message,
@@ -322,6 +339,12 @@ for value in ["1", "2", "3", "4", "5"] {
   if value == info[2] { break }
 }
 theta_print({ text: "Bug " + bug + (resumed ? ": resuming recorded checkpoints. Artifacts: " : ": reproduction started. Artifacts: ") + run })?
+if !control(prefix + "prepare " + quoted) {
+  let paused = control(prefix + "pause " + quoted)
+  return checkpoint_stop(bug, "Worktree prerequisites", "Pinned dependency/scratch bootstrap failed; inspect bootstrap-*.json and .log.",
+    "Resolve the recorded installation/prerequisite failure without changing pins or weakening gates.",
+    "Preserve this run and resume it after prerequisites are restored.", run)
+}
 // Revised contracts replan in this invocation instead of forcing an owner resume.
 // The ceiling bounds all automatic replan/repair cycles; it never waives a gate.
 let mut outcome = "REPLAN"
@@ -379,7 +402,7 @@ let plan = match run_stage(run, "plan", "") {
 }
 if !control(prefix + "review-check " + quoted) { return checkpoint_stop(bug, "Planning — read-only check", "Plan changed checkout files or checkpoint validation failed.",
   "Compare the checkout with the saved snapshot.", "Review unexpected changes before authorizing implementation.", run) }
-if plan.status != "pass" && plan.status != "needs_spec" {
+if plan.status != "pass" && plan.status != "needs_spec" && plan.status != "needs_decision" {
   return stop_report(bug, "Planning (before implementation)", plan.summary, plan.environment,
     plan.bug_validity, plan.fixability, plan.progress, plan.next_action, plan.recommendation, run)
 }
@@ -427,11 +450,27 @@ if plan.status == "needs_spec" && !control(prefix + "approved " + quoted) {
       "Do not implement an unauthorized contract or treat missing UI as consent.", run)
   }
 }
+let scope = bash({ command: prefix + "scope-status " + quoted })?.trim()
+if plan.status == "needs_decision" && scope == "NONE" {
+  let decision = resolve_decision(run, "plan")?
+  if !decision.proceed { return checkpoint_stop(bug, "Reviewed plan scope decision", "Exact scoped plan request is not authorized.",
+    "Resolve the recorded objective prerequisite.", "Preserve the current plan and original request; no expanded implementation authority was granted.", run) }
+}
+if scope == "REQUIRED" {
+  let decision = resolve_decision(run, "scope")?
+  if !decision.proceed || !control(prefix + "scope-approved " + quoted) {
+    return checkpoint_stop(bug, "Reviewed implementation scope decision", "Exact revised request is not authorized after fresh plan/evidence review.",
+      "Resolve the recorded prerequisite; preserve original plans, requests and reds.", "Do not implement the expanded scope without its exact recorded authority.", run)
+  }
+} else if scope != "NONE" && scope != "APPROVED" {
+  return checkpoint_stop(bug, "Revised scope integrity", "Could not validate pending scope authority.",
+    "Inspect the controller error.", "Reconcile without modifying immutable originals.", run)
+}
 let implemented = match run_stage(run, "implement", "") {
   Ok(value) => value,
   Err(error) => worker_failure(error_reason(error)),
 }
-if implemented.status == "needs_spec" { return "REPLAN" }
+if implemented.status == "needs_spec" || implemented.status == "needs_replan" { return "REPLAN" }
 if implemented.status != "pass" {
   return stop_report(bug, "Implementation / worker verification (before independent fix review)",
     implemented.summary, implemented.environment, implemented.bug_validity,
@@ -464,7 +503,7 @@ while round < review_rounds {
     Ok(value) => value,
     Err(error) => worker_failure(error_reason(error)),
   }
-  if repair.status == "needs_spec" { return "REPLAN" }
+  if repair.status == "needs_spec" || repair.status == "needs_replan" { return "REPLAN" }
   if repair.status != "pass" {
     return stop_report(bug, "Review repair / worker verification", repair.summary, repair.environment,
       repair.bug_validity, repair.fixability, repair.progress, repair.next_action, repair.recommendation, run)

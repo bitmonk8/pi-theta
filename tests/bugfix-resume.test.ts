@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 
 const helper = join(process.cwd(), "tools/bugfix/run.mjs");
 function call(cwd: string, ...args: string[]) {
@@ -57,18 +58,136 @@ function fixture() {
   return { cwd: state().root as string, ownerRoot: cwd, run, request, state, resume, complete, red, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
 }
 
+function batchFixture(f: ReturnType<typeof fixture>) {
+  const hash = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
+  const batchRun = join(f.ownerRoot, ".pi/tmp/fix-all-bugs-11111111-1111-4111-8111-111111111111");
+  mkdirSync(join(batchRun, "jobs/0001.launch"), { recursive: true });
+  const manifest = join(batchRun, "jobs/0001.json");
+  const source = f.state();
+  const raw = JSON.stringify({ version: 1, ownerRoot: f.ownerRoot, batchRun, id: "0001", base: source.base, review_rounds: 5 });
+  writeFileSync(manifest, raw);
+  const parent = { version: 1, root: f.ownerRoot, base: source.base, jobs: { "0001": { manifest, manifestDigest: hash(raw), sourceRun: f.run, status: "scheduled", resumeRequested: true } }, workflowUpgrades: [] as unknown[] };
+  const saveParent = () => writeFileSync(join(batchRun, "state.json"), JSON.stringify(parent));
+  saveParent();
+  const claim = { version: 1, batchRun, id: "0001", manifest, manifestDigest: hash(raw), base: source.base, run: f.run };
+  const claimPath = join(batchRun, "jobs/0001.launch/owner.json");
+  writeFileSync(claimPath, JSON.stringify(claim));
+  writeFileSync(join(f.ownerRoot, ".pi/tmp/fix-bug.lock/owner.json"), JSON.stringify({ run: batchRun, kind: "batch" }));
+  mkdirSync(join(f.run, "lease"));
+  writeFileSync(join(f.run, "lease/owner.json"), JSON.stringify({ run: f.run }));
+  Object.assign(source, { batchRun, batchManifest: manifest, batchManifestDigest: hash(raw), options: { ship: false, review_rounds: 5 } });
+  writeFileSync(join(f.run, "state.json"), JSON.stringify(source));
+  const resume = () => {
+    writeFileSync(f.request, "batch-resume " + manifest);
+    return call(f.cwd, "resume-batch-file", f.request, String(process.pid));
+  };
+  return { batchRun, parent, saveParent, manifest, claim, claimPath, resume, hash };
+}
+
 describe("durable /fix-bug resume control plane", () => {
+  it("routes legacy exact implementation scope stops through authority-free replanning, not prose heuristics", () => {
+    const f = fixture();
+    try {
+      f.complete("plan"); f.red();
+      expect(call(f.cwd, "begin", f.run, "implement").status).toBe(0);
+      writeFileSync(join(f.run, "implement.md"), "Routine exact fixture revision; prior plan remains immutable.");
+      writeFileSync(join(f.run, "decision-request.md"), "Exact common-prefix revision for one named fixture, preserving controls.");
+      writeFileSync(join(f.run, "stage-implement-result.txt"), "blocked\nA fresh plan/review is required");
+      expect(call(f.cwd, "record", f.run, "implement").status).toBe(0);
+      const plan = readFileSync(join(f.run, "plan.md"));
+      expect(f.resume().status).toBe(0);
+      expect(f.state().replanRequired).toBe(true);
+      expect(f.state().decisions).toBeUndefined();
+      expect(f.state().checkpoints.plan).toBeUndefined();
+      const archive = f.state().pendingScopeReplan.archive;
+      expect(readFileSync(join(archive, "plan.md"))).toEqual(plan);
+      expect(call(f.cwd, "begin", f.run, "implement").stderr).toContain("exact scope authorization");
+    } finally { f.cleanup(); }
+  });
+
+  it("authenticates batch resume against the original manifest, launch claim and scheduled source without a new run", () => {
+    const f = fixture();
+    try {
+      f.complete("plan"); f.red();
+      const b = batchFixture(f);
+      const proof = readFileSync(join(f.run, "red-0.json"));
+      expect(b.resume().stdout.trim()).toBe(f.run);
+      expect(f.state().options).toEqual({ ship: false, review_rounds: 5 });
+      expect(f.state().resumeCount).toBe(1);
+      expect(readFileSync(join(f.run, "red-0.json"))).toEqual(proof);
+      expect(call(f.cwd, "cached", f.run, "plan").stdout.trim()).toBe("PASS");
+      expect(b.resume().stderr).toContain("still marked active");
+      expect(call(f.cwd, "pause", f.run).status).toBe(0);
+      b.parent.jobs["0001"].resumeRequested = false; b.saveParent();
+      expect(b.resume().stderr).toContain("explicitly scheduled");
+      b.parent.jobs["0001"].resumeRequested = true; b.saveParent();
+      writeFileSync(join(f.ownerRoot, ".pi/tmp/fix-bug.lock/owner.json"), JSON.stringify({ run: b.batchRun + "-different", kind: "batch" }));
+      expect(b.resume().stderr).toContain("checkout lease");
+      writeFileSync(join(f.ownerRoot, ".pi/tmp/fix-bug.lock/owner.json"), JSON.stringify({ run: b.batchRun, kind: "batch" }));
+      writeFileSync(b.claimPath, JSON.stringify({ ...b.claim, run: f.run + "-other" }));
+      expect(b.resume().stderr).toContain("launch claim");
+      expect(existsSync(join(f.run, "active"))).toBe(false);
+      writeFileSync(b.claimPath, JSON.stringify(b.claim));
+      writeFileSync(b.manifest, readFileSync(b.manifest, "utf8") + " ");
+      expect(b.resume().stderr).toContain("immutable digest");
+    } finally { f.cleanup(); }
+  });
+
+  it("permits only recorded owner workflow upgrades while retaining the exact original source controls/base", () => {
+    const f = fixture();
+    try {
+      f.complete("plan"); f.complete("implement", "blocked"); f.red();
+      const b = batchFixture(f);
+      const sourceState = f.state();
+      const control = [".pi", "theta", "fix-bug.theta"].join("/");
+      const original = readFileSync(join(f.cwd, control));
+      writeFileSync(join(f.ownerRoot, control), "// repaired owner workflow\n");
+      git(f.ownerRoot, "add", control); git(f.ownerRoot, "commit", "-m", "workflow repair only");
+      b.parent.base = git(f.ownerRoot, "rev-parse", "HEAD"); b.saveParent();
+      expect(b.resume().stderr).toContain("authenticated owner workflow upgrade");
+      const upgrade = { base: sourceState.base, sha: b.parent.base, ownerControls: [{ path: control, digest: b.hash(readFileSync(join(f.ownerRoot, control))) }] };
+      b.parent.workflowUpgrades.push(upgrade); b.saveParent();
+      expect(b.resume().status).toBe(0);
+      expect(f.state().base).toBe(sourceState.base);
+      expect(f.state().controlDigest).toBe(sourceState.controlDigest);
+      const retainedControl = readFileSync(join(f.cwd, control));
+      expect(retainedControl).toEqual(original);
+      expect(call(f.cwd, "pause", f.run).status).toBe(0);
+      writeFileSync(join(f.cwd, control), "// source changed\n");
+      expect(b.resume().stderr).toContain("Workflow/control files changed");
+      writeFileSync(join(f.cwd, control), original);
+      upgrade.ownerControls[0]!.digest = "0".repeat(64); b.saveParent();
+      expect(b.resume().stderr).toContain("latest authenticated upgrade");
+      upgrade.ownerControls.push({ path: "src/value.js", digest: "0".repeat(64) }); b.saveParent();
+      expect(b.resume().stderr).toContain("path union/subset");
+    } finally { f.cleanup(); }
+  });
+
+  it("rejects committed batch sources and never adopts a changed registered source", () => {
+    const f = fixture();
+    try {
+      const b = batchFixture(f);
+      writeFileSync(join(f.run, "batch-commit.json"), "{}");
+      expect(b.resume().stderr).toContain("Committed/shipped sources");
+      rmSync(join(f.run, "batch-commit.json"));
+      b.parent.jobs["0001"].sourceRun = f.run + "-not-original"; b.saveParent();
+      expect(b.resume().status).not.toBe(0);
+      expect(existsSync(join(f.run, "active"))).toBe(false);
+    } finally { f.cleanup(); }
+  });
+
   it("parses explicit resume syntax, preserves omitted options, and rejects unsafe/duplicate options", () => {
     const f = fixture();
     try {
       for (const [input, output] of [
         ["resume", "RESUME\n\nkeep\nkeep"],
         ["resume 1 ship false review_rounds 2", "RESUME\n0001\nfalse\n2"],
+        ["batch-resume /tmp/original manifest.json", "BATCH_RESUME\n/tmp/original manifest.json\nfalse\n5"],
       ] as const) {
         writeFileSync(f.request, input);
         expect(call(f.cwd, "parse-file", f.request).stdout.trimEnd()).toBe(output);
       }
-      for (const input of ["resume ../outside", "resume 1;touch bad", "resume ship maybe", "resume review_rounds 0", "resume ship true ship false"]) {
+      for (const input of ["resume ../outside", "resume 1;touch bad", "resume ship maybe", "resume review_rounds 0", "resume ship true ship false", "batch-resume relative.json", "batch-resume /tmp/../manifest.json", "batch-resume /tmp/manifest.json\nship true"]) {
         writeFileSync(f.request, input);
         expect(call(f.cwd, "parse-file", f.request).status).not.toBe(0);
       }
@@ -197,6 +316,10 @@ describe("durable /fix-bug resume control plane", () => {
       const r = call(f.cwd, "red", f.run); expect(r.status, r.stderr).toBe(0);
       expect(readFileSync(join(f.run, "red-0.json"))).toEqual(proof);
       expect(call(f.cwd, "pause", f.run).status).toBe(0);
+      const mutated = JSON.parse(proof.toString()); mutated.output += "\nMutated but same pinned assertion signature";
+      writeFileSync(join(f.run, "red-0.json"), JSON.stringify(mutated));
+      expect(f.resume().stderr).toContain("Original red evidence changed");
+      writeFileSync(join(f.run, "red-0.json"), proof);
       writeFileSync(join(f.run, "witnesses.json"), "{}");
       expect(f.resume().stderr).toContain("Witness commands/signatures changed");
     } finally { f.cleanup(); }

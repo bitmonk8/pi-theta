@@ -11,7 +11,7 @@ import { parseDeps } from "./helpers/e2e-s1";
 
 const root = process.cwd();
 const cli = process.env.PI_THETA_TEST_PI_CLI ?? join(root, "node_modules/@earendil-works/pi-coding-agent/dist/cli.js");
-type Scenario = "environment" | "implementation" | "not-reproduced" | "gate" | "worker-error" | "reviewer-error" | "resume" | "replan-refusal" | "autonomous" | "spec-auto" | "plan-scope" | "plan-repair";
+type Scenario = "environment" | "implementation" | "not-reproduced" | "gate" | "worker-error" | "reviewer-error" | "resume" | "replan-refusal" | "autonomous" | "spec-auto" | "plan-scope" | "plan-repair" | "scope-loop";
 const verdicts = {
   environment: {
     status: "blocked", summary: "Test SDK cannot use stored OAuth.",
@@ -47,7 +47,7 @@ function worker(scenario: Scenario) {
   if (!schema) throw new Error("Missing production stage schema");
   const asTheta = (value: Record<string, string>) => "BugStage { " + Object.entries(value)
     .map(([key, text]) => `${key}: ${JSON.stringify(text)}`).join(", ") + " }";
-  const witness = ["resume", "replan-refusal", "autonomous", "spec-auto", "plan-scope", "plan-repair"].includes(scenario)
+  const witness = ["resume", "replan-refusal", "autonomous", "spec-auto", "plan-scope", "plan-repair", "scope-loop"].includes(scenario)
     ? "if(!require('fs').existsSync('src/fixed.txt')){console.error('AssertionError: fixture expected 2 got 1');process.exit(1)}"
     : "console.error('AssertionError: fixture expected 2 got 1');process.exit(1)";
   const manifest = JSON.stringify({
@@ -62,8 +62,13 @@ function worker(scenario: Scenario) {
     'let checkout = bash({ command: "node -e \\"process.stdout.write(JSON.parse(require(\'fs\').readFileSync(process.argv[1],\'utf8\')).root)\\" " + shell_path(run_dir + "/state.json") })?.trim()',
     'write({ path: run_dir + "/" + phase + ".md", content: "Deterministic reporting fixture: " + phase })?',
     'if phase == "plan" { write({ path: run_dir + "/spec-proposal.md", content: "No spec change needed." })? }',
+    'if phase == "plan" {',
+    '  let request = bash({ command: "node -e \\"process.stdout.write(JSON.parse(require(\'fs\').readFileSync(process.argv[1],\'utf8\')).pendingScopeReplan?.exactRequest ?? \'NO_SCOPE_REQUEST\')\\" " + shell_path(run_dir + "/state.json") })?.trim()',
+    '  if request != "NO_SCOPE_REQUEST" { write({ path: run_dir + "/decision-request.md", content: request })? }',
+    ...(scenario === "scope-loop" ? ['  if request != "NO_SCOPE_REQUEST" { return ' + asTheta({ ...pass, status: "needs_decision" }) + ' }'] : []),
+    '}',
     ...(scenario === "worker-error" ? ['let missing = read({ path: "missing-worker-input.txt" })?'] : []),
-    ...(scenario === "implementation" || scenario === "gate" || scenario === "reviewer-error" || scenario === "resume" || scenario === "replan-refusal" || scenario === "autonomous" || scenario === "spec-auto" || scenario === "plan-scope" || scenario === "plan-repair" ? [
+    ...(scenario === "implementation" || scenario === "gate" || scenario === "reviewer-error" || scenario === "resume" || scenario === "replan-refusal" || scenario === "autonomous" || scenario === "spec-auto" || scenario === "plan-scope" || scenario === "plan-repair" || scenario === "scope-loop" ? [
       'if phase == "reproduce" {',
       `  write({ path: run_dir + "/witnesses.json", content: ${JSON.stringify(manifest)} })?`,
       "}",
@@ -92,13 +97,13 @@ function worker(scenario: Scenario) {
         '}',
         'if phase == "implement" { write({ path: checkout + "/src/fixed.txt", content: "partial fix" })? }',
       ] : []),
-      ...(scenario === "autonomous" ? [
+      ...(scenario === "autonomous" || scenario === "scope-loop" ? [
         'if phase == "implement" {',
         '  write({ path: checkout + "/src/fixed.txt", content: "partial fix" })?',
         '  let authority = match read({ path: run_dir + "/decision-authorizations.md" }) { Ok(text) => text, Err(_) => "" }',
-        '  if authority == "" {',
+        (scenario === "scope-loop" ? '  if true {' : '  if authority == "" {'),
         '    write({ path: run_dir + "/decision-request.md", content: "Exact fixture-only scope: change tests/legacy.test.js TypeEnv constructor new Map() to {}, preserving its assertion and original red evidence." })?',
-        '    return ' + asTheta({ ...verdicts.implementation, status: "needs_decision" }),
+        '    return ' + asTheta({ ...verdicts.implementation, status: "needs_replan" }),
         '  }',
         '  write({ path: checkout + "/tests/legacy.test.js", content: "const env = {}; // same assertion" })?',
         '}',
@@ -171,15 +176,17 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
   writeFileSync(join(agent, "auth.json"), JSON.stringify({ openai: { type: "api_key", key: "pi-theta-no-network" } }));
   writeFileSync(join(agent, "settings.json"), JSON.stringify({ defaultProvider: "openai", defaultModel: "gpt-5.5", defaultProjectTrust: "always", theta: { binderModel: "openai/gpt-5.5" } }));
   writeFileSync(join(cwd, ".gitignore"), "agent/\n.pi/tmp/\n/.trees/\n");
+  // Even early-stop scenarios now pass the real worktree bootstrap. No external
+  // dependencies are needed; their original stage/gate assertions stay intact.
+  writeFileSync(join(cwd, "package.json"), JSON.stringify({ scripts: { typecheck: 'node -e "process.exit(0)"', test: 'node -e "process.exit(0)"' } }));
   writeFileSync(join(cwd, "docs/bugs/0001-example.md"), "# Example\n- **Status:** " + (options.ranking === "empty" ? "fixed" : "open") + "\n");
   if (["two", "missing", "duplicate", "backwards", "cycle"].includes(options.ranking ?? "one")) {
     writeFileSync(join(cwd, "docs/bugs/0002-higher-impact.md"), "# More impact\n- **Status:** open\n");
   }
-  if (["resume", "replan-refusal", "autonomous", "spec-auto", "plan-scope", "plan-repair"].includes(options.scenario ?? "")) {
+  if (["resume", "replan-refusal", "autonomous", "spec-auto", "plan-scope", "plan-repair", "scope-loop"].includes(options.scenario ?? "")) {
     mkdirSync(join(cwd, "src"));
     mkdirSync(join(cwd, "tests"));
     writeFileSync(join(cwd, "tests/legacy.test.js"), "const env = new Map(); // same assertion");
-    writeFileSync(join(cwd, "package.json"), JSON.stringify({ scripts: { typecheck: 'node -e "process.exit(0)"', test: 'node -e "process.exit(0)"' } }));
   }
   let workflow = options.workflow ?? readFileSync(join(root, ".pi", "theta", "fix-bug.theta"), "utf8");
   if (options.scenario === "replan-refusal") {
@@ -189,7 +196,7 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
     expect(workflow).not.toContain("let presentation = @`");
   }
   writeFileSync(join(theta, "fix-bug.theta"), workflow);
-  for (const file of ["run.mjs", "update-pi-config.mjs"]) {
+  for (const file of ["run.mjs", "worktree-env.mjs", "update-pi-config.mjs"]) {
     copyFileSync(join(root, "tools/bugfix", file), join(cwd, "tools/bugfix", file));
   }
   writeFileSync(join(theta, "workers/bugfix-stage.theta"), worker(options.scenario ?? "environment"));
@@ -202,7 +209,7 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
     .match(/schema BugDecision[\s\S]*?(?=\nlet result:)/)?.[0];
   if (!decisionSchemas) throw new Error("Missing decision schema");
   const human = options.scenario === "replan-refusal" || options.decision === "human";
-  const automatic = ["autonomous", "spec-auto", "plan-scope", "plan-repair"].includes(options.scenario ?? "");
+  const automatic = ["autonomous", "spec-auto", "plan-scope", "plan-repair", "scope-loop"].includes(options.scenario ?? "");
   writeFileSync(join(theta, "workers/bugfix-decide.theta"), [
     "---", "mode: subagent", "tools: read", "params:", "  context_path: string", "---", decisionSchemas,
     'read({ path: context_path })?',
@@ -421,11 +428,15 @@ describe("fix-bug completion reporting through the real host", () => {
     // neither the routine decision nor shipment interrupted for owner consent.
     const result = probe("1", { scenario: "autonomous" });
     cleanHost(result);
-    expect(result.stdout).toContain("ASTRA — continuing implement");
+    expect(result.stdout).toContain("ASTRA — continuing scope");
     expect(result.stdout).toContain("MERGED TO MAIN AND PUSHED");
     const state = JSON.parse(result.completedState);
     expect(state.options.ship).toBe(true);
     expect(state.checkpoints.implement).toMatchObject({ status: "pass", attempt: 2 });
+    expect(state.checkpoints.plan.attempt).toBe(2);
+    expect(state.planArchives).toHaveLength(1);
+    expect(state.planArchives[0].reason).toBe("stage-scope-replan");
+    expect(state.decisions[0]).toMatchObject({ phase: "scope", outcome: "CONTINUE", authority: { type: "exact-scoped-request", gitAuthority: false } });
     expect(result.shipment).toMatchObject({ merged: true, pushed: true, cleaned: true, branch: state.branch, worktree: state.root });
     expect(result.pushedSha).toBe(result.shipment.sha);
     expect(result.mainSha).toBe(result.shipment.sha);
@@ -439,6 +450,19 @@ describe("fix-bug completion reporting through the real host", () => {
     expect(result.finalReview && JSON.parse(result.finalReview).ok).toBe(true);
     expect(result.stdout).not.toContain("OWNER APPROVAL REQUIRED");
     expect(result.stdout).not.toContain("STOP —");
+  }, 120000);
+
+  it("bounds repeated typed non-spec replans without granting shipment or waiving fresh review", () => {
+    const result = probe("1 ship false", { scenario: "scope-loop" });
+    cleanHost(result);
+    expect(result.stdout).toContain("Three workflow cycles did not reach verified completion.");
+    const state = JSON.parse(result.completedState);
+    expect(state.checkpoints.implement).toMatchObject({ status: "needs_replan", attempt: 3 });
+    expect(state.planArchives).toHaveLength(3);
+    expect(state.decisions.map((decision: { phase: string }) => decision.phase)).toEqual(["scope", "scope"]);
+    expect(result.finalGates).toEqual([]);
+    expect(result.shipment).toBeNull();
+    expect(result.leaseRetained).toBe(true);
   }, 120000);
 
   it("authorizes a clearly preferred exact spec proposal without a dialog and honors ship false", () => {
@@ -480,7 +504,7 @@ describe("fix-bug completion reporting through the real host", () => {
     const result = probe("1 ship false", { scenario: "autonomous", decision: "human" });
     cleanHost(result);
     pendingApproval(result);
-    expect(result.stdout).toContain("ASTRA — continuing implement");
+    expect(result.stdout).toContain("ASTRA — continuing scope");
     expect(result.stdout).toContain("change tests/legacy.test.js TypeEnv constructor new Map() to {}");
     const state = JSON.parse(result.completedState);
     expect(state.options.ship).toBe(false);

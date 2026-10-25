@@ -98,6 +98,85 @@ function fixture(phase = "implement", scoped = true, planScoped = false) {
 }
 
 describe("autonomous bug-fix decision control plane", () => {
+  it.each(["implement", "repair"])("replans %s scope before authorization, preserving originals and requiring fresh independent review", phase => {
+    const f = fixture("plan");
+    try {
+      const originalPlan = readFileSync(join(f.run, "plan.md"));
+      const originalRed = readFileSync(join(f.run, "red-0.json"));
+      f.ok("begin", f.run, phase);
+      f.putRun(phase + ".md", "Exact routine scope revision, no unauthorized edits.");
+      f.putRun("decision-request.md", request);
+      f.putRun("stage-" + phase + "-result.txt", "needs_replan\nReview an exact non-spec plan revision first");
+      f.ok("record", f.run, phase);
+      expect(call(f.cwd, "decision-start", f.run, phase).stderr).toContain("Typed scope revision requires stage-replan");
+      const originalResult = readFileSync(join(f.run, "stage-" + phase + "-result.txt"));
+      f.putRun("decision-request.md", request + " mutated request");
+      expect(call(f.cwd, "stage-replan", f.run, phase).stderr).toContain("exact recorded request");
+      f.putRun("decision-request.md", request);
+      f.putRun("stage-" + phase + "-result.txt", "needs_replan\nMutated checkpoint result");
+      expect(call(f.cwd, "stage-replan", f.run, phase).stderr).toContain("exact recorded request");
+      writeFileSync(join(f.run, "stage-" + phase + "-result.txt"), originalResult);
+      const originalSource = readFileSync(join(f.root, "src/value.js"));
+      f.put("src/value.js", "export const value = 3; // unrecorded drift\n");
+      expect(call(f.cwd, "stage-replan", f.run, phase).stderr).toContain("stage checkout changed");
+      writeFileSync(join(f.root, "src/value.js"), originalSource);
+      f.ok("stage-replan", f.run, phase);
+      const archived = f.state().pendingScopeReplan.archive;
+      expect(readFileSync(join(archived, "plan.md"))).toEqual(originalPlan);
+      expect(readFileSync(join(archived, "decision-request.md"), "utf8")).toBe(request);
+      expect(readFileSync(join(f.run, "red-0.json"))).toEqual(originalRed);
+      expect(f.state().decisions).toBeUndefined();
+      expect(call(f.cwd, "begin", f.run, "implement").stderr).toContain("exact scope authorization");
+      f.ok("begin", f.run, "plan");
+      f.putRun("plan.md", "Revised plan covering each exact fixture change and preserved controls.");
+      f.putRun("spec-proposal.md", "No normative change.");
+      f.putRun("stage-plan-result.txt", "pass\nExact revised plan");
+      f.putRun("decision-request.md", request + " broaden scope");
+      expect(call(f.cwd, "record", f.run, "plan").stderr).toContain("exact pending scope request");
+      f.putRun("decision-request.md", request);
+      f.ok("record", f.run, "plan");
+      const stale = f.ok("decision-start", f.run, "scope"); f.verdict(stale);
+      expect(f.record(stale).stderr).toContain("evidence-review-record");
+      f.ok("snapshot", f.run);
+      const clean = "Fresh clean independent review of exact revised scope.";
+      f.putRun("evidence-review.md", clean);
+      f.putRun("evidence-review-result.json", JSON.stringify({ ok: true, findings: clean }));
+      f.ok("evidence-review-record", f.run);
+      expect(f.record(stale).stderr).toContain("Stale decision");
+      const context = f.ok("decision-start", f.run, "scope"); f.verdict(context);
+      expect(f.record(context).stdout.trim()).toBe("CONTINUE");
+      expect(f.ok("scope-approved", f.run)).toBe("PASS");
+      f.ok("begin", f.run, "implement");
+      expect(f.state().decisions.at(-1).authority).toMatchObject({ exactRequest: request, gitAuthority: false });
+      writeFileSync(join(archived, "decision-request.md"), request + " mutation");
+      expect(call(f.cwd, "scope-approved", f.run).stderr).toContain("Original plan/replan history changed");
+    } finally { f.cleanup(); }
+  });
+
+  it("resumes a legacy BLOCKED exact stage request via fresh planning without rewriting its no-authority record", () => {
+    const f = fixture("plan");
+    try {
+      f.ok("begin", f.run, "implement");
+      f.putRun("implement.md", "Exact routine revision needs fresh PLAN and independent review first.");
+      f.putRun("decision-request.md", request);
+      f.putRun("stage-implement-result.txt", "needs_decision\nExact expanded scope requires replanning");
+      f.ok("record", f.run, "implement");
+      const context = f.ok("decision-start", f.run, "implement");
+      f.verdict(context, { disposition: "blocked", clear_preference: false, evidence_sufficient: false });
+      expect(f.record(context).stdout.trim()).toBe("BLOCKED");
+      const prior = f.state().decisions[0];
+      const record = readFileSync(prior.path);
+      f.putRun("resume-request.txt", "resume");
+      f.ok("resume-file", join(f.run, "resume-request.txt"), String(process.pid));
+      expect(f.state().replanRequired).toBe(true);
+      expect(f.state().pendingScopeReplan.exactRequest).toBe(request);
+      expect(f.state().scopeReplanAuthorization).toBeUndefined();
+      expect(f.state().decisions).toEqual([prior]);
+      expect(readFileSync(prior.path)).toEqual(record);
+      expect(JSON.parse(record.toString()).authority).toBeNull();
+    } finally { f.cleanup(); }
+  });
+
   it("ships a parseable read-only Astra decision worker", () => {
     const path = join(".pi", "theta", "workers", "bugfix-decide.theta");
     const source = readFileSync(path, "utf8");
