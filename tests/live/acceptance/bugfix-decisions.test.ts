@@ -49,7 +49,7 @@ function fixture(kind: FixtureKind) {
   const preferred = kind === "preferred-baseline";
   const request = preferred
     ? "Authorize only tests/value.test.cjs case legacy-known: change expected lookup('known') from 1 to 2. Retain known=2 and unknown=undefined controls unchanged; add no production/spec scope. This exactly implements docs/owner-decisions.md#exact-legacy-ruling. Retain the original witnesses.json, argv/signature and red-0.json unchanged. Independent review and all green gates still required."
-    : "Choose the exact tokens accepted by src/token.cjs valid(): option A accepts authenticated legacy tokens without exp for offline deployment compatibility; option B rejects every token without exp to enforce bounded credential lifetime. The pending proposed implementation is A, but there is no existing owner preference for A over B. No implementation or spec changes are authorized yet. Preserve original witness proof, independent review and green gates.";
+    : "Decide this exact proposed scope, option A: retain src/token.cjs valid() acceptance of authenticated legacy tokens without exp for offline deployment compatibility; preserve rejection of invalid signatures and expired tokens unchanged. The materially valid alternative, option B, rejects every token without exp to enforce bounded credential lifetime, but is not the proposed scope. There is no existing owner preference for A over B. Choose a concrete provisional course within this exact proposal, not a request for a midrun owner answer. No other production/spec scope, owner-policy priority, review/gate waiver or shipment permission is requested. Preserve original witness proof, independent review and green gates.";
   put(".gitignore", ".pi/tmp/\n");
   put("AGENTS.md", [
     "# Fixture project principles",
@@ -129,6 +129,8 @@ function fixture(kind: FixtureKind) {
   git(cwd, "config", "user.name", "Test");
   git(cwd, "add", "."); git(cwd, "commit", "-m", "live decision fixture");
   const run = invoke(cwd, "init", "1");
+  const worktree = JSON.parse(readFileSync(join(run, "state.json"), "utf8")).root as string;
+  expect(worktree).not.toBe(cwd);
   const manifest = JSON.stringify({
     e2e: [{ argv: [process.execPath, "-e", "if(require('./src/value.cjs').decodedCount()!==2){console.error('AssertionError: original decoded count expected 2 got 1');process.exit(1)}"], failure_pattern: "AssertionError: original decoded count expected 2 got 1" }],
     unit: [], unit_omission_reason: "Independent e2e witness suffices for the decision-only fixture", live_required: false, live: [],
@@ -143,7 +145,7 @@ function fixture(kind: FixtureKind) {
   writeFileSync(join(run, "plan.md"), "Preserve the original decoded-count witness; fix only the decoded-count defect after the independent scope decision. No new normative contract or gate waiver is proposed.\n");
   writeFileSync(join(run, "evidence-review.md"), "CLEAN — independent review confirms the exact original red and retained controls; the only unresolved item is the separate scoped decision-request.md.\n");
   const context = invoke(cwd, "decision-start", run, "implement");
-  return { cwd, theta, run, context, request, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
+  return { cwd, worktree, theta: join(worktree, ".pi/theta"), run, context, request, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
 }
 
 interface Decision {
@@ -160,9 +162,9 @@ interface Decision {
 
 describe("live Astra autonomous bug-fix decisions", () => {
   it.each([
-    ["preferred-baseline", "continue", "CONTINUE"],
-    ["unresolved-tradeoff", "human", "HUMAN"],
-  ] as const)("%s persists an actual typed %s decision without running an implementation agent", async (kind, disposition, record) => {
+    ["preferred-baseline", "continue"],
+    ["unresolved-tradeoff", "human"],
+  ] as const)("%s persists an actual typed %s decision without running an implementation agent", async (kind, disposition) => {
     await requireAstra();
     const source = readFileSync(workerPath, "utf8");
     expect(source).toMatch(/^model: "openai\/gpt-6-astra"$/m);
@@ -172,13 +174,18 @@ describe("live Astra autonomous bug-fix decisions", () => {
       const originals = ["witnesses.json", "red-0.json"].map(path => readFileSync(join(f.run, path)));
       const contextBytes = readFileSync(f.context);
       const head = git(f.cwd, "rev-parse", "HEAD");
-      const session = join(f.cwd, ".pi/tmp/decision-session.jsonl");
+      const ownerBranch = git(f.cwd, "branch", "--show-current");
+      const worktreeBranch = git(f.worktree, "branch", "--show-current");
+      expect(worktreeBranch).toMatch(/^fix-bug\/0001-/);
+      expect(worktreeBranch).not.toBe(ownerBranch);
+      expect(JSON.parse(contextBytes.toString()).root).toBe(f.worktree);
+      const session = join(f.worktree, ".pi/tmp/decision-session.jsonl");
       // spawnPiPrint authenticates the parent PID, scrubs inherited worker
       // control state, pins real CLI + this checkout's extension for children.
       const result = await spawnPiPrint({
-        cwd: f.cwd, thetaDir: f.theta, extraThetaDirs: [join(f.theta, "workers")],
+        cwd: f.worktree, thetaDir: f.theta, extraThetaDirs: [join(f.theta, "workers")],
         slashInvocation: "/decision-probe " + f.context,
-        extraArgs: ["--mode", "json", "-e", join(f.cwd, "persist-decision.mjs"), "--session", session],
+        extraArgs: ["--mode", "json", "-e", join(f.worktree, "persist-decision.mjs"), "--session", session],
         abortAfterMs: 210000,
       });
       const diagnostic = result.stderr + "\n" + result.stdout;
@@ -200,26 +207,53 @@ describe("live Astra autonomous bug-fix decisions", () => {
       expect(verdict.basis.join("\n")).toMatch(/owner-decisions\.md|AGENTS\.md|spec_topics/);
       expect(verdict.alternatives.length).toBeGreaterThanOrEqual(2);
       expect(verdict.alternatives.every(text => text.trim().length > 0)).toBe(true);
-      expect(invoke(f.cwd, "decision-record", f.run, f.context)).toBe(record);
+      expect(invoke(f.cwd, "decision-record", f.run, f.context)).toBe("CONTINUE");
       // A settled provider prompt alone is not success: inspect the controller's
-      // persisted decision/authority, and ensure HUMAN never grants permission.
+      // persisted exact authority. HUMAN permits provisional implementation only,
+      // never implicit owner approval or shipment.
       const state = JSON.parse(readFileSync(join(f.run, "state.json"), "utf8"));
       const saved = JSON.parse(readFileSync(state.decisions.at(-1).path, "utf8"));
-      expect(saved).toMatchObject({ outcome: record, source: "astra", phase: "implement", contextPath: f.context, verdict });
+      const authority = {
+        source: "astra", phase: "implement", type: "exact-scoped-request",
+        exactRequest: f.request, proposalPath: "decision-request.md",
+        recommendation: verdict.recommendation, rationale: verdict.rationale,
+        gitAuthority: false, provisional: disposition === "human",
+      };
+      expect(saved).toMatchObject({ outcome: "CONTINUE", source: "astra", phase: "implement", contextPath: f.context, verdict, authority });
+      expect(state.decisions.at(-1)).toMatchObject({ outcome: "CONTINUE", authority });
+      expect(JSON.parse(readFileSync(join(dirname(f.context), "authority.json"), "utf8"))).toMatchObject(authority);
+      expect(state.decisionContexts[f.context.slice(f.run.length + 1)].status).toBe(disposition);
       expect(state.specApproved).not.toBe(true);
       expect(state.verifiedDigest).toBeUndefined();
+      const authorizations = readFileSync(join(f.run, "decision-authorizations.md"), "utf8");
+      expect(authorizations).toContain(f.request);
+      const approvalReport = invoke(f.cwd, "approval-report", f.run);
       if (disposition === "continue") {
-        expect(readFileSync(join(f.run, "decision-authorizations.md"), "utf8")).toContain(f.request);
+        expect(approvalReport).toBe("CLEAR");
+        expect(authorizations).not.toContain("PROVISIONAL IMPLEMENTATION ONLY");
       } else {
-        expect(state.decisions.at(-1)).toMatchObject({ outcome: "HUMAN", authority: null });
-        expect(readFileSync(join(f.run, "decision-authorizations.md"), "utf8")).toContain("No approval or expanded scope granted.");
+        expect(authorizations).toContain("PROVISIONAL IMPLEMENTATION ONLY — pending owner approval; shipment blocked.");
+        expect(approvalReport).toContain("PENDING OWNER APPROVAL — shipment blocked");
+        for (const text of [f.context, f.request, verdict.recommendation, verdict.rationale, ...verdict.alternatives]) {
+          expect(approvalReport).toContain(text);
+        }
+        // The actual recommendation must choose A within the exact proposal,
+        // rather than merely list alternatives or ask the owner to choose first.
+        expect(verdict.recommendation).toMatch(/option\s*A\b|(?:accept|retain|preserv|allow|keep)[\s\S]*(?:legacy|without\s+exp|no\s+exp)/i);
+        expect(verdict.recommendation).toMatch(/provision|continue|proceed/i);
         expect(verdict.rationale + " " + verdict.alternatives.join(" ")).toMatch(/compatib|offline|legacy/i);
         expect(verdict.rationale + " " + verdict.alternatives.join(" ")).toMatch(/secur|lifetime|expir|credential/i);
+        expect(existsSync(f.context + ".answer.txt")).toBe(false);
+        expect(existsSync(join(dirname(f.context), "human-record.json"))).toBe(false);
       }
       expect(readFileSync(f.context)).toEqual(contextBytes);
       ["witnesses.json", "red-0.json"].forEach((path, index) => expect(readFileSync(join(f.run, path))).toEqual(originals[index]));
       expect(git(f.cwd, "status", "--porcelain")).toBe("");
       expect(git(f.cwd, "rev-parse", "HEAD")).toBe(head);
+      expect(git(f.cwd, "branch", "--show-current")).toBe(ownerBranch);
+      expect(git(f.worktree, "status", "--porcelain")).toBe("");
+      expect(git(f.worktree, "rev-parse", "HEAD")).toBe(head);
+      expect(git(f.worktree, "branch", "--show-current")).toBe(worktreeBranch);
       expect(existsSync(join(f.run, "shipment.json"))).toBe(false);
     } finally { f.cleanup(); }
   }, 240000);

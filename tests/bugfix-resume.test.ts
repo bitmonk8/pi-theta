@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 
 const helper = join(process.cwd(), "tools/bugfix/run.mjs");
 function call(cwd: string, ...args: string[]) {
-  return spawnSync(process.execPath, [helper, ...args], { cwd, encoding: "utf8" });
+  // Controllers always run in the original checkout, even when this test is
+  // manipulating worker files in the linked worktree.
+  const common = spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd, encoding: "utf8" });
+  return spawnSync(process.execPath, [helper, ...args], { cwd: dirname(common.stdout.trim()), encoding: "utf8" });
 }
 function git(cwd: string, ...args: string[]) {
   const r = spawnSync("git", args, { cwd, encoding: "utf8" });
@@ -51,7 +54,7 @@ function fixture() {
     }));
     const r = call(cwd, "red", run); expect(r.status, r.stderr).toBe(0);
   };
-  return { cwd, run, request, state, resume, complete, red, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
+  return { cwd: state().root as string, ownerRoot: cwd, run, request, state, resume, complete, red, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
 }
 
 describe("durable /fix-bug resume control plane", () => {
@@ -81,7 +84,7 @@ describe("durable /fix-bug resume control plane", () => {
       expect(started.status, started.stderr).toBe(0);
       const run = started.stdout.trim();
       const readState = () => JSON.parse(readFileSync(join(run, "state.json"), "utf8"));
-      expect(JSON.parse(readFileSync(join(f.cwd, ".pi/tmp/fix-bug.lock/owner.json"), "utf8")).run).toBe(run);
+      expect(JSON.parse(readFileSync(join(f.ownerRoot, ".pi/tmp/fix-bug.lock/owner.json"), "utf8")).run).toBe(run);
       expect(existsSync(join(run, "active/owner.json"))).toBe(true);
       expect(readState().options).toEqual({ ship: false, review_rounds: 2 });
       // B cannot take over A between init/configure/enter: those are now one
@@ -101,7 +104,7 @@ describe("durable /fix-bug resume control plane", () => {
       expect(call(f.cwd, "release", f.run).status).toBe(0);
       writeFileSync(f.request, "1 ship false");
       expect(call(f.cwd, "start-file", f.request, "0").status).not.toBe(0);
-      expect(existsSync(join(f.cwd, ".pi/tmp/fix-bug.lock"))).toBe(false);
+      expect(existsSync(join(f.ownerRoot, ".pi/tmp/fix-bug.lock"))).toBe(false);
       expect(f.resume().stderr).toContain("No paused run");
     } finally { f.cleanup(); }
   });
@@ -342,7 +345,7 @@ describe("durable /fix-bug resume control plane", () => {
       const wait = "const fs=require('fs');fs.writeFileSync('.pi/tmp/gate-started','');while(!fs.existsSync('.pi/tmp/gate-release')){Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10)}";
       writeFileSync(join(f.cwd, "package.json"), JSON.stringify({ scripts: { typecheck: "node -e " + JSON.stringify(wait), test: 'node -e "process.exit(0)"' } }));
       let output = "";
-      child = spawn(process.execPath, [helper, "gate", f.run, "initial"], { cwd: f.cwd, stdio: ["ignore", "pipe", "pipe"] });
+      child = spawn(process.execPath, [helper, "gate", f.run, "initial"], { cwd: f.ownerRoot, stdio: ["ignore", "pipe", "pipe"] });
       child.stdout?.on("data", data => { output += data.toString(); });
       child.stderr?.on("data", data => { output += data.toString(); });
       settled = new Promise((resolve, reject) => { child!.once("error", reject); child!.once("close", resolve); });

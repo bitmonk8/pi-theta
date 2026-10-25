@@ -57,7 +57,9 @@ function worker(scenario: Scenario) {
   const pass = { ...verdicts.implementation, status: "pass", summary: "Fixture stage passed." };
   const revision = { ...verdicts.implementation, status: "needs_spec", summary: "A revised specification ruling is needed.", progress: "Partial implementation retained; waiting for exact proposal approval." };
   return [
-    "---", "mode: subagent", "tools: read, write", "params:", "  run_dir: string", "  phase: string", "  feedback: string", "---", schema,
+    "---", "mode: subagent", "tools: read, write, bash", "params:", "  run_dir: string", "  phase: string", "  feedback: string", "---", schema,
+    'fn shell_path(path: string): string { "\'" + path.replace("\'", "\'\\\\\'\'") + "\'" }',
+    'let checkout = bash({ command: "node -e \\"process.stdout.write(JSON.parse(require(\'fs\').readFileSync(process.argv[1],\'utf8\')).root)\\" " + shell_path(run_dir + "/state.json") })?.trim()',
     'write({ path: run_dir + "/" + phase + ".md", content: "Deterministic reporting fixture: " + phase })?',
     'if phase == "plan" { write({ path: run_dir + "/spec-proposal.md", content: "No spec change needed." })? }',
     ...(scenario === "worker-error" ? ['let missing = read({ path: "missing-worker-input.txt" })?'] : []),
@@ -74,31 +76,31 @@ function worker(scenario: Scenario) {
         '    return ' + asTheta({ ...pass, status: "needs_decision" }),
         '  }',
         '}',
-        'if phase == "implement" { write({ path: "src/fixed.txt", content: "partial fix" })? }',
+        'if phase == "implement" { write({ path: checkout + "/src/fixed.txt", content: "partial fix" })? }',
       ] : []),
       ...(scenario === "plan-repair" ? [
         'if phase == "plan" {',
         '  let feedback = match read({ path: run_dir + "/decision-authorizations.md" }) { Ok(text) => text, Err(_) => "" }',
         '  write({ path: run_dir + "/plan.md", content: feedback == "" ? "Rejected plan: fixture description needs correction." : "Repaired plan: exact fixture description corrected after explicit archived revision." })?',
         '}',
-        'if phase == "implement" { write({ path: "src/fixed.txt", content: "partial fix" })? }',
+        'if phase == "implement" { write({ path: checkout + "/src/fixed.txt", content: "partial fix" })? }',
       ] : []),
       ...(scenario === "spec-auto" ? [
         'if phase == "plan" {',
         '  write({ path: run_dir + "/spec-proposal.md", content: "Exact established contract: retain refusal, correct contradictory prose." })?',
         '  return ' + asTheta(revision),
         '}',
-        'if phase == "implement" { write({ path: "src/fixed.txt", content: "partial fix" })? }',
+        'if phase == "implement" { write({ path: checkout + "/src/fixed.txt", content: "partial fix" })? }',
       ] : []),
       ...(scenario === "autonomous" ? [
         'if phase == "implement" {',
-        '  write({ path: "src/fixed.txt", content: "partial fix" })?',
+        '  write({ path: checkout + "/src/fixed.txt", content: "partial fix" })?',
         '  let authority = match read({ path: run_dir + "/decision-authorizations.md" }) { Ok(text) => text, Err(_) => "" }',
         '  if authority == "" {',
         '    write({ path: run_dir + "/decision-request.md", content: "Exact fixture-only scope: change tests/legacy.test.js TypeEnv constructor new Map() to {}, preserving its assertion and original red evidence." })?',
         '    return ' + asTheta({ ...verdicts.implementation, status: "needs_decision" }),
         '  }',
-        '  write({ path: "tests/legacy.test.js", content: "const env = {}; // same assertion" })?',
+        '  write({ path: checkout + "/tests/legacy.test.js", content: "const env = {}; // same assertion" })?',
         '}',
       ] : []),
       ...(scenario === "replan-refusal" ? [
@@ -110,14 +112,17 @@ function worker(scenario: Scenario) {
         '  }',
         '}',
         'if phase == "implement" {',
-        '  write({ path: "src/fixed.txt", content: "partial fix" })?',
-        '  write({ path: run_dir + "/spec-revision-proposal.md", content: "New exact contract" })?',
-        '  return ' + asTheta(revision),
+        '  write({ path: checkout + "/src/fixed.txt", content: "partial fix" })?',
+        '  let ready = match read({ path: run_dir + "/spec-revision-proposal.md" }) { Ok(text) => text, Err(_) => "no" }',
+        '  if ready == "no" {',
+        '    write({ path: run_dir + "/spec-revision-proposal.md", content: "New exact contract" })?',
+        '    return ' + asTheta(revision),
+        '  }',
         '}',
       ] : []),
       ...(scenario === "resume" ? [
         'if phase == "implement" {',
-        '  write({ path: "src/fixed.txt", content: "partial fix" })?',
+        '  write({ path: checkout + "/src/fixed.txt", content: "partial fix" })?',
         '  let allowed = match read({ path: run_dir + "/resume-allow.txt" }) { Ok(text) => text, Err(_) => "no" }',
         '  if allowed != "yes" { return ' + asTheta(verdicts.implementation) + ' }',
         '}',
@@ -148,7 +153,7 @@ function rankingWorker(kind: RankingCase) {
     `BugRanking { bugs: [${items.join(", ")}], ordering: [${edges.join(", ")}], guidance: ["Severity is not fix order; inspect actual prerequisites before implementation."] }`, "",
   ].join("\n");
 }
-function probe(args: string, options: { workflow?: string; scenario?: Scenario; ranking?: RankingCase; decision?: "human"; answer?: string } = {}) {
+function probe(args: string, options: { workflow?: string; scenario?: Scenario; ranking?: RankingCase; decision?: "human" } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), options.scenario === "resume" ? "bugfix-report-'quoted-" : "bugfix-report-"));
   const theta = join(cwd, ".pi/theta");
   const agent = join(cwd, "agent");
@@ -157,8 +162,11 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
   mkdirSync(join(cwd, "docs/bugs"), { recursive: true });
   mkdirSync(agent);
   mkdirSync(join(cwd, ".pi/tmp"));
-  writeFileSync(join(cwd, "question.mjs"), 'export default function(pi) { pi.registerTool({ name: "question", label: "Question", description: "Deterministic decision fixture", parameters: {type:"object", properties:{}}, async execute() { '
-    + (options.answer !== undefined ? 'return { content: [{type:"text",text:' + JSON.stringify(options.answer) + '}] };' : options.scenario === "replan-refusal" ? 'return { content: [{type:"text",text:"User selected: 1. Stop without spec changes"}] };' : 'throw new Error("Unexpected approval request");')
+  // Instrument a forbidden dialog rather than omitting the tool: a swallowed
+  // tool error must not make a mid-run question look like successful automation.
+  const questionCallsPath = join(cwd, ".pi/tmp/question-calls.jsonl");
+  writeFileSync(join(cwd, "question.mjs"), 'import { appendFileSync } from "node:fs";\nexport default function(pi) { pi.registerTool({ name: "question", label: "Question", description: "Forbidden approval dialog fixture", parameters: {type:"object", properties:{}}, async execute(_id, args) { '
+    + 'appendFileSync(' + JSON.stringify(questionCallsPath) + ', JSON.stringify(args) + "\\n"); throw new Error("Unexpected approval request");'
     + ' } }); }\n');
   writeFileSync(join(agent, "auth.json"), JSON.stringify({ openai: { type: "api_key", key: "pi-theta-no-network" } }));
   writeFileSync(join(agent, "settings.json"), JSON.stringify({ defaultProvider: "openai", defaultModel: "gpt-5.5", defaultProjectTrust: "always", theta: { binderModel: "openai/gpt-5.5" } }));
@@ -221,8 +229,8 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
       }),
     });
     const remote = join(cwd, ".pi/tmp/origin.git");
-    if (["autonomous", "spec-auto"].includes(options.scenario ?? "")) {
-      expect(spawnSync("git", ["init", "--bare", remote], { cwd, encoding: "utf8" }).status).toBe(0);
+    if (["autonomous", "spec-auto", "replan-refusal"].includes(options.scenario ?? "") || options.decision === "human") {
+      expect(spawnSync("git", ["init", "--bare", "-b", "main", remote], { cwd, encoding: "utf8" }).status).toBe(0);
       expect(spawnSync("git", ["remote", "add", "origin", remote], { cwd, encoding: "utf8" }).status).toBe(0);
     }
     let result = launch(args);
@@ -243,27 +251,71 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
       resumedState = readFileSync(join(run, "state.json"), "utf8");
       redPreserved = red.equals(readFileSync(join(run, "red-0.json")));
       leaseReleased = !existsSync(join(cwd, ".pi/tmp/fix-bug.lock"));
-      partialWorkPreserved = readFileSync(join(cwd, "src/fixed.txt"), "utf8") === "partial fix";
+      partialWorkPreserved = readFileSync(join(JSON.parse(resumedState).root, "src/fixed.txt"), "utf8") === "partial fix";
     }
     if (options.scenario === "replan-refusal") {
       const run = JSON.parse(readFileSync(join(cwd, ".pi/tmp/fix-bug.lock/owner.json"), "utf8")).run as string;
       resumedState = readFileSync(join(run, "state.json"), "utf8");
       redPreserved = existsSync(join(run, "red-0.json"));
-      partialWorkPreserved = readFileSync(join(cwd, "src/fixed.txt"), "utf8") === "partial fix";
+      partialWorkPreserved = readFileSync(join(JSON.parse(resumedState).root, "src/fixed.txt"), "utf8") === "partial fix";
     }
     const entries = existsSync(join(cwd, ".pi/tmp")) ? readdirSync(join(cwd, ".pi/tmp")) : [];
     const completedRun = entries.find(name => name.startsWith("fix-bug-0001-"));
     const completedState = completedRun ? readFileSync(join(cwd, ".pi/tmp", completedRun, "state.json"), "utf8") : "";
     const shipmentPath = completedRun ? join(cwd, ".pi/tmp", completedRun, "shipment.json") : "";
     const shipment = shipmentPath && existsSync(shipmentPath) ? JSON.parse(readFileSync(shipmentPath, "utf8")) : null;
-    const pushedSha = shipment ? spawnSync("git", ["--git-dir", remote, "rev-parse", "refs/heads/main"], { cwd, encoding: "utf8" }).stdout.trim() : "";
-    return { ...result, firstStop, resumedState, redPreserved, leaseReleased, partialWorkPreserved, completedState, shipment, pushedSha };
+    const pushedSha = existsSync(remote) ? spawnSync("git", ["--git-dir", remote, "rev-parse", "--verify", "refs/heads/main"], { cwd, encoding: "utf8" }).stdout.trim() : "";
+    const state = completedState ? JSON.parse(completedState) : null;
+    const runPath = completedRun ? join(cwd, ".pi/tmp", completedRun) : "";
+    const artifact = (name: string) => runPath && existsSync(join(runPath, name)) ? readFileSync(join(runPath, name), "utf8") : "";
+    const finalReview = artifact("final-review-result.json");
+    const finalGates = runPath ? readdirSync(runPath).filter(name => /^gate-\d+-final-\d+\.json$/.test(name)).map(name => JSON.parse(artifact(name))) : [];
+    const mainSha = spawnSync("git", ["rev-parse", "refs/heads/main"], { cwd, encoding: "utf8" }).stdout.trim();
+    const branchRetained = state ? spawnSync("git", ["show-ref", "--verify", "--quiet", "refs/heads/" + state.branch], { cwd, encoding: "utf8" }).status === 0 : false;
+    const worktreeRetained = state ? existsSync(state.root) : false;
+    const worktrees = spawnSync("git", ["worktree", "list", "--porcelain"], { cwd, encoding: "utf8" }).stdout;
+    const questionCalls = existsSync(questionCallsPath) ? readFileSync(questionCallsPath, "utf8").trim().split("\n") : [];
+    const mainFixed = existsSync(join(cwd, "src/fixed.txt"));
+    const mainStatus = spawnSync("git", ["status", "--porcelain"], { cwd, encoding: "utf8" }).stdout;
+    const leaseRetained = existsSync(join(cwd, ".pi/tmp/fix-bug.lock"));
+    const runArtifactsRetained = !!runPath && existsSync(join(runPath, "state.json")) && existsSync(join(runPath, "red-0.json"));
+    return { ...result, firstStop, resumedState, redPreserved, leaseReleased, partialWorkPreserved, completedState, shipment, pushedSha,
+      runPath, finalReview, finalGates, mainSha, branchRetained, worktreeRetained, worktrees, questionCalls, mainFixed, mainStatus, leaseRetained, runArtifactsRetained };
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 }
 function cleanHost(result: ReturnType<typeof probe>) {
   expect(result.error).toBeUndefined();
   expect(result.status, result.stderr + "\n" + result.stdout).toBe(0);
   expect(result.stderr).toBe("");
+  expect(result.questionCalls, "no approval dialog may be called, even if its error is swallowed").toEqual([]);
+}
+function pendingApproval(result: ReturnType<typeof probe>) {
+  const state = JSON.parse(result.completedState);
+  expect(result.stdout).toContain("VERIFIED — OWNER APPROVAL REQUIRED; NOT MERGED OR PUSHED");
+  expect(result.stdout).toContain("PENDING OWNER APPROVAL — shipment blocked");
+  expect(result.stdout).toContain("All reviews and gates passed. Branch and worktree retained");
+  expect(result.stdout.match(/PENDING OWNER APPROVAL — shipment blocked/g)).toHaveLength(1);
+  expect(result.stdout).not.toContain("STOP —");
+  expect(result.stdout).not.toContain("MERGED TO MAIN AND PUSHED");
+  // A printed promise is not the observable: require the independently bound
+  // final review, actual green final gate records, and completed close stage.
+  expect(state.checkpoints.close).toMatchObject({ status: "pass" });
+  expect(state.stages).toEqual(["red", "gate-initial", "gate-final"]);
+  expect(state.finalReviewDigest).toEqual(expect.any(String));
+  expect(JSON.parse(result.finalReview)).toMatchObject({ ok: true, findings: "CLEAN — reporting fixture" });
+  expect(result.finalGates).toHaveLength(2);
+  expect(result.finalGates.every(gate => gate.code === 0)).toBe(true);
+  expect(result.shipment).toBeNull();
+  expect(result.pushedSha).toBe("");
+  expect(result.mainSha).toBe(state.base);
+  expect(result.mainFixed).toBe(false);
+  expect(result.mainStatus).toBe("");
+  expect(result.branchRetained).toBe(true);
+  expect(result.worktreeRetained).toBe(true);
+  expect(result.worktrees).toContain(state.root);
+  expect(state.root).toBe(join(result.runPath, "worktree"));
+  expect(result.runArtifactsRetained).toBe(true);
+  expect(result.leaseRetained).toBe(true);
 }
 function card(text: string, stage: string) {
   expect(text).toContain("STOP — Bug 0001\nStopped at:     " + stage);
@@ -348,17 +400,20 @@ describe("fix-bug completion reporting through the real host", () => {
     expect(result.leaseReleased).toBe(true);
   }, 120000);
 
-  it("retains partial work and reports revised-spec refusal honestly after implementation started", () => {
-    const result = probe("1 ship false", { scenario: "replan-refusal" });
+  it("provisionally continues a revised-spec tradeoff after partial implementation and defers owner approval until final verification", () => {
+    const result = probe("1", { scenario: "replan-refusal" });
     cleanHost(result);
-    card(result.stdout, "Specification decision (before continuing implementation)");
-    expect(result.stdout).toContain("Earlier partial work, if any, is retained.");
-    expect(result.stdout).toContain("ASTRA — HUMAN");
+    pendingApproval(result);
+    expect(result.stdout).toContain("New exact contract");
     expect(result.stdout).not.toContain("implementation has not started");
     expect(result.partialWorkPreserved).toBe(true);
     expect(result.redPreserved).toBe(true);
-    expect(JSON.parse(result.resumedState).checkpoints.plan.attempt).toBe(2);
-    expect(result.leaseReleased).toBe(false);
+    const state = JSON.parse(result.completedState);
+    expect(state.checkpoints.plan.attempt).toBe(2);
+    expect(state.checkpoints.implement).toMatchObject({ status: "pass", attempt: 2 });
+    expect(state.specApproved).toBe(true);
+    expect(state.approvedProposal).toBe("New exact contract");
+    expect(state.decisions.at(-1)).toMatchObject({ source: "astra", outcome: "CONTINUE", authority: { type: "exact-spec-proposal", provisional: true, gitAuthority: false } });
   }, 120000);
 
   it("automatically authorizes a bounded test correction, retries and commits/pushes by default without a dialog", () => {
@@ -367,12 +422,22 @@ describe("fix-bug completion reporting through the real host", () => {
     const result = probe("1", { scenario: "autonomous" });
     cleanHost(result);
     expect(result.stdout).toContain("ASTRA — continuing implement");
-    expect(result.stdout).toContain("COMMITTED AND PUSHED");
+    expect(result.stdout).toContain("MERGED TO MAIN AND PUSHED");
     const state = JSON.parse(result.completedState);
     expect(state.options.ship).toBe(true);
     expect(state.checkpoints.implement).toMatchObject({ status: "pass", attempt: 2 });
-    expect(result.shipment.pushed).toBe(true);
+    expect(result.shipment).toMatchObject({ merged: true, pushed: true, cleaned: true, branch: state.branch, worktree: state.root });
     expect(result.pushedSha).toBe(result.shipment.sha);
+    expect(result.mainSha).toBe(result.shipment.sha);
+    expect(result.mainFixed).toBe(true);
+    expect(result.mainStatus).toBe("");
+    expect(result.branchRetained).toBe(false);
+    expect(result.worktreeRetained).toBe(false);
+    expect(result.worktrees).not.toContain(state.root);
+    expect(result.leaseRetained).toBe(false);
+    expect(result.runArtifactsRetained).toBe(true);
+    expect(result.finalReview && JSON.parse(result.finalReview).ok).toBe(true);
+    expect(result.stdout).not.toContain("OWNER APPROVAL REQUIRED");
     expect(result.stdout).not.toContain("STOP —");
   }, 120000);
 
@@ -398,26 +463,51 @@ describe("fix-bug completion reporting through the real host", () => {
     expect(state.decisions[0].authority.type).toBe("exact-scoped-request");
   }, 120000);
 
-  it("uses the scoped, not spec, affirmative label for a genuine PLAN-stage tradeoff", () => {
-    const result = probe("1 ship false", { scenario: "plan-scope", decision: "human", answer: "User selected: 2. Approve recommended scoped decision" });
+  it("continues a genuine PLAN-stage tradeoff in exact provisional scope and reports pending approval only after all final gates/reviews", () => {
+    const result = probe("1", { scenario: "plan-scope", decision: "human" });
     cleanHost(result);
-    expect(result.stdout).toContain("ASTRA — HUMAN at plan");
-    expect(result.stdout).toContain("VERIFIED, NOT SHIPPED");
+    pendingApproval(result);
+    expect(result.stdout).toContain("ASTRA — continuing plan");
+    expect(result.stdout).toContain("Exact reports-only PLAN scope");
     const state = JSON.parse(result.completedState);
     expect(state.specApproved).not.toBe(true);
-    expect(state.decisions.at(-1)).toMatchObject({ source: "human", authority: { type: "exact-scoped-request" } });
+    expect(state.checkpoints.plan).toMatchObject({ status: "pass", attempt: 2 });
+    expect(state.checkpoints.implement.status).toBe("pass");
+    expect(state.decisions.at(-1)).toMatchObject({ source: "astra", outcome: "CONTINUE", authority: { type: "exact-scoped-request", provisional: true, gitAuthority: false } });
   }, 120000);
 
-  it("a failed human dialog grants no scope and stops without implementation", () => {
-    const result = probe("1 ship false", { scenario: "plan-scope", decision: "human" });
+  it("retains a verified provisional fix with ship false and still surfaces pending owner decisions", () => {
+    const result = probe("1 ship false", { scenario: "autonomous", decision: "human" });
     cleanHost(result);
-    expect(result.stdout).toContain("ASTRA — HUMAN at plan");
-    expect(result.stdout).toContain("STOP —");
+    pendingApproval(result);
+    expect(result.stdout).toContain("ASTRA — continuing implement");
+    expect(result.stdout).toContain("change tests/legacy.test.js TypeEnv constructor new Map() to {}");
     const state = JSON.parse(result.completedState);
-    expect(state.decisions.at(-1)).toMatchObject({ outcome: "HUMAN", authority: null });
-    expect(state.specApproved).not.toBe(true);
-    expect(state.checkpoints.implement).toBeUndefined();
-    expect(result.shipment).toBeNull();
+    expect(state.options.ship).toBe(false);
+    expect(state.checkpoints.implement).toMatchObject({ status: "pass", attempt: 2 });
+    expect(state.decisions.at(-1)).toMatchObject({ outcome: "CONTINUE", authority: { provisional: true } });
+  }, 120000);
+
+  it("red-direction control: an early pending-approval report is not accepted as final verification", () => {
+    const source = readFileSync(join(root, ".pi", "theta", "fix-bug.theta"), "utf8");
+    const start = source.indexOf('let approvals = bash({ command: prefix + "approval-report "');
+    const end = source.indexOf("\nif !ship {", start);
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const approvalBlock = source.slice(start, end);
+    const gate = 'if !control(prefix + "gate " + quoted + " initial")';
+    expect(source).toContain(gate);
+    // This deliberately lies about completion before close/final gate/review.
+    // The state/artifact assertions must reject it even though the report text
+    // and provisional scope match the normal successful pending path.
+    const workflow = (source.slice(0, start) + source.slice(end)).replace(gate, approvalBlock + "\n" + gate);
+    const result = probe("1", { workflow, scenario: "plan-scope", decision: "human" });
+    cleanHost(result);
+    expect(result.stdout).toContain("PENDING OWNER APPROVAL — shipment blocked");
+    expect(result.finalReview).toBe("");
+    expect(result.finalGates).toEqual([]);
+    expect(JSON.parse(result.completedState).checkpoints.close).toBeUndefined();
+    expect(() => pendingApproval(result)).toThrowError(expect.objectContaining({ name: "AssertionError" }));
   }, 120000);
 
   it("revises an explicitly invalidated rejected plan and obtains fresh clean evidence review automatically", () => {

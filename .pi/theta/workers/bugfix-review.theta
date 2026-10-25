@@ -15,14 +15,21 @@ schema BugReview {
   findings: string
 }
 let result: BugReview = @`Independently audit this numbered bug fix, focus ${focus}.
-Read ${run_dir}/state.json, the report it names, AGENTS.md, the full actual diff
-against state.base, plan.md, all stage reports, witnesses.json, and captured
+Read ${run_dir}/state.json first. Inspect checkout files ONLY under state.root,
+the dedicated bugfix worktree: use absolute paths or explicit shell cd for every
+checkout command/test. Your initial cwd may be the original checkout. Then read
+the report it names, AGENTS.md, the full actual diff against state.base, plan.md,
+all stage reports, witnesses.json, and captured
 red/green/gate logs. Also read state.decisions, decision-authorizations.md and the
 referenced immutable decision contexts/verdicts when present. Do not trust the
 implementer's status or summaries. The owner delegates routine exact spec/test
 scope authorization to GPT-6 Astra where prior decisions/principles clearly prefer
-one course; substantive unresolved tradeoffs still require the owner. Do not reject
-a valid recorded delegated authorization merely because it was not a human dialog.
+one course. For substantive unresolved tradeoffs Astra chooses provisionally,
+and the controller records exact implementation authority while deferring owner
+approval until AFTER all reviews/gates and blocking merge/push. Audit the chosen
+course on its merits and flag correctness problems; pending owner approval alone
+is not a blocking implementation/review finding. Do not reject valid recorded
+delegated/provisional scope merely because it was not a human dialog.
 Independently check the cited basis, exact scope and preserved original evidence;
 a schema-valid model verdict does not itself prove a semantic change is correct.
 Read-only: no editing tracked/untracked files, staging, commits, pushes,

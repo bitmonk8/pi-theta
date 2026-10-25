@@ -24,9 +24,10 @@ function git(cwd: string, ...args: string[]) {
 }
 function fixture(phase = "implement", scoped = true, planScoped = false) {
   const cwd = mkdtempSync(join(tmpdir(), "bugfix-decisions-"));
+  let root = cwd;
   const put = (path: string, text: string) => {
-    mkdirSync(dirname(join(cwd, path)), { recursive: true });
-    writeFileSync(join(cwd, path), text);
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), text);
   };
   git(cwd, "init", "-b", "main");
   git(cwd, "config", "user.email", "test@example.invalid");
@@ -44,6 +45,7 @@ function fixture(phase = "implement", scoped = true, planScoped = false) {
   const run = started.stdout.trim();
   const putRun = (path: string, text: string) => writeFileSync(join(run, path), text);
   const state = () => JSON.parse(readFileSync(join(run, "state.json"), "utf8"));
+  root = state().root;
   const ok = (...args: string[]) => {
     const result = call(cwd, ...args);
     expect(result.status, result.stderr + result.stdout).toBe(0);
@@ -91,7 +93,7 @@ function fixture(phase = "implement", scoped = true, planScoped = false) {
     disposition: "human", clear_preference: false, has_tradeoff: true,
     summary: "Two materially valid compatibility/security policies remain.",
   });
-  return { cwd, run, phase, put, putRun, state, ok, start, verdict, record, answer, human,
+  return { cwd, root, run, phase, put, putRun, state, ok, start, verdict, record, answer, human,
     cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
 }
 
@@ -174,7 +176,7 @@ describe("autonomous bug-fix decision control plane", () => {
       const head = git(f.cwd, "rev-parse", "HEAD");
       const manifest = readFileSync(join(f.run, "witnesses.json"));
       const red = readFileSync(join(f.run, "red-0.json"));
-      const tests = readFileSync(join(f.cwd, "tests/value.test.js"));
+      const tests = readFileSync(join(f.root, "tests/value.test.js"));
       const context = f.start(); f.verdict(context);
       expect(f.record(context).stdout.trim()).toBe("CONTINUE");
       const authority = readFileSync(join(f.run, "decision-authorizations.md"), "utf8");
@@ -186,7 +188,7 @@ describe("autonomous bug-fix decision control plane", () => {
       expect(f.ok("cached", f.run, "implement")).toBe("RUN");
       expect(readFileSync(join(f.run, "witnesses.json"))).toEqual(manifest);
       expect(readFileSync(join(f.run, "red-0.json"))).toEqual(red);
-      expect(readFileSync(join(f.cwd, "tests/value.test.js"))).toEqual(tests);
+      expect(readFileSync(join(f.root, "tests/value.test.js"))).toEqual(tests);
       expect(git(f.cwd, "status", "--porcelain")).toBe("");
       expect(git(f.cwd, "rev-parse", "HEAD")).toBe(head);
       expect(existsSync(join(f.run, "shipment.json"))).toBe(false);
@@ -217,21 +219,27 @@ describe("autonomous bug-fix decision control plane", () => {
     } finally { f.cleanup(); }
   });
 
-  it.each(["plan", "implement"])("HUMAN grants no %s authority before the exact owner selection", phase => {
+  it.each(["plan", "implement"])("human decisions grant provisional %s authority, defer owner approval and block shipment", phase => {
     const f = fixture(phase);
     try {
       const context = f.start(); f.human(context);
       const result = f.record(context);
       expect(result.status, result.stderr).toBe(0);
-      expect(result.stdout.trim()).toBe("HUMAN");
-      expect(f.state().specApproved).not.toBe(true);
-      expect(f.state().decisions.at(-1).authority).toBeNull();
-      expect(readFileSync(join(f.run, "decision-authorizations.md"), "utf8")).toContain("No approval or expanded scope granted.");
+      expect(result.stdout.trim()).toBe("CONTINUE");
+      expect(f.state().specApproved === true).toBe(phase === "plan");
+      expect(f.state().decisions.at(-1).authority).toMatchObject({ provisional: true, gitAuthority: false });
+      expect(readFileSync(join(f.run, "decision-authorizations.md"), "utf8")).toContain("pending owner approval; shipment blocked");
+      const report = f.ok("approval-report", f.run);
+      expect(report).toContain("PENDING OWNER APPROVAL");
+      expect(report).toContain(phase === "plan" ? proposal : request);
+      expect(report).toContain("Recommendation:");
+      expect(report).toContain("Alternatives/tradeoff:");
+      expect(call(f.cwd, "ship", f.run).stderr).toContain("Pending owner approvals");
       const selection = phase === "plan" ? specSelection : scopedSelection;
       for (const text of ["User cancelled the selection", "Error: UI not available", "User selected: 1. Stop", "User wrote: " + selection, "approve", selection + " and all future changes"]) {
         expect(f.answer(context, text).status, text).not.toBe(0);
-        expect(f.state().specApproved).not.toBe(true);
-        expect(f.state().decisions.at(-1).authority).toBeNull();
+        expect(f.state().specApproved === true).toBe(phase === "plan");
+        expect(f.state().decisions.at(-1).authority.provisional).toBe(true);
       }
       const answered = f.answer(context, selection);
       expect(answered.status, answered.stderr).toBe(0);
@@ -242,6 +250,7 @@ describe("autonomous bug-fix decision control plane", () => {
         expect(f.state().specApproved).not.toBe(true);
       }
       expect(f.state().verifiedDigest).toBeUndefined();
+      expect(f.ok("approval-report", f.run)).toBe("CLEAR");
     } finally { f.cleanup(); }
   });
 
@@ -305,7 +314,7 @@ describe("autonomous bug-fix decision control plane", () => {
     const f = fixture();
     try {
       const context = f.start(); f.human(context);
-      expect(f.record(context).stdout.trim()).toBe("HUMAN");
+      expect(f.record(context).stdout.trim()).toBe("CONTINUE");
       expect(f.record(context).status).not.toBe(0);
       expect(f.answer(context, scopedSelection).status).toBe(0);
       const records = JSON.stringify(f.state().decisions);
@@ -402,22 +411,62 @@ describe("autonomous bug-fix decision control plane", () => {
     } finally { f.cleanup(); }
   });
 
-  it.each(["request", "checkout", "generation", "context", "precedent", "owner-record"])("rejects stale %s even after HUMAN and exact owner selection", reason => {
+  it.each(["context", "precedent"])("rejects immutable %s tampering even for deferred owner selection", reason => {
     const f = fixture();
     try {
       const context = f.start(); f.human(context);
-      expect(f.record(context).stdout.trim()).toBe("HUMAN");
-      if (reason === "request") f.putRun("decision-request.md", request + " Expanded scope.");
-      if (reason === "checkout") f.put("tests/value.test.js", "changed after owner presentation\n");
+      expect(f.record(context).stdout.trim()).toBe("CONTINUE");
       if (reason === "context") writeFileSync(context, readFileSync(context, "utf8") + "\n");
       if (reason === "precedent") f.putRun("decision-authorizations.md", "New owner refusal.\n");
-      if (reason === "owner-record") f.putRun("owner-decision.md", "New owner ruling: do not change this baseline.\n");
-      if (reason === "generation") {
-        f.putRun("resume-request.txt", "resume");
-        f.ok("resume-file", join(f.run, "resume-request.txt"), String(process.pid));
-      }
       expect(f.answer(context, scopedSelection).status).not.toBe(0);
       expect(f.state().specApproved).not.toBe(true);
+    } finally { f.cleanup(); }
+  });
+
+  it("retains every deferred approval across implementation, later decisions, final review and resume", () => {
+    const f = fixture();
+    try {
+      const first = f.start(); f.human(first); expect(f.record(first).stdout.trim()).toBe("CONTINUE");
+      f.put("src/value.js", "export const value = 2;\n");
+      f.put("package.json", JSON.stringify({ scripts: { typecheck: 'node -e "process.exit(0)"', test: 'node -e "process.exit(0)"' } }));
+      f.ok("begin", f.run, "implement");
+      f.putRun("implement.md", "Implemented the exact provisionally chosen scope; no witnesses or original reds changed.");
+      f.putRun("stage-implement-result.txt", "pass\nImplemented scoped recommendation"); f.ok("record", f.run, "implement");
+      const second = f.start(); f.human(second); expect(f.record(second).stdout.trim()).toBe("CONTINUE");
+      const routine = f.start(); f.verdict(routine); expect(f.record(routine).stdout.trim()).toBe("CONTINUE");
+      f.ok("gate", f.run, "final"); f.ok("snapshot", f.run);
+      const findings = "CLEAN — independent final review after provisional implementation";
+      f.putRun("final-review.md", findings); f.putRun("final-review-result.json", JSON.stringify({ ok: true, findings })); f.ok("final-review-record", f.run);
+      expect(f.ok("approval-report", f.run)).toContain(first);
+      expect(f.ok("approval-report", f.run)).toContain(second);
+      expect(call(f.cwd, "ship", f.run).stderr).toContain("Pending owner approvals");
+      const confirmed = f.answer(first, scopedSelection); expect(confirmed.status, confirmed.stderr).toBe(0);
+      expect(f.ok("approval-report", f.run)).not.toContain(first);
+      expect(f.ok("approval-report", f.run)).toContain(second);
+      // An invocation-generation change does not erase historical pending scope.
+      f.ok("pause", f.run); f.putRun("resume-request.txt", "resume");
+      f.ok("resume-file", join(f.run, "resume-request.txt"), String(process.pid));
+      expect(f.ok("approval-report", f.run)).toContain(second);
+      const final = f.answer(second, scopedSelection); expect(final.status, final.stderr).toBe(0);
+      expect(f.ok("approval-report", f.run)).toBe("CLEAR");
+      expect(call(f.cwd, "ship", f.run).stderr).toContain("Missing final verification");
+      expect(readFileSync(join(f.run, "red-0.json"), "utf8")).toContain("original expected two");
+    } finally { f.cleanup(); }
+  });
+
+  it("deferred confirmation of an old spec decision never reinstalls its superseded proposal", () => {
+    const f = fixture("plan");
+    try {
+      const old = f.start(); f.human(old); expect(f.record(old).stdout.trim()).toBe("CONTINUE");
+      f.ok("begin", f.run, "plan");
+      f.putRun("plan.md", "A revised independently reviewed plan"); f.putRun("spec-proposal.md", proposal + " Retain the named unknown-value behavior.");
+      f.putRun("stage-plan-result.txt", "needs_spec\nRevised scope"); f.ok("record", f.run, "plan");
+      f.ok("snapshot", f.run); f.ok("evidence-review-record", f.run);
+      const current = f.start(); f.verdict(current); expect(f.record(current).stdout.trim()).toBe("CONTINUE");
+      const selectedProposal = f.state().approvedProposal;
+      const answer = f.answer(old, specSelection); expect(answer.status, answer.stderr).toBe(0);
+      expect(f.state().approvedProposal).toBe(selectedProposal);
+      expect(f.ok("approval-report", f.run)).toBe("CLEAR");
     } finally { f.cleanup(); }
   });
 });

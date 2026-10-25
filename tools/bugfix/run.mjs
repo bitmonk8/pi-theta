@@ -193,6 +193,14 @@ function renderRanking(root, catalogPath) {
   return listing;
 }
 const PHASES = new Set(['reproduce', 'diagnose', 'plan', 'implement', 'repair', 'close']);
+function assertControls(state) {
+  for (const root of [state.ownerRoot, state.root]) {
+    if (!root || JSON.stringify(controlPaths(root)) !== JSON.stringify(state.controlPaths) || digest(root, state.controlPaths) !== state.controlDigest) throw new Error('Workflow/control files changed since this run started; reconcile manually');
+  }
+}
+function assertOwner(state) {
+  if (git(state.ownerRoot, 'rev-parse', 'HEAD') !== state.ownerBase || git(state.ownerRoot, 'branch', '--show-current') !== state.ownerBranch) throw new Error('Owner HEAD/branch changed during workflow; stop and inspect');
+}
 function controlPaths(root) {
   return ['tools/bugfix/run.mjs', 'tools/bugfix/update-pi-config.mjs', '.pi/theta/fix-bug.theta', '.pi/theta/workers/bugfix-stage.theta', '.pi/theta/workers/bugfix-review.theta', '.pi/theta/workers/bugfix-rank.theta', '.pi/theta/workers/bugfix-decide.theta'].filter(p => existsSync(join(root, p)));
 }
@@ -239,7 +247,7 @@ function isSpecDecision(context) { return context.phase === 'plan' && context.st
 function decisionLabel(context) { return isSpecDecision(context) ? 'Approve proposed spec changes' : 'Approve recommended scoped decision'; }
 function decisionMaterial(run, state, phase, options = {}) {
   if (!DECISION_PHASES.has(phase)) throw new Error('Unknown decision phase');
-  if (JSON.stringify(controlPaths(state.root)) !== JSON.stringify(state.controlPaths) || digest(state.root, state.controlPaths) !== state.controlDigest) throw new Error('Workflow/control files changed; no decision authority can reconcile them');
+  assertControls(state);
   if (state.stages.includes('red')) redEvidence(run, state);
   for (const [name, checkpoint] of Object.entries(state.checkpoints ?? {})) {
     if (['pass', 'needs_spec', 'needs_decision'].includes(checkpoint.status) && digest(run, stagePaths(name)) !== checkpoint.reportDigest) throw new Error('Completed stage report/result changed: ' + name);
@@ -280,7 +288,7 @@ function decisionMaterial(run, state, phase, options = {}) {
     bug: { path: state.bug, text: localText(state.root, state.bug) },
     principles: principlePaths.map(path => ({ path, text: localText(state.root, path) })).filter(item => item.text !== null),
     specReferences: specFiles(state.root).map(path => ({ path })),
-    authority: { ...stateRevision(state), stateDigest: hash(JSON.stringify(authorityState)), checkpoints: state.checkpoints, decisions: state.decisions ?? [], specApproved: state.specApproved ?? false, approvedProposal: state.approvedProposal ?? null, controlPaths: state.controlPaths, controlDigest: digest(state.root, state.controlPaths), lease: localText(join(state.root, '.pi/tmp/fix-bug.lock'), 'owner.json'), active: localText(run, 'active/owner.json') },
+    authority: { ...stateRevision(state), stateDigest: hash(JSON.stringify(authorityState)), checkpoints: state.checkpoints, decisions: state.decisions ?? [], specApproved: state.specApproved ?? false, approvedProposal: state.approvedProposal ?? null, controlPaths: state.controlPaths, controlDigest: digest(state.root, state.controlPaths), lease: localText(join(state.ownerRoot, '.pi/tmp/fix-bug.lock'), 'owner.json'), active: localText(run, 'active/owner.json') },
     checkout: checkoutIdentity(state.root),
   };
 }
@@ -326,8 +334,20 @@ function decisionCommitFence(run, priorState, selected, baseline, verdictRaw, hi
   const current = decisionMaterial(run, priorState, selected.context.phase, { authorizationText: baseline.artifacts['decision-authorizations.md'] });
   if (hash(JSON.stringify(current)) !== hash(JSON.stringify(baseline))) throw new Error('Decision context changed during recording');
 }
+function decisionOutcome(verdict) { return verdict.disposition === 'blocked' ? 'BLOCKED' : 'CONTINUE'; }
 function decisionAuthority(context, verdict, source) {
-  return { source, phase: context.phase, type: context.request.type, exactRequest: context.proposal, proposalPath: context.proposalPath, recommendation: verdict.recommendation, rationale: verdict.rationale, limits: DECISION_LIMITS, gitAuthority: false };
+  return { source, phase: context.phase, type: context.request.type, exactRequest: context.proposal, proposalPath: context.proposalPath, recommendation: verdict.recommendation, rationale: verdict.rationale, limits: DECISION_LIMITS, gitAuthority: false, provisional: source === 'astra' && verdict.disposition === 'human' };
+}
+function pendingApprovals(records) {
+  return records.filter(item => item.record.source === 'astra' && item.record.verdict.disposition === 'human' && !records.some(answer => answer.contextPath === item.contextPath && answer.record.source === 'human'));
+}
+function approvalReport(records) {
+  const pending = pendingApprovals(records);
+  if (!pending.length) return 'CLEAR';
+  return ['PENDING OWNER APPROVAL — shipment blocked', 'Implementation proceeded provisionally in the exact recorded scope; no shipment authority was granted.', ...pending.flatMap((item, index) => {
+    const { record } = item;
+    return ['', `${index + 1}. ${record.phase}: ${record.verdict.summary}`, `Context: ${record.contextPath}`, `Record: ${item.path}`, `Scope (${record.authority.type}): ${record.authority.exactRequest}`, `Recommendation: ${record.verdict.recommendation}`, `Rationale: ${record.verdict.rationale}`, 'Basis:', ...record.verdict.basis.map(text => '- ' + text), 'Alternatives/tradeoff:', ...record.verdict.alternatives.map(text => '- ' + text)];
+  })].join('\n');
 }
 function requireDecisionApproval(run, state, context) {
   if (!isSpecDecision(context)) return;
@@ -338,7 +358,7 @@ function authorizationText(records) {
   for (const item of records) {
     const record = item.record;
     lines.push('', `## ${record.outcome} — ${record.phase} (${record.source})`, `Record: ${item.path}`, `Rationale: ${record.verdict.rationale}`, `Recommendation: ${record.verdict.recommendation}`);
-    if (record.authority) lines.push(`Authority type: ${record.authority.type}`, '', 'Exact authorized request/proposal:', record.authority.exactRequest);
+    if (record.authority) lines.push(`Authority type: ${record.authority.type}`, ...(record.authority.provisional ? ['PROVISIONAL IMPLEMENTATION ONLY — pending owner approval; shipment blocked.'] : []), '', 'Exact authorized request/proposal:', record.authority.exactRequest);
     else lines.push('No approval or expanded scope granted.');
   }
   return lines.join('\n') + '\n';
@@ -370,7 +390,7 @@ function validateDecisionIntegrity(run, state, options = {}) {
       if (text === null || hash(text) !== record.artifactDigests[name]) throw new Error('Prior decision evidence changed');
     }
     const verdict = validateVerdict(JSON.parse(localText(run, relative.replace(/(?:human-)?record\.json$/, 'verdict.json'))));
-    const outcome = human ? 'CONTINUE' : verdict.disposition.toUpperCase();
+    const outcome = human ? 'CONTINUE' : decisionOutcome(verdict);
     const expectedAuthority = outcome === 'CONTINUE' ? decisionAuthority(context, verdict, record.source) : null;
     const requestType = isSpecDecision(context) ? 'exact-spec-proposal' : context.artifacts['decision-request.md']?.trim() ? 'exact-scoped-request' : 'existing-scope-retry';
     const proposalPath = isSpecDecision(context) ? 'spec-proposal.md' : requestType === 'exact-scoped-request' ? 'decision-request.md' : context.reportPath;
@@ -380,7 +400,7 @@ function validateDecisionIntegrity(run, state, options = {}) {
     if (!same(authorityFile, expectedAuthority)) throw new Error('Archived decision authority changed');
     if (human) {
       const original = records.find(prior => prior.path === join(selected.folder, 'record.json'));
-      if (verdict.disposition !== 'human' || original?.record.outcome !== 'HUMAN' || !approved(localText(run, relative.replace(/human-record\.json$/, 'answer.txt')), decisionLabel(context))) throw new Error('Invalid archived human approval');
+      if (verdict.disposition !== 'human' || original?.record.authority?.provisional !== true || !approved(localText(run, relative.replace(/human-record\.json$/, 'answer.txt')), decisionLabel(context))) throw new Error('Invalid archived human approval');
     }
     const indexed = { contextPath: record.contextPath, outcome, phase: context.phase, source: record.source, authority: expectedAuthority, rationale: verdict.rationale };
     if (Object.entries(indexed).some(([key, value]) => !same(item[key], value))) throw new Error('Decision index differs from immutable record');
@@ -390,7 +410,7 @@ function validateDecisionIntegrity(run, state, options = {}) {
     const selected = decisionContext(run, state, join(run, relative));
     const own = records.filter(item => item.contextPath === selected.full);
     const status = own.length ? own.at(-1).source === 'human' ? 'answered' : own.at(-1).record.verdict.disposition : 'pending';
-    if (entry.status !== status || (status === 'human' && typeof entry.answerFence !== 'string')) throw new Error('Decision registration differs from archived history');
+    if (entry.status !== status) throw new Error('Decision registration differs from archived history');
   }
   const history = Object.hasOwn(options, 'authorizationText') ? options.authorizationText : localText(run, 'decision-authorizations.md');
   if ((records.length || history !== null) && history !== authorizationText(records)) throw new Error('Worker-facing decision-authorizations.md changed or has no matching decision records');
@@ -440,10 +460,12 @@ function archivePlan(run, state, reason, additional = {}) {
 }
 function archiveDecision(run, state, selected, verdict, source, verdictRaw, answerRaw) {
   const { context, folder, entry } = selected;
-  const outcome = source === 'human' ? 'CONTINUE' : verdict.disposition.toUpperCase();
+  const outcome = source === 'human' ? 'CONTINUE' : decisionOutcome(verdict);
   const authority = outcome === 'CONTINUE' ? decisionAuthority(context, verdict, source) : null;
-  const specApproval = authority && isSpecDecision(context);
-  if (authority) requireDecisionApproval(run, state, context);
+  // Deferred owner confirmation settles the historical provisional decision; it
+  // must not re-authorize an obsolete spec proposal over a later approved plan.
+  const specApproval = source === 'astra' && authority && isSpecDecision(context);
+  if (source === 'astra' && authority) requireDecisionApproval(run, state, context);
   const prefix = source === 'human' ? 'human-' : '';
   const artifactDigests = { 'context.json': entry.digest };
   if (source === 'human') {
@@ -495,24 +517,26 @@ function activate(run, pidText) {
   } finally { rmSync(activation, { recursive: true }); }
 }
 function resumeRun(cwd, request, pidText) {
-  const root = git(cwd, 'rev-parse', '--show-toplevel');
+  const ownerRoot = git(cwd, 'rev-parse', '--show-toplevel');
   const [mode, id, ship, rounds] = parseBugRequest(request).split('\n');
   if (mode !== 'RESUME') throw new Error('Expected a resume request');
-  const lock = join(root, '.pi/tmp/fix-bug.lock');
+  const lock = join(ownerRoot, '.pi/tmp/fix-bug.lock');
   if (!existsSync(join(lock, 'owner.json'))) throw new Error('No paused run owns this checkout; resume does not guess from old artifact directories.');
   const run = realpathSync(json(join(lock, 'owner.json')).run);
-  if (!run.startsWith(join(realpathSync(root), '.pi/tmp/fix-bug-'))) throw new Error('Run directory is outside this checkout');
+  if (!run.startsWith(join(realpathSync(ownerRoot), '.pi/tmp/fix-bug-'))) throw new Error('Run directory is outside this checkout');
   const token = activate(run, pidText); // acquire before reading/validating authoritative state
   try {
   if (realpathSync(json(join(lock, 'owner.json')).run) !== run) throw new Error('Checkout lease changed during resume');
   const state = json(join(run, 'state.json'));
   const expected = stateRevision(state);
   validateDecisionIntegrity(run, state);
-  if (state.root !== root || (id && id !== state.id)) throw new Error('Requested run does not match this checkout or bug number');
+  if (state.ownerRoot !== ownerRoot || (id && id !== state.id)) throw new Error('Requested run does not match this checkout or bug number');
+  const root = state.root;
+  assertOwner(state);
   if (git(root, 'rev-parse', 'HEAD') !== state.base || git(root, 'branch', '--show-current') !== state.branch) throw new Error('HEAD/branch changed; cannot resume this run');
   if (existsSync(join(run, 'shipment.json')) && json(join(run, 'shipment.json')).pushed) throw new Error('This run has already shipped; it cannot be resumed');
   if (state.resumeVersion !== 1 || !state.checkpoints) throw new Error('This legacy run predates resumable checkpoints. Continue its recorded manual handoff; do not infer progress from report files.');
-  if (JSON.stringify(controlPaths(root)) !== JSON.stringify(state.controlPaths) || digest(root, state.controlPaths) !== state.controlDigest) throw new Error('Workflow/control files changed since this run started; reconcile manually before resuming');
+  assertControls(state);
   const touched = changes(root);
   if (!state.specApproved && (touched.some(p => p === 'docs/spec.md' || p.startsWith('docs/spec_topics/') || p.startsWith('docs/reference/')) || digest(root, specFiles(root)) !== state.spec)) throw new Error('Specification changed without owner approval');
   if (state.stages.includes('red')) redEvidence(run, state);
@@ -593,9 +617,13 @@ export function main(args, cwd = process.cwd()) {
     if (files.length !== 1) throw new Error('Expected exactly one numbered bug report');
     const bug = 'docs/bugs/' + files[0];
     if (!/^- \*\*Status:\*\* open\b/m.test(readFileSync(join(root, bug), 'utf8'))) throw new Error('Bug is not marked open');
-    const branch = git(root, 'branch', '--show-current');
-    if (!branch) throw new Error('Detached HEAD is not supported');
-    const run = join(root, '.pi/tmp', `fix-bug-${id}-${randomUUID()}`);
+    const ownerBranch = git(root, 'branch', '--show-current');
+    if (!ownerBranch) throw new Error('Detached HEAD is not supported');
+    const ownerBase = git(root, 'rev-parse', 'HEAD');
+    const nonce = randomUUID();
+    const branch = `fix-bug/${id}-${nonce}`;
+    const run = join(root, '.pi/tmp', `fix-bug-${id}-${nonce}`);
+    const worktree = join(run, 'worktree');
     mkdirSync(run, { recursive: true });
     const lock = join(root, '.pi/tmp/fix-bug.lock');
     try { mkdirSync(lock); } catch { throw new Error('Another bug workflow owns the checkout; inspect .pi/tmp/fix-bug.lock/owner.json and release only after it has stopped'); }
@@ -605,7 +633,9 @@ export function main(args, cwd = process.cwd()) {
       // the original options and active execution claim are durable. Raw init is
       // retained for administrative/test creation of an explicitly paused run.
       if (startOptions) activate(run, phase);
-      save(join(run, 'state.json'), { root, bug, id, branch, base: git(root, 'rev-parse', 'HEAD'), spec: digest(root, specFiles(root)), stages: [], resumeVersion: 1, revision: 0, generation: startOptions ? 1 : 0, checkpoints: {}, options: startOptions ?? { ship: true, review_rounds: 5 }, controlPaths: controls, controlDigest: digest(root, controls) });
+      git(root, 'worktree', 'add', '-b', branch, worktree, ownerBase);
+      mkdirSync(join(worktree, '.pi/tmp'), { recursive: true });
+      save(join(run, 'state.json'), { root: worktree, ownerRoot: root, ownerBranch, ownerBase, bug, id, branch, base: ownerBase, spec: digest(worktree, specFiles(worktree)), stages: [], resumeVersion: 1, revision: 0, generation: startOptions ? 1 : 0, checkpoints: {}, options: startOptions ?? { ship: true, review_rounds: 5 }, controlPaths: controls, controlDigest: digest(root, controls) });
       save(join(lock, 'owner.json'), { run });
     } catch (error) {
       rmSync(join(run, 'active'), { recursive: true, force: true });
@@ -621,17 +651,22 @@ export function main(args, cwd = process.cwd()) {
     validateDecisionIntegrity(run, state);
     beforeWrite?.();
   });
-  if (root !== git(cwd, 'rev-parse', '--show-toplevel')) throw new Error('Run belongs to another checkout');
-  validateDecisionIntegrity(run, state);
+  if (state.ownerRoot !== git(cwd, 'rev-parse', '--show-toplevel')) throw new Error('Run belongs to another checkout; invoke the controller from the original owner checkout');
+  const records = validateDecisionIntegrity(run, state);
+  // This is an audit view, not current checkout/release authority. Keep it
+  // available after release and successful worktree cleanup as well as pauses.
+  if (op === 'approval-report') { console.log(approvalReport(records)); return; }
   if (op === 'pause') {
     state.generation = (state.generation ?? 0) + 1; // fence in-flight controllers before releasing execution ownership
     persist();
     rmSync(join(run, 'active'), { recursive: true, force: true });
     console.log('PASS'); return;
   }
-  const lock = join(root, '.pi/tmp/fix-bug.lock');
+  const lock = join(state.ownerRoot, '.pi/tmp/fix-bug.lock');
   if (json(join(lock, 'owner.json')).run !== run) throw new Error('Run does not own this checkout');
   if (op === 'release') { rmSync(lock, { recursive: true }); console.log('PASS'); return; }
+  assertOwner(state);
+  assertControls(state);
   if (git(root, 'rev-parse', 'HEAD') !== state.base || git(root, 'branch', '--show-current') !== state.branch) throw new Error('HEAD/branch changed during workflow; stop and inspect');
   const paths = changes(root);
   const specTouched = paths.some(p => p === 'docs/spec.md' || p.startsWith('docs/spec_topics/') || p.startsWith('docs/reference/'));
@@ -639,8 +674,9 @@ export function main(args, cwd = process.cwd()) {
   if (op === 'decision-kind') {
     const { context, entry } = decisionContext(run, state, phase);
     if (entry.status === 'pending') assertDecisionCurrent(run, state, context);
-    else if (entry.status === 'human') assertDecisionCurrent(run, state, context, entry.answerFence);
-    else throw new Error('Decision is no longer pending a disposition/answer');
+    // A deferred owner decision is historical: implementation and fresh review
+    // are expected to have changed the checkout since its exact scope snapshot.
+    else if (entry.status !== 'human') throw new Error('Decision is no longer pending a disposition/answer');
     console.log(isSpecDecision(context) ? 'SPEC' : 'SCOPED'); return;
   } else if (op === 'decision-start') {
     if (!DECISION_PHASES.has(phase)) throw new Error('Unknown decision phase');
@@ -669,19 +705,11 @@ export function main(args, cwd = process.cwd()) {
       const verdict = validateVerdict(JSON.parse(verdictRaw));
       const outcome = archiveDecision(run, state, selected, verdict, 'astra', verdictRaw);
       const history = localText(run, 'decision-authorizations.md');
-      if (outcome === 'HUMAN') {
-        // The HUMAN record changes state and the helper-rendered history. Fence
-        // precisely that one transition; no subsequent controller op is allowed
-        // between presentation of the genuine choice and its recorded answer.
-        state.revision = expected.revision + 1;
-        entry.answerFence = 'pending'; // registration is complete before its material is hashed
-        entry.answerFence = hash(JSON.stringify(decisionMaterial(run, state, context.phase)));
-      }
       persist(() => decisionCommitFence(run, priorState, selected, baseline, verdictRaw, history));
       console.log(outcome); return;
     }
-    if (entry.status !== 'human' || !entry.answerFence) throw new Error('Human approval requires a recorded HUMAN verdict, once only');
-    const baseline = assertDecisionCurrent(run, state, context, entry.answerFence);
+    if (entry.status !== 'human') throw new Error('Human approval requires a recorded provisional human verdict, once only');
+    const baseline = decisionMaterial(run, state, context.phase);
     const priorState = JSON.parse(JSON.stringify(state));
     const verdictRaw = localText(run, selected.relative + '.verdict.json');
     if (!verdictRaw || hash(verdictRaw) !== entry.verdictDigest) throw new Error('Recorded verdict changed');
@@ -845,6 +873,9 @@ export function main(args, cwd = process.cwd()) {
     state.finalReviewCheckoutDigest = state.verifiedCheckoutIdentity;
   } else if (op === 'ship') {
     if (state.options?.ship !== true) throw new Error('Shipment disabled: ship false keeps the verified fix local');
+    if (pendingApprovals(validateDecisionIntegrity(run, state)).length) throw new Error('Pending owner approvals block shipment; run approval-report after final review');
+    if (state.ownerBranch !== 'main') throw new Error('Shipment requires the original owner checkout on main; no automatic branch switching');
+    if (git(state.ownerRoot, 'status', '--porcelain')) throw new Error('Owner checkout must remain clean before merging the reviewed fix');
     if (!state.stages.includes('gate-final')) throw new Error('Missing final verification');
     if (!state.finalReviewDigest || state.finalReviewDigest !== digest(run, ['final-review-result.json', 'final-review.md']) || state.finalReviewCheckoutDigest !== state.verifiedCheckoutIdentity) throw new Error('Missing or changed clean final independent review');
     if (JSON.stringify(paths) !== JSON.stringify(state.verifiedPaths) || digest(root, paths) !== state.verifiedDigest) throw new Error('Files changed after final verification');
@@ -852,6 +883,10 @@ export function main(args, cwd = process.cwd()) {
     if (!paths.length || paths.some(p => !(p.startsWith('src/') || p.startsWith('tests/') || p.startsWith('docs/')))) throw new Error('Ship scope limited to src/, tests/, docs/; other surfaces require manual shipment');
     persist(() => {
       const assertCheckout = () => {
+        assertOwner(state);
+        assertControls(state);
+        if (git(state.ownerRoot, 'status', '--porcelain')) throw new Error('Owner checkout changed before shipment; nothing reset or discarded');
+        if (pendingApprovals(validateDecisionIntegrity(run, state)).length) throw new Error('Pending owner approvals block shipment');
         if (git(root, 'rev-parse', 'HEAD') !== state.base || git(root, 'branch', '--show-current') !== state.branch || JSON.stringify(changes(root)) !== JSON.stringify(state.verifiedPaths) || digest(root, paths) !== state.verifiedDigest || checkoutIdentity(root).digest !== state.finalReviewCheckoutDigest) throw new Error('HEAD/branch or verified checkout changed before shipment');
         if (state.finalReviewDigest !== digest(run, ['final-review-result.json', 'final-review.md']) || state.finalReviewCheckoutDigest !== state.verifiedCheckoutIdentity) throw new Error('Clean final independent review changed before shipment');
       };
@@ -866,11 +901,23 @@ export function main(args, cwd = process.cwd()) {
       if (checkoutIdentity(root).digest !== inventory || staged.index !== git(root, 'ls-files', '--stage', '-z') || staged.status !== git(root, 'status', '--porcelain=v1', '-z')) throw new Error('Checkout/index/status changed after scoped git add; nothing was reset, reconcile manually');
       validateDecisionIntegrity(run, state);
       const commit = command(['git', 'commit', '-m', `fix: resolve bug ${state.id}`], root); if (commit.code !== 0) throw new Error(commit.output);
-      // Push only the reviewed commit and current branch: no tags, force, npm publish, or unrelated refs.
-      const push = command(['git', 'push', 'origin', `HEAD:refs/heads/${state.branch}`], root);
-      const shipment = { sha: git(root, 'rev-parse', 'HEAD'), pushed: push.code === 0, output: push.output };
+      const shipment = { sha: git(root, 'rev-parse', 'HEAD'), branch: state.branch, worktree: root, merged: false, pushed: false };
       save(join(run, 'shipment.json'), shipment);
-      if (push.code !== 0) throw new Error('Commit created, push failed. Inspect shipment.json; do not rerun the workflow blindly.');
+      // Merge only the reviewed branch into the unchanged owner main. A
+      // divergence/conflict requires manual reconciliation, never reset/rebase
+      // or an unreviewed merge resolution. Keep branch, worktree and evidence.
+      assertOwner(state);
+      if (git(state.ownerRoot, 'status', '--porcelain')) throw new Error('Owner checkout changed before merge; preserve both checkouts and reconcile manually');
+      const merge = command(['git', 'merge', '--ff-only', '--', state.branch], state.ownerRoot);
+      shipment.merged = merge.code === 0; shipment.mergeOutput = merge.output;
+      save(join(run, 'shipment.json'), shipment);
+      if (merge.code !== 0) throw new Error('Fix committed, merge to main failed. Inspect shipment.json; worktree and branch retained.');
+      if (git(state.ownerRoot, 'rev-parse', 'HEAD') !== shipment.sha || git(state.ownerRoot, 'branch', '--show-current') !== 'main' || git(state.ownerRoot, 'status', '--porcelain')) throw new Error('Owner main changed after merge; preserve worktree/branch and reconcile manually');
+      // Push just the reviewed main SHA: no force, tags, or unrelated refs.
+      const push = command(['git', 'push', 'origin', `${shipment.sha}:refs/heads/main`], state.ownerRoot);
+      shipment.pushed = push.code === 0; shipment.output = push.output;
+      save(join(run, 'shipment.json'), shipment);
+      if (push.code !== 0) throw new Error('Commit merged to main, push failed. Inspect shipment.json; worktree and branch retained, do not rerun blindly.');
       try {
         shipment.piConfig = existsSync(join(root, 'package.json')) && json(join(root, 'package.json')).name === '@bitmonk8/pi-theta'
           ? updatePiConfig(shipment.sha, command)
@@ -882,6 +929,19 @@ export function main(args, cwd = process.cwd()) {
         throw new Error('pi-theta was pushed, but the pi-config dependency update failed. Inspect shipment.json and pi-config status/log; reconcile only the consumer update, do not rerun the fix. ' + error.message);
       }
     });
+    // All shipping side effects, including the consumer update, succeeded.
+    // Never clean up on a failed push/update, pause, release, or ship false.
+    const shipment = json(join(run, 'shipment.json'));
+    try {
+      git(state.ownerRoot, 'worktree', 'remove', root);
+      git(state.ownerRoot, 'branch', '-d', state.branch);
+      shipment.cleaned = true;
+      save(join(run, 'shipment.json'), shipment);
+    } catch (error) {
+      shipment.cleanupError = error.message;
+      save(join(run, 'shipment.json'), shipment);
+      throw new Error('Shipment succeeded but cleanup incomplete; inspect shipment.json and reconcile manually. ' + error.message);
+    }
     rmSync(lock, { recursive: true });
     console.log('PASS'); return;
   } else throw new Error('Unknown operation');

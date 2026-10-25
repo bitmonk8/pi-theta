@@ -2632,7 +2632,8 @@ describe("bug 0124 (x) — the committed corpus declares no annotation in this c
     // parameters and two fn returns. Delegated decisions add two typed query/
     // return sinks, eight fn parameters and three fn returns. The new Astra
     // worker adds one corpus member; workflow returns remain inferred.
-    ).toEqual([49, 47, 18]);
+    // Worktree dispatch adds one annotated run-path parameter.
+    ).toEqual([49, 48, 18]);
     expect(
       offenders,
       `x1: ZERO offenders — no committed fixture changes disposition when the refusal lands, so ` +

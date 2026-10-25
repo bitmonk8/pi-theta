@@ -6,7 +6,6 @@ tools:
   - bash
   - read
   - write
-  - question
   - theta_print
   - ./workers/bugfix-stage.theta
   - ./workers/bugfix-review.theta
@@ -15,7 +14,6 @@ tools:
 params:
   arguments: string
 ---
-schema OwnerOption { label: string, description: string }
 fn shell_path(path: string): string {
   "'" + path.replace("'", "'\\''") + "'"
 }
@@ -75,6 +73,13 @@ fn control(command: string): boolean {
   }
   output.trim() == "PASS"
 }
+// Spawn workers in the actual isolated checkout, not merely prompt them to cd.
+// Run artifacts remain in the original checkout and survive worktree cleanup.
+fn worktree(run: string) {
+  let tree = bash({ command: "node -e 'process.stdout.write(JSON.parse(require(\"node:fs\").readFileSync(process.argv[1],\"utf8\")).root)' " + shell_path(run + "/state.json") })?.trim()
+  if !tree.startsWith("/") || tree.includes("\n") { return "" }
+  tree
+}
 // Cache only durably recorded successful stages. Blocked/interrupted stages
 // rerun; original red proof and fresh verification/reviews stay controller-owned.
 fn stage_attempt(run: string, phase: string, feedback: string) {
@@ -91,7 +96,9 @@ fn stage_attempt(run: string, phase: string, feedback: string) {
   }
   if cached.trim() != "RUN" { return worker_failure("Checkpoint validation failed: " + cached) }
   if !control(command + "begin " + quoted + " " + phase) { return worker_failure("Could not begin stage checkpoint: " + phase) }
-  let result = match bugfix_stage(run, phase, feedback) {
+  let tree = worktree(run)?
+  if tree == "" { return worker_failure("Invalid isolated worktree path in state.json") }
+  let result = match bugfix_stage(run, phase, feedback) with { cwd: tree } {
     Ok(value) => value,
     Err(error) => worker_failure(error_reason(error)),
   }
@@ -99,7 +106,9 @@ fn stage_attempt(run: string, phase: string, feedback: string) {
   if !control(command + "record " + quoted + " " + phase) { return worker_failure("Could not record stage result: " + phase) }
   result
 }
-// A fresh Astra pass owns routine authorizations, never shipment or gate waivers.
+// Astra chooses exact scoped implementation decisions, including provisional
+// tradeoffs. Owner approval is deferred until every review/gate has passed;
+// provisional authority never grants shipment or gate waivers.
 // Persist its typed value without an extra model formatting/explanation turn.
 schema DecisionRecord {
   disposition: "continue" | "human" | "blocked",
@@ -142,7 +151,9 @@ fn resolve_decision(run: string, phase: string) {
   if kind != "SPEC" && kind != "SCOPED" {
     return DecisionOutcome { proceed: false, feedback: "Invalid decision scope discriminator.", context_path: context }
   }
-  let result = bugfix_decide(context)
+  let tree = worktree(run)?
+  if tree == "" { return DecisionOutcome { proceed: false, feedback: "Invalid isolated worktree path", context_path: context } }
+  let result = bugfix_decide(context) with { cwd: tree }
   let failure = match result { Ok(_) => "", Err(error) => error_reason(error) }
   if failure != "" {
     theta_print({ text: "Astra decision pass failed; no authorization granted: " + failure + "\nContext: " + context })?
@@ -162,19 +173,9 @@ fn resolve_decision(run: string, phase: string) {
     + "\nAstra recommends: " + decision.recommendation + "\nReasoning: " + decision.rationale
     + "\nBasis: " + decision.basis.join("; ") + "\nAlternatives: " + decision.alternatives.join("; ")
     + "\nExact context: " + context })?
-  if disposition != "HUMAN" {
-    return DecisionOutcome { proceed: false, feedback: "No authorization: " + context, context_path: context }
-  }
-  // Only genuine unresolved tradeoffs reach a dialog. Default/cancel/free text
-  // and a missing UI remain refusals; the controller validates the exact answer.
-  let label = kind == "SPEC" ? "Approve proposed spec changes" : "Approve recommended scoped decision"
-  let answer = question({ question: "Astra found an unresolved tradeoff. Approve the exact recommended "
-      + (kind == "SPEC" ? "specification proposal" : "scoped decision") + " described above?",
-    options: [OwnerOption { label: "Keep paused for discussion", description: "No new authority; preserve the patch and evidence." },
-      OwnerOption { label: label, description: "Approve only the recorded exact scope and recommendation; no gate waiver or general rebaseline." }] })?
-  write({ path: context + ".answer.txt", content: answer })?
-  let accepted = control(prefix + "decision-answer " + quoted + " " + shell_path(context))
-  DecisionOutcome { proceed: accepted, feedback: feedback, context_path: context }
+  // The controller must record provisional scope before CONTINUE. Any other
+  // response is not authority; never fall back to a mid-run approval dialog.
+  DecisionOutcome { proceed: false, feedback: "No authorization: " + context, context_path: context }
 }
 // Up to three attempts per stage call. Every substantive blocked/decision
 // outcome receives a fresh assessment before owner escalation, not a keyword heuristic.
@@ -346,6 +347,9 @@ outcome
 fn drive(run: string, bug: string, ship: boolean, review_rounds: integer) {
 let prefix = "node tools/bugfix/run.mjs "
 let quoted = shell_path(run)
+let tree = worktree(run)?
+if tree == "" { return checkpoint_stop(bug, "Worker checkout", "Invalid isolated worktree path.",
+  "Inspect state.json.", "Do not run workers in the original checkout.", run) }
 let reproduce = match run_stage(run, "reproduce", "") {
   Ok(value) => value,
   Err(error) => worker_failure(error_reason(error)),
@@ -380,7 +384,7 @@ if plan.status != "pass" && plan.status != "needs_spec" {
 }
 if !control(prefix + "snapshot " + quoted) { return checkpoint_stop(bug, "Evidence review snapshot", "Evidence snapshot failed.",
   "Check checkout drift and approval against state.json.", "Resolve the snapshot failure before independent review.", run) }
-let evidence_result = bugfix_review(run, "evidence")
+let evidence_result = bugfix_review(run, "evidence") with { cwd: tree }
 let evidence_error = match evidence_result { Ok(_) => "", Err(error) => error_reason(error) }
 if evidence_error != "" { return checkpoint_stop(bug, "Evidence/plan review — worker execution", evidence_error,
   "Inspect the reviewer failure and preserve the existing evidence/plan.", "Resolve the reviewer failure before implementation; it is not a verdict on bug validity.", run) }
@@ -441,7 +445,7 @@ while round < review_rounds {
   round += 1
   if !control(prefix + "snapshot " + quoted) { return checkpoint_stop(bug, "Independent fix review — snapshot", "Review snapshot failed.",
     "Check checkout drift and approval against state.json.", "Resolve the snapshot failure before review.", run) }
-  let review_result = bugfix_review(run, "fix")
+  let review_result = bugfix_review(run, "fix") with { cwd: tree }
   let review_error = match review_result { Ok(_) => "", Err(error) => error_reason(error) }
   if review_error != "" { return checkpoint_stop(bug, "Independent fix review — worker execution", review_error,
     "Inspect the reviewer failure; retain the current fix and prior review evidence.", "Resolve the reviewer failure before proceeding; do not repair code based on a missing review.", run) }
@@ -483,7 +487,7 @@ if !control(prefix + "gate " + quoted + " final") { return checkpoint_stop(bug, 
   "Find the failed command in green-*.json or gate-*-final-*.json and resolve its cause.", "Do not ship until the final diff passes verification.", run) }
 if !control(prefix + "snapshot " + quoted) { return checkpoint_stop(bug, "Final review snapshot", "Final snapshot failed.",
   "Check checkout drift and approval against state.json.", "Resolve the snapshot failure before final review.", run) }
-let final_result = bugfix_review(run, "final")
+let final_result = bugfix_review(run, "final") with { cwd: tree }
 let final_error = match final_result { Ok(_) => "", Err(error) => error_reason(error) }
 if final_error != "" { return checkpoint_stop(bug, "Final verification review — worker execution", final_error,
   "Inspect the reviewer failure; do not assume final approval.", "Obtain a completed final review before shipment.", run) }
@@ -507,19 +511,30 @@ if !control(prefix + "final-review-record " + quoted) {
   return checkpoint_stop(bug, "Final review — durable verification", "Could not bind clean final review to the verified checkout.",
     "Inspect final-review-result.json and post-gate drift before continuing.", "Do not ship or waive final review integrity.", run)
 }
+// Only now, after clean final review bound to fresh green gates, surface owner
+// choices. A non-CLEAR response fails closed and preserves the resumable worktree.
+let approvals = bash({ command: prefix + "approval-report " + quoted })?.trim()
+if approvals != "CLEAR" {
+  if !approvals.startsWith("PENDING OWNER APPROVAL — shipment blocked") {
+    return checkpoint_stop(bug, "Deferred approval integrity", approvals,
+      "Inspect decision records and approval-report failure.", "Do not infer approval clearance or ship on an invalid report.", run)
+  }
+  return "VERIFIED — OWNER APPROVAL REQUIRED; NOT MERGED OR PUSHED\n" + approvals
+    + "\nAll reviews and gates passed. Branch and worktree retained; no decision is approved by silence.\nWorktree: " + tree + "\nReports: " + run
+}
 if !ship {
   if !control(prefix + "release " + quoted) { return checkpoint_stop(bug, "Local handoff — lease release", "Checkout lease release failed after verification.",
     "Inspect .pi/tmp/fix-bug.lock/owner.json before releasing the stopped run's lease.", "Preserve the verified local fix; do not start an overlapping run.", run) }
-  return "VERIFIED, NOT SHIPPED: inspect the diff and reports in " + run + ". No commit, push, tag or package publication performed."
+  return "VERIFIED, NOT SHIPPED: branch and worktree retained; inspect state.json and reports in " + run + ". No commit, merge, push, tag or package publication performed."
 }
-theta_print({ text: "VERIFIED — committing and pushing bug " + bug + " under standing owner permission.\nFor pi-theta, also update and push pi-config's dependency pin to the new HEAD.\nNo version bump, tag or npm publication. Reports: " + run + "\n" + final_review.findings })?
+theta_print({ text: "VERIFIED — committing bug " + bug + ", merging to main and pushing under standing owner permission.\nFor pi-theta, also update and push pi-config's dependency pin to the new HEAD.\nNo version bump, tag or npm publication. Reports: " + run + "\n" + final_review.findings })?
 if !control(prefix + "ship " + quoted) { return stop_report(bug, "Shipment / commit / push",
   "Automatic commit/push failed or shipment guards refused it.", "Unknown — inspect shipment evidence.",
   "Confirmed by the reviewed evidence.", "Fix verified; shipment state is a separate question.",
   "Final verification/review passed. A commit or push MAY have occurred; do not assume either outcome.",
   "Inspect shipment.json if present and git status/log before retrying.",
   "Establish commit/push state before any retry; never force push or restart blindly.", run) }
-"COMMITTED AND PUSHED (including pi-config dependency update for pi-theta) - reports and SHAs in " + run + "/shipment.json"
+"MERGED TO MAIN AND PUSHED (including pi-config dependency update for pi-theta); temporary branch/worktree cleaned up - reports and SHAs in " + run + "/shipment.json"
 }
 
 // One deterministic completion surface for EVERY normal terminal branch:

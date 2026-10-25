@@ -1160,7 +1160,8 @@ const EXPECTED_SHIPPED_THETALIB = 3;
 // Delegated decisions add one worker template; deterministic presentation and
 // automatic shipment remove two parent templates. Net measured delta: -1/-2.
 const EXPECTED_TEMPLATES = 68;
-const EXPECTED_INTERPOLATIONS = 231;
+// Worktree-aware stage/review instructions add two run-directory references.
+const EXPECTED_INTERPOLATIONS = 233;
 
 /**
  * The token classes expressions.md:25–40 refuses, as raw substrings. A committed
