@@ -54,6 +54,10 @@ mental model read the [Guide](../guide.md); for the first end-to-end run, the
   `/fix-bug` workflow in this checkout, prove red/green behavior, delegate routine
   decisions to Astra, escalate genuine tradeoffs, review and automatically
   commit/push by default (`ship false` keeps the verified fix local).
+- [Fix ready open bugs in parallel](./fix-all-bugs.md) — assess readiness and
+  dependencies, run the existing `/fix-bug` in up to four isolated lanes, then
+  review, verify and integrate results sequentially without shipping pending
+  owner decisions.
 
 ## Watching and reporting live progress
 

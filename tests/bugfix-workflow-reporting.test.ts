@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { topLevelThetaHostEnv } from "./helpers/top-level-theta-env";
 import { parseThetaDocument } from "../src/parser/theta-document";
@@ -170,7 +170,7 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
     + ' } }); }\n');
   writeFileSync(join(agent, "auth.json"), JSON.stringify({ openai: { type: "api_key", key: "pi-theta-no-network" } }));
   writeFileSync(join(agent, "settings.json"), JSON.stringify({ defaultProvider: "openai", defaultModel: "gpt-5.5", defaultProjectTrust: "always", theta: { binderModel: "openai/gpt-5.5" } }));
-  writeFileSync(join(cwd, ".gitignore"), "agent/\n.pi/tmp/\n");
+  writeFileSync(join(cwd, ".gitignore"), "agent/\n.pi/tmp/\n/.trees/\n");
   writeFileSync(join(cwd, "docs/bugs/0001-example.md"), "# Example\n- **Status:** " + (options.ranking === "empty" ? "fixed" : "open") + "\n");
   if (["two", "missing", "duplicate", "backwards", "cycle"].includes(options.ranking ?? "one")) {
     writeFileSync(join(cwd, "docs/bugs/0002-higher-impact.md"), "# More impact\n- **Status:** open\n");
@@ -313,7 +313,7 @@ function pendingApproval(result: ReturnType<typeof probe>) {
   expect(result.branchRetained).toBe(true);
   expect(result.worktreeRetained).toBe(true);
   expect(result.worktrees).toContain(state.root);
-  expect(state.root).toBe(join(result.runPath, "worktree"));
+  expect(state.root).toBe(join(state.ownerRoot, ".trees", basename(result.runPath)));
   expect(result.runArtifactsRetained).toBe(true);
   expect(result.leaseRetained).toBe(true);
 }

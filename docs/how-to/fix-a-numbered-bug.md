@@ -74,10 +74,18 @@ Prerequisites:
 - OpenAI access to GPT-6.1 Sol (stage workers) and GPT-6 Astra (ranking,
   independent reviews and delegated decisions). Argument parsing needs no model.
 
-Every numbered fix uses a **dedicated branch and Git worktree**. `state.root`
-identifies that worktree; all worker edits, tests and gates run there, not in the
-original checkout. Durable reports stay in the original checkout's ignored run
-directory so successful cleanup cannot delete the evidence. Dependencies must be
+Every numbered fix uses a **dedicated branch and Git worktree** under the
+repository's gitignored `.trees/` directory:
+
+```text
+.trees/fix-bug-<number>-<uuid>/
+```
+
+`state.root` identifies that worktree; all worker edits, tests and gates run there,
+not in the original checkout. The controller requires `.trees/` to be ignored and
+untracked, and refuses a symlink in its place. Durable reports stay separately in
+the original checkout's ignored `.pi/tmp/` run directory so successful cleanup
+cannot delete the evidence. Dependencies must be
 available in the new worktree before verification can succeed.
 
 A new run saves its requested options and claims active execution before publishing

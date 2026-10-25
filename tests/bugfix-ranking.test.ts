@@ -10,7 +10,7 @@ function fixture(empty = false) {
   const git = (...args: string[]) => spawnSync("git", args, { cwd, encoding: "utf8" });
   expect(git("init", "-b", "main").status).toBe(0);
   mkdirSync(join(cwd, "docs/bugs"), { recursive: true });
-  writeFileSync(join(cwd, ".gitignore"), ".pi/tmp/\n");
+  writeFileSync(join(cwd, ".gitignore"), ".pi/tmp/\n/.trees/\n");
   const reports = {
     first: "docs/bugs/0001-prerequisite-documentation.md",
     second: "docs/bugs/0002-silent-payload-corruption.md",

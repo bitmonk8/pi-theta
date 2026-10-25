@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { failLoudly, parseSystemNoteCodes, spawnPiPrint } from "./harness";
@@ -50,7 +50,7 @@ function fixture(kind: FixtureKind) {
   const request = preferred
     ? "Authorize only tests/value.test.cjs case legacy-known: change expected lookup('known') from 1 to 2. Retain known=2 and unknown=undefined controls unchanged; add no production/spec scope. This exactly implements docs/owner-decisions.md#exact-legacy-ruling. Retain the original witnesses.json, argv/signature and red-0.json unchanged. Independent review and all green gates still required."
     : "Decide this exact proposed scope, option A: retain src/token.cjs valid() acceptance of authenticated legacy tokens without exp for offline deployment compatibility; preserve rejection of invalid signatures and expired tokens unchanged. The materially valid alternative, option B, rejects every token without exp to enforce bounded credential lifetime, but is not the proposed scope. There is no existing owner preference for A over B. Choose a concrete provisional course within this exact proposal, not a request for a midrun owner answer. No other production/spec scope, owner-policy priority, review/gate waiver or shipment permission is requested. Preserve original witness proof, independent review and green gates.";
-  put(".gitignore", ".pi/tmp/\n");
+  put(".gitignore", ".pi/tmp/\n/.trees/\n");
   put("AGENTS.md", [
     "# Fixture project principles",
     "Preserve established language/runtime semantics and exact explicit owner rulings.",
@@ -130,7 +130,9 @@ function fixture(kind: FixtureKind) {
   git(cwd, "add", "."); git(cwd, "commit", "-m", "live decision fixture");
   const run = invoke(cwd, "init", "1");
   const worktree = JSON.parse(readFileSync(join(run, "state.json"), "utf8")).root as string;
-  expect(worktree).not.toBe(cwd);
+  expect(worktree).toBe(join(cwd, ".trees", basename(run)));
+  expect(git(cwd, "check-ignore", worktree)).toBe(worktree);
+  expect(existsSync(join(run, "worktree"))).toBe(false);
   const manifest = JSON.stringify({
     e2e: [{ argv: [process.execPath, "-e", "if(require('./src/value.cjs').decodedCount()!==2){console.error('AssertionError: original decoded count expected 2 got 1');process.exit(1)}"], failure_pattern: "AssertionError: original decoded count expected 2 got 1" }],
     unit: [], unit_omission_reason: "Independent e2e witness suffices for the decision-only fixture", live_required: false, live: [],

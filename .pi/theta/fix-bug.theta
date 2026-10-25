@@ -257,7 +257,8 @@ if arguments.trim() != "" {
     Err(error) => "INVALID: " + error.message,
   }
   let fields = parsed.trim().split("\n")
-  if fields.length != 4 || (fields[0] != "FIX" && fields[0] != "RESUME") {
+  // BATCH is a controller-validated job manifest, not independent ship authority.
+  if fields.length != 4 || (fields[0] != "FIX" && fields[0] != "RESUME" && fields[0] != "BATCH") {
     return stop_report("(not selected)", "Argument validation (before reproduction)",
       "Invalid arguments. " + parsed, "No — invalid command arguments.",
       "Unknown — no bug examined.", "Unknown — no fix attempted.",

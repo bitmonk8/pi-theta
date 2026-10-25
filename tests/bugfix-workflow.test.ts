@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { parseDeps } from "./helpers/e2e-s1";
 import { classifyBinderBypass } from "../src/binder/binder-envelope";
@@ -22,7 +22,7 @@ function repo(remote = false) {
   const putAt = (root: string, path: string, text: string) => {
     mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), text);
   };
-  putAt(owner, ".gitignore", ".pi/tmp/\n");
+  putAt(owner, ".gitignore", ".pi/tmp/\n/.trees/\n");
   putAt(owner, "docs/bugs/0001-example.md", "# Example\n- **Status:** open\n");
   putAt(owner, "src/value.js", "export const value = 1;\n");
   putAt(owner, "tests/retained.js", "// original tests\n");
@@ -69,11 +69,15 @@ describe("numbered bug workflow control plane", () => {
       }
     } finally { f.cleanup(); }
   });
-  it("creates a dedicated branch/worktree, keeps artifacts outside it, and leaves the owner checkout unchanged", () => {
+  it("creates the standalone worktree under ignored owner-root .trees, keeps artifacts separate, and leaves the owner checkout unchanged", () => {
     const f = repo();
     try {
-      expect(f.root).not.toBe(f.owner);
+      expect(f.run).toMatch(new RegExp("/\\.pi/tmp/fix-bug-0001-[0-9a-f-]+$"));
+      expect(f.root).toBe(join(f.owner, ".trees", basename(f.run)));
+      expect(git(f.owner, "check-ignore", f.root)).toBe(f.root);
       expect(f.run.startsWith(f.root + "/")).toBe(false);
+      expect(f.root.startsWith(f.run + "/")).toBe(false);
+      expect(existsSync(join(f.run, "worktree"))).toBe(false);
       expect(f.state()).toMatchObject({ ownerRoot: f.owner, ownerBranch: "main", ownerBase: f.base, base: f.base });
       expect(git(f.root, "branch", "--show-current")).toBe(f.state().branch);
       expect(f.state().branch).toMatch(/^fix-bug\/0001-/);
@@ -82,6 +86,21 @@ describe("numbered bug workflow control plane", () => {
       expect(git(f.owner, "status", "--porcelain")).toBe("");
       expect(git(f.owner, "rev-parse", "HEAD")).toBe(f.base);
       expect(invoke(f.root, "snapshot", f.run).stderr).toContain("original owner checkout");
+    } finally { f.cleanup(); }
+  });
+  it("refuses a standalone worktree when owner-root .trees is not gitignored", () => {
+    const f = repo();
+    try {
+      f.ok("release", f.run);
+      git(f.owner, "worktree", "remove", f.root);
+      writeFileSync(join(f.owner, ".gitignore"), ".pi/tmp/\n");
+      git(f.owner, "add", ".gitignore"); git(f.owner, "commit", "-m", "remove worktree ignore");
+      const result = f.call("init", "1");
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("gitignored");
+      expect(git(f.owner, "worktree", "list", "--porcelain").match(/^worktree /gm)).toHaveLength(1);
+      expect(existsSync(join(f.owner, ".pi/tmp/fix-bug.lock"))).toBe(false);
+      expect(git(f.owner, "status", "--porcelain")).toBe("");
     } finally { f.cleanup(); }
   });
   it("lists current open bugs numerically even when dirty and rejects invalid/new closed requests", () => {

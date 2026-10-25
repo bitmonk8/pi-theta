@@ -32,7 +32,7 @@ function fixture(phase = "implement", scoped = true, planScoped = false) {
   git(cwd, "init", "-b", "main");
   git(cwd, "config", "user.email", "test@example.invalid");
   git(cwd, "config", "user.name", "Test");
-  put(".gitignore", ".pi/tmp/\n");
+  put(".gitignore", ".pi/tmp/\n/.trees/\n");
   put("AGENTS.md", "Preserve existing semantics and independent review; never waive green gates or erase original reds.\n");
   put("docs/bugs/0001-example.md", "# Example\n- **Status:** open\n");
   put("docs/owner-decisions.md", "# Value\nOwner ruling: value=2 is the existing contract; correct the exact legacy-value oracle only, retaining controls and original red proof.\n");

@@ -25,7 +25,7 @@ function fixture() {
   mkdirSync(join(cwd, "src"));
   mkdirSync(join(cwd, "tests"));
   mkdirSync(join(cwd, ".pi/theta"), { recursive: true });
-  writeFileSync(join(cwd, ".gitignore"), ".pi/tmp/\n");
+  writeFileSync(join(cwd, ".gitignore"), ".pi/tmp/\n/.trees/\n");
   writeFileSync(join(cwd, ".pi", "theta", "fix-bug.theta"), "// frozen control identity\n");
   writeFileSync(join(cwd, "docs/bugs/0001-example.md"), "# Example\n- **Status:** open\n");
   writeFileSync(join(cwd, "src/value.js"), "export const value = 1;\n");

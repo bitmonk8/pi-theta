@@ -50,8 +50,8 @@ const SEEDED_INVALID_DIR = "tests/fixtures/h7b-invalid/";
  * loudly naming the unmet precondition (`AGENTS.md:60`) rather than passing
  * over fewer files.
  */
-// /fix-bug's read-only Astra decision worker adds one committed theta source.
-const EXPECTED_SHIPPED_THETA = 57;
+// /fix-all-bugs adds the coordinator and three batch workers.
+const EXPECTED_SHIPPED_THETA = 61;
 const EXPECTED_SHIPPED_THETALIB = 3;
 
 /**

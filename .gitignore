@@ -33,6 +33,9 @@ Thumbs.db
 .pi/git/
 .pi/npm/
 
+# Disposable bugfix and integration Git worktrees (reports stay in .pi/tmp/).
+/.trees/
+
 # Local user layer: everything except the README that keeps the dir on clones.
 .localpi/*
 !.localpi/README.md

@@ -1,0 +1,145 @@
+---
+description: Fix ready open bugs in four dependency-aware lanes and integrate sequentially with Astra
+mode: prompt
+tools:
+  - bash
+  - read
+  - write
+  - theta_print
+  - ./workers/bugfix-batch-plan.theta
+  - ./workers/bugfix-batch-lane.theta
+  - ./workers/bugfix-batch-merge.theta
+params:
+  arguments: string
+---
+schema BatchBug {
+  id: string, ready: boolean, reason: string,
+  dependencies: array<string>, files: array<string>
+}
+fn quote(value: string): string { "'" + value.replace("'", "'\\''") + "'" }
+fn json_text(value: string): string {
+  "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"")
+    .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t") + "\""
+}
+fn json_list(values: array<string>): string {
+  let mut text = ""
+  for value in values {
+    if text != "" { text += "," }
+    text += json_text(value)
+  }
+  "[" + text + "]"
+}
+fn checked(command: string): boolean {
+  let output = match bash({ command: command }) { Ok(text) => text, Err(_) => "CONTROL_ERROR" }
+  output.trim() == "PASS"
+}
+fn execute(arguments: string) {
+  if arguments.trim() != "" { return "Usage: /fix-all-bugs (no arguments). Four lanes, fresh readiness assessment, sequential integration." }
+  let prefix = "node tools/bugfix/batch.mjs "
+  let run = bash({ command: prefix + "start" })?.trim()
+  if !run.startsWith("/") || !run.includes("/.pi/tmp/fix-all-bugs-") || run.includes("\n") {
+    return "BATCH STOP — could not acquire a clean main checkout: " + run
+  }
+  let quoted = quote(run)
+  // Every normal failure after start preserves all work and releases only the
+  // settled batch's execution lease. Runtime/cancellation errors keep the lease
+  // conservatively: surviving children must be checked before manual release.
+  let result = match coordinate(run) {
+    Ok(text) => text,
+    Err(error) => "BATCH STOP — " + error.message + "\nInspect retained work and reports: " + run,
+  }
+  let finished = match bash({ command: prefix + "finish " + quoted }) {
+    Ok(text) => text.trim(), Err(error) => error.message,
+  }
+  let handoff = finished == "PASS" ? "" : "\nBatch lease retained; inspect active jobs/integration before releasing it.\n" + finished
+  // Regenerate AFTER finish and on EVERY stop path. This includes known pushed
+  // SHAs and incomplete consumer updates/cleanup, not just a generic refusal.
+  let audit = match bash({ command: prefix + "render-report " + quoted }) {
+    Ok(text) => text, Err(error) => "Outcome report unavailable: " + error.message + "\nInspect " + run,
+  }
+  result + handoff + "\n" + audit
+}
+fn coordinate(run: string) {
+  let prefix = "node tools/bugfix/batch.mjs "
+  let quoted = quote(run)
+  let catalog = bash({ command: prefix + "catalog " + quoted })?.trim()
+  if catalog == "EMPTY" { return "No open bugs." }
+  if !catalog.startsWith(run + "/") || !catalog.endsWith("/catalog.json") || catalog.includes("\n") {
+    return "BATCH STOP — invalid catalog: " + catalog + "\nReports: " + run
+  }
+  theta_print({ text: "Assessing open-bug readiness, dependencies and predicted edit overlap. Reports: " + run })?
+  let assessment = bugfix_batch_plan(catalog)?
+  let bugs: array<BatchBug> = assessment.bugs
+  let guidance: array<string> = assessment.guidance
+  let mut wire = ""
+  for bug in bugs {
+    if wire != "" { wire += "," }
+    wire += "{\"id\":" + json_text(bug.id) + ",\"ready\":" + (bug.ready ? "true" : "false")
+      + ",\"reason\":" + json_text(bug.reason) + ",\"dependencies\":" + json_list(bug.dependencies)
+      + ",\"files\":" + json_list(bug.files) + "}"
+  }
+  write({ path: run + "/plan.json", content: "{\"bugs\":[" + wire + "],\"guidance\":" + json_list(guidance) + "}" })?
+  if !checked(prefix + "plan " + quoted) { return "BATCH STOP — readiness/dependency plan validation failed. Reports: " + run }
+  let mut wave = 0
+  // Up to 1000 one-bug dependency waves plus the final DONE observation.
+  while wave < 1001 {
+    wave += 1
+    let next = bash({ command: prefix + "next " + quoted })?.trim()
+    if next == "DONE" { return "Batch scheduling complete." }
+    let manifests: array<string> = next.split("\n")
+    if manifests.length < 1 || manifests.length > 4 { return "BATCH STOP — invalid four-lane schedule. Reports: " + run }
+    for manifest in manifests {
+      if !manifest.startsWith(run + "/jobs/") || !manifest.endsWith(".json") {
+        return "BATCH STOP — invalid job manifest: " + manifest + "\nReports: " + run
+      }
+    }
+    theta_print({ text: "Starting a dependency-safe wave of up to four isolated /fix-bug lanes. Reports: " + run })?
+    // One lane error does not cancel its siblings. Collect EVERY settled result,
+    // then independently verify durable controller evidence, never its summary.
+    let results = par for manifest in manifests max 4 { bugfix_batch_lane(manifest)? }
+    for result in results {
+      let note = match result { Ok(_) => "Lane settled; validating its recorded evidence.", Err(error) => "Lane failed: " + error.message }
+      theta_print({ text: note })?
+    }
+    // All fixers are settled BEFORE main changes. No concurrent merge or owner
+    // checkout drift under an active fixer. Iterate in scheduler/input order.
+    let mut verified: array<string> = []
+    for manifest in manifests {
+      let id = manifest.split("/").slice(-1).join("").replace(".json", "")
+      let collected = bash({ command: prefix + "collect " + quoted + " " + quote(id) })?.trim()
+      if collected == "VERIFIED" { verified = verified.concat([id]) }
+      else if collected != "BLOCKED" && collected != "PENDING" {
+        return "BATCH STOP — invalid lane evidence for " + id + ": " + collected + "\nReports: " + run
+      }
+    }
+    for id in verified {
+      let context = bash({ command: prefix + "integration-start " + quoted + " " + quote(id) })?.trim()
+      if !context.startsWith(run + "/") || !context.endsWith(".json") || context.includes("\n") {
+        return "BATCH STOP — integration setup failed: " + context + "\nReports: " + run
+      }
+      theta_print({ text: "Astra is integrating bug " + id + " sequentially; fresh merged-tree gates are mandatory." })?
+      let merged = bugfix_batch_merge(context)
+      let error = match merged { Ok(_) => "", Err(problem) => problem.message }
+      if error != "" {
+        write({ path: run + "/integration-result-" + id + ".json", content: "{\"ok\":false,\"findings\":" + json_text(error) + "}" })?
+      } else {
+        let verdict = merged?
+        write({ path: run + "/integration-result-" + id + ".json", content: "{\"ok\":" + (verdict.ok ? "true" : "false") + ",\"findings\":" + json_text(verdict.findings) + "}" })?
+      }
+      let recorded = match bash({ command: prefix + "integrate-record " + quoted + " " + quote(id) }) {
+        Ok(text) => text.trim(), Err(problem) => problem.message,
+      }
+      if recorded != "PASS" {
+        return "BATCH STOP — integration/shipment did not complete for bug " + id
+          + ". A push MAY already have succeeded; inspect the outcome report before retrying.\n" + recorded + "\nReports: " + run
+      }
+    }
+  }
+  "BATCH STOP — wave limit reached; all remaining work retained. Reports: " + run
+}
+let report = match execute(arguments) {
+  Ok(text) => text,
+  Err(error) => "BATCH STOP — " + error.message + ". Inspect .pi/tmp/fix-all-bugs-* and its lease before retrying.",
+}
+theta_print({ text: report })?
+report

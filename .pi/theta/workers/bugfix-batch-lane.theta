@@ -1,0 +1,15 @@
+---
+description: Execute an isolated batch bugfix lane
+mode: subagent
+model: "openai/gpt-6.1-sol"
+thinking: high
+tools: bash
+params:
+  manifest_path: string
+---
+// This prompt-mode invocation runs in this lane's PRIVATE conversation. The
+// controller-validated batch manifest gives /fix-bug its own lease/worktree and
+// forces ship false. No model is asked to improvise or reimplement the workflow.
+// Completion text is diagnostic only; the parent independently checks persisted
+// final gates, review binding, decisions and exact checkout before integration.
+invoke<string>("../fix-bug.theta", "batch " + manifest_path)?

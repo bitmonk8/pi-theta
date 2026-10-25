@@ -4,7 +4,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync, rmSync, renameSync, realpathSync, copyFileSync, lstatSync, readlinkSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve, join, isAbsolute, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { updatePiConfig } from './update-pi-config.mjs';
 
@@ -12,6 +12,22 @@ export function command(argv, cwd, timeout = 30 * 60 * 1000) {
   if (!Array.isArray(argv) || !argv.length || argv.some(x => typeof x !== 'string')) throw new Error('Command must be a nonempty argv array');
   const r = spawnSync(argv[0], argv.slice(1), { cwd, encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024 });
   return { code: r.error || r.signal ? -1 : r.status, output: (r.stdout ?? '') + (r.stderr ?? ''), error: r.error?.message };
+}
+export function worktreePath(root, name) {
+  if (!/^[a-zA-Z0-9_-]+$/.test(name)) throw new Error('Invalid dedicated worktree name');
+  return join(root, '.trees', name);
+}
+export function prepareWorktreePath(root, name) {
+  const path = worktreePath(root, name);
+  const folder = join(root, '.trees');
+  try {
+    const info = lstatSync(folder);
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('.trees must be a real directory, not a symlink');
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if (command(['git', 'check-ignore', '--quiet', '--no-index', '--', '.trees/' + name], root).code !== 0
+      || git(root, 'ls-files', '--', '.trees')) throw new Error('Worktrees require a gitignored, untracked .trees/ directory; add /.trees/ to .gitignore');
+  mkdirSync(folder, { recursive: true });
+  return path;
 }
 function git(root, ...args) {
   const r = command(['git', ...args], root);
@@ -90,6 +106,14 @@ export function validateWitnesses(value) {
 }
 export function approved(text, label) { return text.trim() === `User selected: 2. ${label}`; }
 export function parseBugRequest(text) {
+  // The manifest is the entire remainder, not shell words: spaces are valid
+  // path bytes, while line breaks cannot cross the four-line theta protocol.
+  const batch = /^batch[ \t]+([^\r\n]+)$/.exec(text.trim());
+  if (batch) {
+    const manifest = batch[1];
+    if (!isAbsolute(manifest) || resolve(manifest) !== manifest || /[\x00-\x1f\x7f]/.test(manifest)) throw new Error('Batch requires a canonical absolute manifest path');
+    return ['BATCH', manifest, 'false', '5'].join('\n');
+  }
   const words = text.trim().split(/\s+/);
   const resume = words[0] === 'resume';
   let start = 1;
@@ -199,10 +223,78 @@ function assertControls(state) {
   }
 }
 function assertOwner(state) {
-  if (git(state.ownerRoot, 'rev-parse', 'HEAD') !== state.ownerBase || git(state.ownerRoot, 'branch', '--show-current') !== state.ownerBranch) throw new Error('Owner HEAD/branch changed during workflow; stop and inspect');
+  // A settled batch source retains its original verified base, while earlier
+  // integrations in the same wave legitimately advance main. The parent lease
+  // and registered manifest are checked separately by assertLease; only the
+  // parent's durably recorded current main is an accepted owner advancement.
+  const expected = state.batchRun ? json(join(state.batchRun, 'state.json')).base : state.ownerBase;
+  if (git(state.ownerRoot, 'rev-parse', 'HEAD') !== expected || git(state.ownerRoot, 'branch', '--show-current') !== state.ownerBranch) throw new Error('Owner HEAD/branch changed during workflow; stop and inspect');
 }
 function controlPaths(root) {
   return ['tools/bugfix/run.mjs', 'tools/bugfix/update-pi-config.mjs', '.pi/theta/fix-bug.theta', '.pi/theta/workers/bugfix-stage.theta', '.pi/theta/workers/bugfix-review.theta', '.pi/theta/workers/bugfix-rank.theta', '.pi/theta/workers/bugfix-decide.theta'].filter(p => existsSync(join(root, p)));
+}
+function leasePath(run, state) { return state.batchRun ? join(run, 'lease') : join(state.ownerRoot, '.pi/tmp/fix-bug.lock'); }
+function batchManifest(cwd, manifestPath, requireCurrentBase = true) {
+  const ownerRoot = git(cwd, 'rev-parse', '--show-toplevel');
+  if (!isAbsolute(manifestPath) || resolve(manifestPath) !== manifestPath) throw new Error('Batch manifest path must be canonical and absolute');
+  if (!manifestPath.startsWith(ownerRoot + '/')) throw new Error('Batch manifest must be inside the original owner checkout');
+  const raw = localText(ownerRoot, manifestPath.slice(ownerRoot.length + 1), null);
+  if (raw === null) throw new Error('Missing batch manifest');
+  const rawDigest = hash(raw); // register and interpret the very same raw bytes
+  const manifest = JSON.parse(raw.toString('utf8'));
+  const { batchRun, id, base } = manifest;
+  const batchHome = join(ownerRoot, '.pi/tmp');
+  if (manifest.version !== 1 || manifest.ownerRoot !== ownerRoot || typeof batchRun !== 'string' || !/^fix-all-bugs-[0-9a-f-]{36}$/.test(batchRun.slice(batchHome.length + 1)) || !batchRun.startsWith(batchHome + '/') || resolve(batchRun) !== batchRun || !/^\d{4}$/.test(id) || !/^[0-9a-f]{40,64}$/.test(base) || manifest.review_rounds !== 5 || manifestPath !== join(batchRun, 'jobs', id + '.json')) throw new Error('Invalid batch job manifest');
+  // localText walks all components from the trusted checkout, rejecting links.
+  const parentRaw = localText(ownerRoot, batchRun.slice(ownerRoot.length + 1) + '/state.json');
+  const parent = parentRaw === null ? null : JSON.parse(parentRaw);
+  const entry = parent?.jobs?.[id];
+  if (parent?.version !== 1 || parent.root !== ownerRoot || entry?.manifest !== manifestPath || entry.manifestDigest !== rawDigest) throw new Error('Batch manifest is not registered with its exact immutable digest');
+  // Only launch admission requires a scheduled, unfinished parent. Settled
+  // exports still authenticate this immutable identity after job/main advances.
+  if (requireCurrentBase && (parent.finished || entry.status !== 'scheduled')) throw new Error('Batch launch requires an unfinished parent and a scheduled job');
+  const owner = JSON.parse(localText(ownerRoot, '.pi/tmp/fix-bug.lock/owner.json') ?? 'null');
+  if (owner?.run !== batchRun || owner.kind !== 'batch') throw new Error('Batch does not own the checkout lease');
+  const current = git(ownerRoot, 'rev-parse', 'HEAD');
+  if (git(ownerRoot, 'branch', '--show-current') !== 'main' || current !== (requireCurrentBase ? base : parent.base)) throw new Error('Batch job base must equal current owner main HEAD or its authenticated parent advancement');
+  return { ...manifest, manifest: manifestPath, manifestDigest: rawDigest };
+}
+function claimBatchLaunch(cwd, batch, run) {
+  // Serialize launch admission with the parent's finish transaction. A claim is
+  // a permanent at-most-once tombstone, including when any later init step fails.
+  // Parent reconciliation reads jobs/ID.launch/owner.json to find the source run;
+  // an empty/malformed claim must likewise block release, never imply no launch.
+  const guard = join(batch.batchRun, 'controller.lock');
+  // Four independent lanes can reach admission together. Wait briefly for
+  // another lane's tiny admission transaction, but never remove a busy/stale
+  // controller marker or wait unboundedly for a long-running operation.
+  const deadline = Date.now() + 1000;
+  while (true) {
+    try { mkdirSync(guard); break; }
+    catch (error) {
+      if (error.code !== 'EEXIST' || Date.now() >= deadline) throw new Error('Another batch controller operation is in progress; do not remove lock while commands are active');
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+  }
+  try {
+    const current = batchManifest(cwd, batch.manifest);
+    if (JSON.stringify(current) !== JSON.stringify(batch)) throw new Error('Batch manifest changed before launch admission');
+    const claim = join(batch.batchRun, 'jobs', batch.id + '.launch');
+    try { mkdirSync(claim); } catch { throw new Error('Batch job already has a launch claim; reconcile its original source run, never replay start-file'); }
+    save(join(claim, 'owner.json'), { version: 1, batchRun: batch.batchRun, id: batch.id, manifest: batch.manifest, manifestDigest: batch.manifestDigest, base: batch.base, run, pid: process.pid });
+  } finally { rmSync(guard, { recursive: true }); }
+}
+function assertLease(run, state, settledBatchExport = false) {
+  if (state.batchRun) {
+    const manifest = batchManifest(state.ownerRoot, state.batchManifest, false);
+    if (manifest.batchRun !== state.batchRun || manifest.id !== state.id || manifest.base !== state.base || manifest.manifestDigest !== state.batchManifestDigest || state.options?.ship !== false || state.options?.review_rounds !== 5) throw new Error('Batch run identity/options changed');
+    const claim = JSON.parse(localText(state.ownerRoot, state.batchRun.slice(state.ownerRoot.length + 1) + '/jobs/' + state.id + '.launch/owner.json') ?? 'null');
+    if (claim?.version !== 1 || claim.run !== run || claim.batchRun !== state.batchRun || claim.id !== state.id || claim.manifest !== state.batchManifest || claim.manifestDigest !== state.batchManifestDigest || claim.base !== state.base) throw new Error('Batch launch claim does not own this source run');
+    // ship false releases execution ownership, not the parent batch's exact
+    // registered job. Only its export/commit hooks may use this settled handoff.
+    if (settledBatchExport && !existsSync(join(run, 'active'))) return;
+  }
+  if (JSON.parse(localText(leasePath(run, state), 'owner.json') ?? 'null')?.run !== run) throw new Error('Run does not own this checkout');
 }
 function stagePaths(phase) { return [`stage-${phase}-result.txt`, `${phase}.md`, ...(phase === 'plan' ? ['spec-proposal.md'] : [])]; }
 // Decision snapshots are controller-owned, run-local authority, never Git or
@@ -217,7 +309,7 @@ const DECISION_LIMITS = [
   'New or expanded scope requires a fresh request and decision; authority is local to this run.',
 ];
 function hash(value) { return createHash('sha256').update(value).digest('hex'); }
-function localText(directory, name) {
+function localText(directory, name, encoding = 'utf8') {
   const path = join(directory, name);
   // Walk every component: even an innocent fixed filename must not follow an
   // attacker-controlled parent symlink out of the checkout/run.
@@ -230,10 +322,11 @@ function localText(directory, name) {
     if (info.isSymbolicLink()) throw new Error('Decision artifacts cannot be symlinks: ' + name);
   }
   if (!lstatSync(path).isFile()) throw new Error('Decision artifact must be a regular file: ' + name);
-  return readFileSync(path, 'utf8');
+  return readFileSync(path, encoding);
 }
-function checkoutIdentity(root) {
-  const paths = [...new Set([...git(root, 'ls-files', '-z').split('\0'), ...changes(root)].filter(Boolean))].sort();
+function checkoutIdentity(root, reference) {
+  const tracked = reference ? git(root, 'ls-tree', '-r', '--name-only', '-z', reference) : git(root, 'ls-files', '-z');
+  const paths = [...new Set([...tracked.split('\0'), ...changes(root), ...(reference ? git(root, 'diff', '--name-only', '--no-renames', '-z', reference, 'HEAD').split('\0') : [])].filter(Boolean))].sort();
   const inventory = paths.map(path => {
     let info;
     try { info = lstatSync(join(root, path)); } catch (error) { if (error.code === 'ENOENT') return { path, type: 'deleted' }; throw error; }
@@ -288,7 +381,7 @@ function decisionMaterial(run, state, phase, options = {}) {
     bug: { path: state.bug, text: localText(state.root, state.bug) },
     principles: principlePaths.map(path => ({ path, text: localText(state.root, path) })).filter(item => item.text !== null),
     specReferences: specFiles(state.root).map(path => ({ path })),
-    authority: { ...stateRevision(state), stateDigest: hash(JSON.stringify(authorityState)), checkpoints: state.checkpoints, decisions: state.decisions ?? [], specApproved: state.specApproved ?? false, approvedProposal: state.approvedProposal ?? null, controlPaths: state.controlPaths, controlDigest: digest(state.root, state.controlPaths), lease: localText(join(state.ownerRoot, '.pi/tmp/fix-bug.lock'), 'owner.json'), active: localText(run, 'active/owner.json') },
+    authority: { ...stateRevision(state), stateDigest: hash(JSON.stringify(authorityState)), checkpoints: state.checkpoints, decisions: state.decisions ?? [], specApproved: state.specApproved ?? false, approvedProposal: state.approvedProposal ?? null, controlPaths: state.controlPaths, controlDigest: digest(state.root, state.controlPaths), lease: localText(leasePath(run, state), 'owner.json'), active: localText(run, 'active/owner.json') },
     checkout: checkoutIdentity(state.root),
   };
 }
@@ -554,6 +647,7 @@ function resumeRun(cwd, request, pidText) {
   state.resumeHistory = [...(state.resumeHistory ?? []), { number: state.resumeCount, priorStages: state.stages }];
   state.stages = state.stages.filter(s => s === 'red');
   delete state.verifiedPaths; delete state.verifiedDigest; delete state.verifiedCheckoutIdentity;
+  delete state.verifiedGateFiles; delete state.verifiedGateDigest;
   delete state.finalReviewDigest; delete state.finalReviewCheckoutDigest;
   delete state.evidenceReviewBinding;
   const history = join(run, 'history'); mkdirSync(history, { recursive: true });
@@ -581,14 +675,43 @@ function witnessRuns(root, run, mode) {
   }
   return w;
 }
+function requireVerified(run, state, paths, committed = false) {
+  if (pendingApprovals(validateDecisionIntegrity(run, state)).length) throw new Error('Pending owner approvals block shipment; run approval-report after final review');
+  if (!state.stages.includes('gate-final')) throw new Error('Missing final verification');
+  redEvidence(run, state);
+  const w = json(join(run, 'witnesses.json'));
+  const expected = [
+    ...[...w.e2e, ...w.unit].map((item, i) => ({ path: `green-${state.gateCount}-${i}.json`, argv: item.argv })),
+    ...[['npm', 'run', 'typecheck'], ['npm', 'test'], ...w.live].map((argv, i) => ({ path: `gate-${state.gateCount}-final-${i}.json`, argv })),
+  ];
+  if (JSON.stringify(state.verifiedGateFiles) !== JSON.stringify(expected.map(item => item.path)) || !state.verifiedGateDigest || digest(run, state.verifiedGateFiles) !== state.verifiedGateDigest) throw new Error('Missing or changed green final gate evidence');
+  for (const item of expected) {
+    const proof = JSON.parse(localText(run, item.path) ?? 'null');
+    if (proof?.code !== 0 || typeof proof.output !== 'string' || JSON.stringify(proof.argv) !== JSON.stringify(item.argv)) throw new Error('Invalid green final gate evidence');
+  }
+  if (!state.finalReviewDigest || state.finalReviewDigest !== digest(run, ['final-review-result.json', 'final-review.md']) || state.finalReviewCheckoutDigest !== state.verifiedCheckoutIdentity) throw new Error('Missing or changed clean final independent review');
+  const review = JSON.parse(localText(run, 'final-review-result.json') ?? 'null');
+  if (review?.ok !== true || typeof review.findings !== 'string' || !review.findings.trim() || localText(run, 'final-review.md') !== review.findings) throw new Error('Missing clean final independent review');
+  if (JSON.stringify(paths) !== JSON.stringify(state.verifiedPaths) || digest(state.root, paths) !== state.verifiedDigest) throw new Error('Files changed after final verification');
+  if (checkoutIdentity(state.root, committed ? state.base : undefined).digest !== state.finalReviewCheckoutDigest) throw new Error('Checkout file bytes/mode/type changed after final verification/review');
+  if (!paths.length || paths.some(p => !(p.startsWith('src/') || p.startsWith('tests/') || p.startsWith('docs/')))) throw new Error('Ship scope limited to src/, tests/, docs/; other surfaces require manual shipment');
+}
+function committedPaths(run, state) {
+  const artifact = localText(run, 'batch-commit.json');
+  const commit = artifact === null ? null : JSON.parse(artifact);
+  if (!commit || hash(artifact) !== state.batchCommit.artifactDigest || commit.sha !== state.batchCommit.sha || commit.branch !== state.branch || commit.base !== state.base || commit.batchRun !== state.batchRun || commit.worktree !== state.root) throw new Error('Batch commit artifact changed');
+  if (git(state.root, 'rev-list', '--parents', '-n', '1', commit.sha) !== commit.sha + ' ' + state.base || git(state.root, 'status', '--porcelain')) throw new Error('Committed batch fix must be a clean single commit on its verified base');
+  return git(state.root, 'diff', '--name-only', '--no-renames', '-z', state.base, commit.sha).split('\0').filter(Boolean).sort();
+}
 export function main(args, cwd = process.cwd()) {
   let [op, arg, phase, extra] = args;
-  let startOptions;
+  let startOptions; let batch;
   if (op === 'start-file') {
     const [mode, id, ship, rounds] = parseBugRequest(readFileSync(resolve(cwd, arg), 'utf8')).split('\n');
-    if (mode !== 'FIX') throw new Error('Expected a new numbered bug request');
+    if (!['FIX', 'BATCH'].includes(mode)) throw new Error('Expected a new numbered bug or batch request');
+    if (mode === 'BATCH') batch = batchManifest(cwd, id);
     startOptions = { ship: ship === 'true', review_rounds: Number(rounds) };
-    arg = id; op = 'init';
+    arg = batch?.id ?? id; op = 'init';
   }
   if (op === 'request') {
     const root = git(cwd, 'rev-parse', '--show-toplevel');
@@ -623,19 +746,22 @@ export function main(args, cwd = process.cwd()) {
     const nonce = randomUUID();
     const branch = `fix-bug/${id}-${nonce}`;
     const run = join(root, '.pi/tmp', `fix-bug-${id}-${nonce}`);
-    const worktree = join(run, 'worktree');
+    const worktree = worktreePath(root, basename(run));
     mkdirSync(run, { recursive: true });
-    const lock = join(root, '.pi/tmp/fix-bug.lock');
+    const lock = batch ? join(run, 'lease') : join(root, '.pi/tmp/fix-bug.lock');
     try { mkdirSync(lock); } catch { throw new Error('Another bug workflow owns the checkout; inspect .pi/tmp/fix-bug.lock/owner.json and release only after it has stopped'); }
     try {
+      if (batch) claimBatchLaunch(cwd, batch, run); // durable before active/worktree creation
       const controls = controlPaths(root);
       // start-file is the interactive entry: publish the lease owner only AFTER
       // the original options and active execution claim are durable. Raw init is
       // retained for administrative/test creation of an explicitly paused run.
       if (startOptions) activate(run, phase);
+      prepareWorktreePath(root, basename(run));
       git(root, 'worktree', 'add', '-b', branch, worktree, ownerBase);
       mkdirSync(join(worktree, '.pi/tmp'), { recursive: true });
-      save(join(run, 'state.json'), { root: worktree, ownerRoot: root, ownerBranch, ownerBase, bug, id, branch, base: ownerBase, spec: digest(worktree, specFiles(worktree)), stages: [], resumeVersion: 1, revision: 0, generation: startOptions ? 1 : 0, checkpoints: {}, options: startOptions ?? { ship: true, review_rounds: 5 }, controlPaths: controls, controlDigest: digest(root, controls) });
+      save(join(run, 'state.json'), { root: worktree, ownerRoot: root, ownerBranch, ownerBase, bug, id, branch, base: ownerBase, spec: digest(worktree, specFiles(worktree)), stages: [], resumeVersion: 1, revision: 0, generation: startOptions ? 1 : 0, checkpoints: {}, options: startOptions ?? { ship: true, review_rounds: 5 }, controlPaths: controls, controlDigest: digest(root, controls), ...(batch ? { batchRun: batch.batchRun, batchManifest: batch.manifest, batchManifestDigest: batch.manifestDigest } : {}) });
+      if (batch) batchManifest(cwd, batch.manifest, false);
       save(join(lock, 'owner.json'), { run });
     } catch (error) {
       rmSync(join(run, 'active'), { recursive: true, force: true });
@@ -662,13 +788,15 @@ export function main(args, cwd = process.cwd()) {
     rmSync(join(run, 'active'), { recursive: true, force: true });
     console.log('PASS'); return;
   }
-  const lock = join(state.ownerRoot, '.pi/tmp/fix-bug.lock');
-  if (json(join(lock, 'owner.json')).run !== run) throw new Error('Run does not own this checkout');
+  if (op === 'ship' && state.batchRun) throw new Error('Batch runs cannot ship; only the parent batch controller may integrate/push');
+  const lock = leasePath(run, state);
+  assertLease(run, state, op === 'export-verified' || op === 'commit-verified');
   if (op === 'release') { rmSync(lock, { recursive: true }); console.log('PASS'); return; }
   assertOwner(state);
   assertControls(state);
-  if (git(root, 'rev-parse', 'HEAD') !== state.base || git(root, 'branch', '--show-current') !== state.branch) throw new Error('HEAD/branch changed during workflow; stop and inspect');
-  const paths = changes(root);
+  const committedExport = op === 'export-verified' && state.batchRun && state.batchCommit;
+  if (git(root, 'rev-parse', 'HEAD') !== (committedExport ? state.batchCommit.sha : state.base) || git(root, 'branch', '--show-current') !== state.branch) throw new Error('HEAD/branch changed during workflow; stop and inspect');
+  const paths = committedExport ? committedPaths(run, state) : changes(root);
   const specTouched = paths.some(p => p === 'docs/spec.md' || p.startsWith('docs/spec_topics/') || p.startsWith('docs/reference/'));
   if (!state.specApproved && (specTouched || digest(root, specFiles(root)) !== state.spec)) throw new Error('Specification changed without owner approval');
   if (op === 'decision-kind') {
@@ -728,6 +856,7 @@ export function main(args, cwd = process.cwd()) {
   } else if (op === 'configure') {
     if (existsSync(join(run, 'active'))) throw new Error('Cannot configure an active workflow; initialize atomically or change options on resume');
     if (!['true', 'false'].includes(phase) || !/^[1-5]$/.test(extra ?? '')) throw new Error('Invalid workflow options');
+    if (state.batchRun && (phase !== 'false' || extra !== '5')) throw new Error('Batch options are fixed: ship false review_rounds 5');
     state.options = { ship: phase === 'true', review_rounds: Number(extra) };
   } else if (op === 'info') {
     console.log([state.id, String(state.options.ship), String(state.options.review_rounds)].join('\n')); return;
@@ -834,6 +963,7 @@ export function main(args, cwd = process.cwd()) {
     state.gateCount = (state.gateCount ?? 0) + 1;
     state.stages = state.stages.filter(s => s !== 'gate-final');
     delete state.verifiedPaths; delete state.verifiedDigest; delete state.verifiedCheckoutIdentity;
+    delete state.verifiedGateFiles; delete state.verifiedGateDigest;
     delete state.finalReviewDigest; delete state.finalReviewCheckoutDigest;
     persist(); // a failed attempt must not overwrite its logs on resume
     const gateDigest = digest(root, paths);
@@ -848,6 +978,8 @@ export function main(args, cwd = process.cwd()) {
     if (JSON.stringify(changes(root)) !== JSON.stringify(paths) || digest(root, paths) !== gateDigest || checkoutIdentity(root).digest !== gateIdentity) throw new Error('Checkout changed during verification; no green gate recorded');
     state.stages.push('gate-' + phase);
     state.verifiedPaths = paths; state.verifiedDigest = gateDigest; state.verifiedCheckoutIdentity = gateIdentity;
+    state.verifiedGateFiles = [...[...w.e2e, ...w.unit].map((_, i) => `green-${state.gateCount}-${i}.json`), ...commands.map((_, i) => `gate-${state.gateCount}-${phase}-${i}.json`)];
+    state.verifiedGateDigest = digest(run, state.verifiedGateFiles);
   } else if (op === 'snapshot') {
     state.reviewDigest = digest(root, paths); state.reviewPaths = paths;
     state.reviewCheckoutDigest = hash(JSON.stringify(checkoutIdentity(root)));
@@ -871,20 +1003,25 @@ export function main(args, cwd = process.cwd()) {
     if (review.ok !== true || typeof review.findings !== 'string' || !review.findings.trim() || readFileSync(join(run, 'final-review.md'), 'utf8') !== review.findings) throw new Error('Missing clean final independent review');
     state.finalReviewDigest = digest(run, ['final-review-result.json', 'final-review.md']);
     state.finalReviewCheckoutDigest = state.verifiedCheckoutIdentity;
-  } else if (op === 'ship') {
-    if (state.options?.ship !== true) throw new Error('Shipment disabled: ship false keeps the verified fix local');
+  } else if (op === 'export-verified') {
+    requireVerified(run, state, paths, Boolean(committedExport));
+    verifyShippingIndex(root, committedExport ? [] : paths, Boolean(committedExport));
+    console.log('PASS'); return; // strictly read-only: no revision, lease or index writes
+  } else if (op === 'commit-verified' || op === 'ship') {
+    const batchCommit = op === 'commit-verified';
+    if (batchCommit && !state.batchRun) throw new Error('commit-verified is allowed only for batch runs');
+    if (batchCommit && existsSync(join(run, 'batch-commit.json'))) throw new Error('Batch fix was already committed; inspect batch-commit.json, do not replay');
+    if (!batchCommit && state.options?.ship !== true) throw new Error('Shipment disabled: ship false keeps the verified fix local');
     if (pendingApprovals(validateDecisionIntegrity(run, state)).length) throw new Error('Pending owner approvals block shipment; run approval-report after final review');
     if (state.ownerBranch !== 'main') throw new Error('Shipment requires the original owner checkout on main; no automatic branch switching');
     if (git(state.ownerRoot, 'status', '--porcelain')) throw new Error('Owner checkout must remain clean before merging the reviewed fix');
-    if (!state.stages.includes('gate-final')) throw new Error('Missing final verification');
-    if (!state.finalReviewDigest || state.finalReviewDigest !== digest(run, ['final-review-result.json', 'final-review.md']) || state.finalReviewCheckoutDigest !== state.verifiedCheckoutIdentity) throw new Error('Missing or changed clean final independent review');
-    if (JSON.stringify(paths) !== JSON.stringify(state.verifiedPaths) || digest(root, paths) !== state.verifiedDigest) throw new Error('Files changed after final verification');
-    if (checkoutIdentity(root).digest !== state.finalReviewCheckoutDigest) throw new Error('Checkout file bytes/mode/type changed after final verification/review');
-    if (!paths.length || paths.some(p => !(p.startsWith('src/') || p.startsWith('tests/') || p.startsWith('docs/')))) throw new Error('Ship scope limited to src/, tests/, docs/; other surfaces require manual shipment');
+    requireVerified(run, state, paths);
     persist(() => {
       const assertCheckout = () => {
+        assertLease(run, state, batchCommit);
         assertOwner(state);
         assertControls(state);
+        requireVerified(run, state, changes(root));
         if (git(state.ownerRoot, 'status', '--porcelain')) throw new Error('Owner checkout changed before shipment; nothing reset or discarded');
         if (pendingApprovals(validateDecisionIntegrity(run, state)).length) throw new Error('Pending owner approvals block shipment');
         if (git(root, 'rev-parse', 'HEAD') !== state.base || git(root, 'branch', '--show-current') !== state.branch || JSON.stringify(changes(root)) !== JSON.stringify(state.verifiedPaths) || digest(root, paths) !== state.verifiedDigest || checkoutIdentity(root).digest !== state.finalReviewCheckoutDigest) throw new Error('HEAD/branch or verified checkout changed before shipment');
@@ -901,6 +1038,16 @@ export function main(args, cwd = process.cwd()) {
       if (checkoutIdentity(root).digest !== inventory || staged.index !== git(root, 'ls-files', '--stage', '-z') || staged.status !== git(root, 'status', '--porcelain=v1', '-z')) throw new Error('Checkout/index/status changed after scoped git add; nothing was reset, reconcile manually');
       validateDecisionIntegrity(run, state);
       const commit = command(['git', 'commit', '-m', `fix: resolve bug ${state.id}`], root); if (commit.code !== 0) throw new Error(commit.output);
+      if (batchCommit) {
+        const artifact = { version: 1, sha: git(root, 'rev-parse', 'HEAD'), branch: state.branch, worktree: root, base: state.base, batchRun: state.batchRun, verifiedPaths: paths, verifiedDigest: state.verifiedDigest, verifiedCheckoutIdentity: state.verifiedCheckoutIdentity, finalReviewDigest: state.finalReviewDigest };
+        save(join(run, 'batch-commit.json'), artifact);
+        state.batchCommit = { sha: artifact.sha, artifactDigest: hash(readFileSync(join(run, 'batch-commit.json'))) };
+        // Hooks are not verification authority. A commit-time mutation is a
+        // fail-closed retained artifact, never permission to integrate.
+        requireVerified(run, state, committedPaths(run, state), true);
+        verifyShippingIndex(root, [], true);
+        return;
+      }
       const shipment = { sha: git(root, 'rev-parse', 'HEAD'), branch: state.branch, worktree: root, merged: false, pushed: false };
       save(join(run, 'shipment.json'), shipment);
       // Merge only the reviewed branch into the unchanged owner main. A
@@ -929,6 +1076,7 @@ export function main(args, cwd = process.cwd()) {
         throw new Error('pi-theta was pushed, but the pi-config dependency update failed. Inspect shipment.json and pi-config status/log; reconcile only the consumer update, do not rerun the fix. ' + error.message);
       }
     });
+    if (batchCommit) { console.log('PASS'); return; }
     // All shipping side effects, including the consumer update, succeeded.
     // Never clean up on a failed push/update, pause, release, or ship false.
     const shipment = json(join(run, 'shipment.json'));
