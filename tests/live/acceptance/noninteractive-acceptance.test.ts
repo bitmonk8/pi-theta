@@ -38,7 +38,7 @@
 
 import { describe, expect, it } from "vitest";
 import { tmpdir } from "node:os";
-import { existsSync, mkdtempSync, readdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   FEATURE_THETA_DIR,
@@ -389,25 +389,122 @@ describe("H9a-T (e) subagent spawn drives to a success terminal (Convention: Pha
 
 // ===========================================================================
 // (f) a code-tool loop.
-// A prompt-mode theta exposing a code-side tool the model calls in a free-phase
-// loop; invariant set: no-error exit + clean stderr + codes ⊆ permitted.
+// A code-side read feeds an interpolated follow-up query. Success must include
+// assistant output, not merely the silence of a failed drive (bug 0495).
 // ===========================================================================
+
+function assertCodeToolLoopCompleted(result: PiPrintResult, spec: FeatureThetaSpec): void {
+  assertNoErrorExit(result, spec);
+  assertCodesSubsetOfPermitted(result, spec);
+  assertStderrClean(result, spec);
+  expect(
+    result.stdout.trim().length,
+    `${spec.label} ${spec.area}: expected non-empty assistant stdout after the code-side read and follow-up query`,
+  ).toBeGreaterThan(0);
+}
 
 describe("H9a-T (f) code-tool loop (Convention: Phase 1 acceptance)", () => {
   it("drives a code-tool loop via `pi -p` with a no-error exit and permitted codes only", async () => {
     const spec = featureTheta("code-tool-loop");
-    requireAuthoredTheta(spec);
+    const source = requireAuthoredTheta(spec);
 
     await requireLiveHost();
     const cwd = scratchCwd();
+    // Discovery does not populate the process cwd for the fixture's relative read.
+    copyFileSync(source, join(cwd, spec.fixtureFile));
     const result = await spawnPiPrint({
       thetaDir: FEATURE_THETA_DIR,
       slashInvocation: `/${spec.stem}`,
       cwd,
     });
-    assertNoErrorExit(result, spec);
-    assertCodesSubsetOfPermitted(result, spec);
-    assertStderrClean(result, spec);
+    assertCodeToolLoopCompleted(result, spec);
+  });
+
+  it("healthy control: completes the read and follow-up query when the scratch cwd contains the fixture", async () => {
+    const spec = featureTheta("code-tool-loop");
+    const source = requireAuthoredTheta(spec);
+    await requireLiveHost();
+    const cwd = scratchCwd();
+    // Independent prepared-cwd control retained from the pre-fix red/green proof.
+    // Keep its setup separate so a regression in the original cell cannot be masked.
+    copyFileSync(source, join(cwd, spec.fixtureFile));
+    const result = await spawnPiPrint({
+      thetaDir: FEATURE_THETA_DIR,
+      slashInvocation: `/${spec.stem}`,
+      cwd,
+    });
+    assertCodeToolLoopCompleted(result, spec);
+  });
+
+  it("rejects the pre-0493 silent-failure shape even with exit zero and clean stderr", () => {
+    const spec = featureTheta("code-tool-loop");
+    // Assertion-direction control only, not a mock standing in for the two
+    // real-host tests above. The old three invariants all pass this shape.
+    expect(() => assertCodeToolLoopCompleted({
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    }, spec)).toThrow("expected non-empty assistant stdout after the code-side read and follow-up query");
+  });
+
+  describe("assertion isolation (provider-free)", () => {
+    const spec = featureTheta("code-tool-loop");
+
+    it("demonstrates why the original three invariants accepted silent failure", () => {
+      const silent: PiPrintResult = { exitCode: 0, stdout: "", stderr: "" };
+      expect(parseSystemNoteCodes(silent.stdout + "\n" + silent.stderr)).toEqual([]);
+      expect(() => {
+        assertNoErrorExit(silent, spec);
+        assertCodesSubsetOfPermitted(silent, spec);
+        assertStderrClean(silent, spec);
+      }).not.toThrow();
+      // This is an oracle characterization, not a claim that silence succeeds.
+      expect(() => assertCodeToolLoopCompleted(silent, spec)).toThrow(
+        "expected non-empty assistant stdout after the code-side read and follow-up query",
+      );
+    });
+
+    it.each<{
+      label: string;
+      result: PiPrintResult;
+      message: string;
+    }>([
+      {
+        label: "nonzero exit before code, stderr, and output checks",
+        result: { exitCode: 1, stdout: "theta/runtime/b0495-unpermitted", stderr: "failure" },
+        message: "expected a no-error exit (0), got 1",
+      },
+      {
+        label: "signal exit despite non-empty stdout",
+        result: { exitCode: null, stdout: "A summary.", stderr: "" },
+        message: "expected a no-error exit (0), got null",
+      },
+      {
+        label: "unpermitted code before stderr check",
+        result: { exitCode: 0, stdout: "theta/runtime/b0495-unpermitted", stderr: "failure" },
+        message: 'code(s) outside the committed permitted-code list: ["theta/runtime/b0495-unpermitted"]',
+      },
+      {
+        label: "stderr despite non-empty stdout",
+        result: { exitCode: 0, stdout: "A summary.", stderr: "failure\n" },
+        message: "stderr carries 1 line(s) the empty-capture gate rejects",
+      },
+      {
+        label: "whitespace-only stdout despite exit zero and clean stderr",
+        result: { exitCode: 0, stdout: " \t\r\n", stderr: "" },
+        message: "expected non-empty assistant stdout after the code-side read and follow-up query",
+      },
+    ])("rejects $label", ({ result, message }) => {
+      expect(() => assertCodeToolLoopCompleted(result, spec)).toThrow(message);
+    });
+
+    it("accepts non-empty output without constraining the model's summary wording", () => {
+      expect(() => assertCodeToolLoopCompleted({
+        exitCode: 0,
+        stdout: " \nA summary of the fixture.\n",
+        stderr: "",
+      }, spec)).not.toThrow();
+    });
   });
 });
 

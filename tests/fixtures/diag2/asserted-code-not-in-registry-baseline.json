@@ -111,6 +111,7 @@
   "theta/quality-loop",
   "theta/rg",
   "theta/runtime/",
+  "theta/runtime/b0495-unpermitted",
   "theta/runtime/ghost",
   "theta/runtime/not-permitted-code",
   "theta/runtime/orphan",
