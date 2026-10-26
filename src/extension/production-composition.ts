@@ -4267,6 +4267,7 @@ async function calleeFailsOwnStructuralChecksBody(
   consultedVisited: boolean;
   patchedSystemTemplate?: SystemTemplate;
   importedTypeDecls?: ThetaImportCheck["importedTypeDecls"];
+  imports?: ThetaImportCheck["imports"];
 }> {
   const calleeInput: ThetaCompositionInput = {
     slashName: thetaBasename(calleeAbsolutePath),
@@ -4311,6 +4312,7 @@ async function calleeFailsOwnStructuralChecksBody(
       consultedVisited: false,
       ...(patchedSystemTemplate !== undefined ? { patchedSystemTemplate } : {}),
       ...(importedTypeDecls !== undefined ? { importedTypeDecls } : {}),
+      ...(importCheck.imports.length > 0 ? { imports: importCheck.imports } : {}),
     };
   }
 
@@ -4341,6 +4343,7 @@ async function calleeFailsOwnStructuralChecksBody(
     consultedVisited: judged.consultedVisited,
     ...(patchedSystemTemplate !== undefined ? { patchedSystemTemplate } : {}),
     ...(importedTypeDecls !== undefined ? { importedTypeDecls } : {}),
+    ...(importCheck.imports.length > 0 ? { imports: importCheck.imports } : {}),
   };
 }
 
@@ -4379,20 +4382,21 @@ async function calleeFailsOwnStructuralChecksWithTaint(
   consultedVisited: boolean;
   patchedSystemTemplate?: SystemTemplate;
   importedTypeDecls?: ThetaImportCheck["importedTypeDecls"];
+  imports?: ThetaImportCheck["imports"];
 }> {
   const memo = deps.passVerdictMemo;
   if (memo !== undefined) {
     const hit = memo.read(getAllTools, activeRoots, calleeAbsolutePath, bytes);
     if (hit !== undefined) {
-      // Bug 0423 F1: the memo stores only the `{ fails, ownEscapes }` verdict,
-      // so a HIT returns no `patchedSystemTemplate`. This is safe for the sole
-      // consumer of the patched template — `parseCalleeTheta`'s invoke
+      // Bugs 0423 F1 / 0505: the memo stores only the `{ fails, ownEscapes }`
+      // verdict, so a HIT omits the patched template and runtime imports.
+      // This is safe for their consumer — `parseCalleeTheta`'s invoke
       // dispatch — because that call site builds a FRESH `getAllTools`
       // registry-snapshot closure per dispatch (the `parseCallee` closure), so
       // its verdict-memo key never matches a prior entry: its body ALWAYS runs
-      // and always carries the freshly-computed patched template. The load-
-      // side `parseCalleeForTools` caller, which does share a snapshot and can
-      // HIT, reads only `fails` and never the patched template.
+      // and carries the freshly-computed template and imports. The load-side
+      // `parseCalleeForTools` caller, which does share a snapshot and can HIT,
+      // reads only `fails`, never these materialisation channels.
       return { fails: hit.fails, ownEscapes: hit.ownEscapes, consultedVisited: false };
     }
   }
@@ -4717,6 +4721,10 @@ async function parseCalleeTheta(
         ? { ...document.frontmatter, system: structural.patchedSystemTemplate }
         : document.frontmatter,
     body: document.body,
+    // Bug 0505: carry the callee's runtime imports from the SAME import pass
+    // onto the attached body's input, as slash composition does. The complete
+    // records retain declaring-module scope; an empty list stays absent.
+    ...(structural.imports !== undefined ? { imports: structural.imports } : {}),
     // Bug 0465: thread the callee's OWN imported schema/enum decls
     // (`calleeFailsOwnStructuralChecksBody`'s fresh `checkThetaImports` read,
     // never memo-hit at this call site — see the taint wrapper's own
