@@ -299,7 +299,13 @@ nine variants plus a catch-all):
 `invoke_callee` has no dedicated row — the chain suffix (SLSH-5) recurses through
 `inner` to the leaf `kind` and renders that leaf's row, appending
 ` from <callee_path> invoked at <parent_path>:<line>` per `invoke_callee` hop
-(leaf-first order). For `tool_loop_exhausted`, `<last_tool_name>` renders through the
+(leaf-first order). `<parent_path>:<line>` names the actual invocation token's
+source file and 1-indexed line: the theta file for a theta-body token, or the
+declaring `.thetalib` file for a library-body token, including library-to-library
+calls, never an importer frame. Both path placeholders are post-`realpath`
+absolute paths in the canonical forward-slash form (see
+[Slash-Command Invocation — SLSH-5](../spec_topics/slash-invocation.md#slsh-5)).
+For `tool_loop_exhausted`, `<last_tool_name>` renders through the
 standard field-summarisation rule, so a `null` renders as `null`
 (reachable via a cap-0 untyped-query exhaustion).
 

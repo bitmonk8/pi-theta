@@ -177,14 +177,17 @@ export interface EffectfulStatementHostDeps {
    * (absolute, against the file the boundary resolved from: the declaring
    * `.thetalib` for an `invoke` inside an imported fn body), else the same
    * literal the wrapper's own `callee_path` field carries.
-   * `callSite` is the call-site token descriptor (invoke-provenance.ts). Absent
-   * dep (a caller with no ledger to record into) leaves the SLSH-5 chain empty
+   * `callSite` is the call-site token descriptor (invoke-provenance.ts).
+   * `invocationSourcePath` is its captured source file, not necessarily the
+   * caller theta; absent metadata retains the legacy caller-source fallback.
+   * Absent dep (a caller with no ledger to record into) leaves the SLSH-5 chain empty
    * for every hop it would otherwise have covered.
    */
   recordInvokeHop?(
     wrapper: InvokeCalleeError,
     calleePath: string,
     callSite: InvokeCallSite,
+    invocationSourcePath?: string,
   ): Promise<void>;
   /**
    * H8b live-resolver routing. Classify a `<name>(args)` call by its resolved
@@ -632,6 +635,7 @@ async function wrapInvokeCalleeFailure(
     wrapped as InvokeCalleeError,
     child.resolvedCalleePath ?? child.calleePath,
     callSite,
+    child.invocationSourcePath,
   );
   return { ok: true, value: makeErr(wrapped as unknown as ThetaValue) };
 }
