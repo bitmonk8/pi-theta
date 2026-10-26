@@ -76,7 +76,12 @@ function fixture(count = 6, remote = false, piTheta = false, controls = false) {
     return ctx;
   };
   const merge = (ctx: any) => git(ctx.root, ...ctx.mergeArgv.slice(1));
-  const verdict = (ctx: any, value = { ok: true, findings: 'CLEAN — inspected combined regression and gates' }) => put(ctx.verdictPath, value);
+  const verdict = (ctx: any, value = { ok: true, findings: 'CLEAN — inspected combined regression and gates' }) => {
+    const gated = existsSync(ctx.gatePath) && value.ok === true;
+    if (gated) ok('integration-review-start', run, ctx.id);
+    put(ctx.verdictPath, value);
+    if (gated) ok('integration-review-record', run, ctx.id);
+  };
   return { root, bare, base, run, bugs, put, call, ok, one, state, plan, startSource, verified, context, merge, verdict, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
@@ -211,6 +216,7 @@ describe('deterministic four-lane bug batch controller', () => {
       const gate = JSON.parse(readFileSync(ctx.gatePath, 'utf8')); expect(gate.commands.slice(0, 2)).toEqual([['npm', 'run', 'typecheck'], ['npm', 'test']]);
       expect(gate.commands).toHaveLength(3); expect(gate.results).toHaveLength(3);
       expect(git(f.root, 'rev-parse', 'HEAD')).toBe(f.base);
+      f.verdict(ctx); // independent review is now bound AFTER the actual gate
       f.ok('integrate-record', f.run, '0001'); const sha = f.state().base;
       expect(sha).not.toBe(f.base); expect(git(f.bare, 'rev-parse', 'refs/heads/main')).toBe(sha);
       expect(git(f.root, 'rev-parse', 'HEAD')).toBe(sha); expect(git(f.root, 'status', '--porcelain')).toBe('');
@@ -244,6 +250,22 @@ describe('deterministic four-lane bug batch controller', () => {
       const next = JSON.parse(readFileSync(f.ok('next', f.run), 'utf8'));
       expect(next).toMatchObject({ id: '0003', base: f.state().base }); expect(next.base).not.toBe(advanced);
       expect(existsSync(first.root)).toBe(false); expect(existsSync(second.root)).toBe(false);
+    } finally { f.cleanup(); }
+  }, 30000);
+
+  it('cannot reuse an approving review after another commit and gate run', () => {
+    const f = fixture(1, true);
+    try {
+      f.plan(); f.ok('next', f.run); f.verified('0001'); f.ok('collect', f.run, '0001');
+      const ctx = f.context('0001'); f.merge(ctx); f.ok('integration-gate', f.run, '0001'); f.verdict(ctx);
+      const oldApproval = readFileSync(ctx.verdictPath, 'utf8');
+      f.put(join(ctx.root, 'docs/extra.md'), 'Unreviewed integration change\n'); git(ctx.root, 'add', 'docs/extra.md'); git(ctx.root, 'commit', '-m', 'unreviewed later change');
+      f.ok('integration-gate', f.run, '0001');
+      // Even restoring the old approving prose cannot recreate its authority.
+      f.put(ctx.verdictPath, oldApproval);
+      expect(f.call('integrate-record', f.run, '0001').stderr).toContain('fresh independent review');
+      expect(git(f.root, 'rev-parse', 'HEAD')).toBe(f.base);
+      expect(git(f.bare, 'rev-parse', 'main')).toBe(f.base);
     } finally { f.cleanup(); }
   }, 30000);
 

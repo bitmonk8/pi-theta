@@ -31,7 +31,7 @@ export function prepareWorktreePath(root, name) {
   return path;
 }
 function git(root, ...args) {
-  const r = command(['git', ...args], root);
+  const r = command(['git', ...args], root, undefined, { ...process.env, GIT_OPTIONAL_LOCKS: '0' });
   if (r.code !== 0) throw new Error(`git ${args[0]} failed: ${r.output}`);
   return r.output.trim();
 }
@@ -261,7 +261,7 @@ function controlPaths(root) {
   return ['tools/bugfix/run.mjs', 'tools/bugfix/worktree-env.mjs', 'tools/bugfix/update-pi-config.mjs', '.pi/theta/fix-bug.theta', '.pi/theta/workers/bugfix-stage.theta', '.pi/theta/workers/bugfix-review.theta', '.pi/theta/workers/bugfix-rank.theta', '.pi/theta/workers/bugfix-decide.theta'].filter(p => existsSync(join(root, p)));
 }
 export function executionControlPaths(root) {
-  return [...new Set([...controlPaths(root), 'tools/bugfix/batch.mjs', '.pi/theta/fix-all-bugs.theta', '.pi/theta/workers/bugfix-batch-plan.theta', '.pi/theta/workers/bugfix-batch-lane.theta', '.pi/theta/workers/bugfix-batch-merge.theta'])].filter(path => existsSync(join(root, path))).sort();
+  return [...new Set([...controlPaths(root), 'tools/bugfix/batch.mjs', 'tools/bugfix/gate-runner.mjs', 'tools/bugfix/controller-recovery.mjs', '.pi/theta/fix-all-bugs.theta', '.pi/theta/workers/bugfix-batch-plan.theta', '.pi/theta/workers/bugfix-batch-lane.theta', '.pi/theta/workers/bugfix-batch-merge.theta', '.pi/theta/workers/bugfix-batch-review.theta'])].filter(path => existsSync(join(root, path))).sort();
 }
 function leasePath(run, state) { return state.batchRun ? join(run, 'lease') : join(state.ownerRoot, '.pi/tmp/fix-bug.lock'); }
 function batchManifest(cwd, manifestPath, requireCurrentBase = true) {
@@ -813,6 +813,18 @@ function committedPaths(run, state) {
   if (!commit || hash(artifact) !== state.batchCommit.artifactDigest || commit.sha !== state.batchCommit.sha || commit.branch !== state.branch || commit.base !== state.base || commit.batchRun !== state.batchRun || commit.worktree !== state.root) throw new Error('Batch commit artifact changed');
   if (git(state.root, 'rev-list', '--parents', '-n', '1', commit.sha) !== commit.sha + ' ' + state.base || git(state.root, 'status', '--porcelain')) throw new Error('Committed batch fix must be a clean single commit on its verified base');
   return git(state.root, 'diff', '--name-only', '--no-renames', '-z', state.base, commit.sha).split('\0').filter(Boolean).sort();
+}
+// Read-only verification used before interrupted batch ownership is reconciled.
+// Owner-main upgrades are checked by the batch separately; source bytes, original
+// reds, decisions, final gates/review and committed source identity stay bound.
+export function verifiedSourceEvidence(run, state) {
+  if (!state.batchCommit) throw new Error('Recovery requires an already committed verified batch source');
+  requireVerified(run, state, committedPaths(run, state), true);
+  for (const [phase, checkpoint] of Object.entries(state.checkpoints ?? {})) {
+    if (['pass', 'needs_spec', 'needs_decision', 'needs_replan'].includes(checkpoint.status) && digest(run, stagePaths(phase)) !== checkpoint.reportDigest) throw new Error('Completed source checkpoint proof changed: ' + phase);
+  }
+  if (digest(state.root, state.controlPaths) !== state.controlDigest) throw new Error('Original source control bytes changed');
+  return { witness: state.witnessDigest, red: state.redDigest ?? null, gates: state.verifiedGateDigest, review: state.finalReviewDigest, controls: state.controlDigest };
 }
 export function main(args, cwd = process.cwd()) {
   let [op, arg, phase, extra] = args;

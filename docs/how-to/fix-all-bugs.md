@@ -87,12 +87,38 @@ not a verified fix awaiting only a signature. A final-verified provisional fix
 is retained without committing/promoting it until its owner decisions are cleared.
 
 For a verified eligible source, the controller creates a separate integration
-branch at recorded current main. Fresh Astra merges the exact verified commit,
-preserves both sides of conflicts and previously integrated behaviors, and runs
-the exact controller gate after committing. Mandatory gates include typecheck,
-the full default suite, original witnesses and relevant live commands from this
-and earlier integrations. Later edits invalidate the gate. Independent post-merge
-review must bind that final committed tree.
+branch at recorded current main. Astra prepares the committed merge, preserving
+both sides of conflicts and previously integrated behaviors. This worker's
+`ok:true` means **preparation only**, not verification or shipment authority.
+The parent then executes the exact controller gate deterministically, outside a
+model turn, and invokes a **fresh independent Astra reviewer** against the actual
+committed diff and gate records. Mandatory gates include typecheck, the full
+default suite, original witnesses and relevant live commands from this and earlier
+integrations. Later edits invalidate the gate; final review must bind that tree.
+The controller snapshots SHA/tree/index and gate digest before review, then binds
+the actual returned verdict to that unchanged snapshot after settlement. A new
+gate attempt invalidates prior review authority and archives its verdict; old
+approving prose cannot authorize a different commit even if its new gates pass.
+
+Gate commands have a 30-minute per-command ceiling within a **60-minute total**
+bootstrap/verification budget. The parent Bash timeout is explicitly **61 minutes**,
+leaving room for the runner's bounded five-second cleanup. A null/omitted timeout
+is not unlimited when the installed Bash guard injects its own default. No model
+chooses the gate timeout, and the ordinary guard need not be disabled.
+
+Each gate reserves its attempt durably before launching commands. Per-command
+`.intent.json`, `.started.json` and `.finished.json` records identify execution;
+`.stdout.log`/`.stderr.log` retain complete streaming output, including partial
+output after interruption. The result JSON contains only bounded convenience
+output. Incomplete evidence is never a PASS. Original orphan attempt directories
+are retained and never reused. The runner currently requires **Linux** to prove
+launched execution settled. It follows a unique inherited execution token plus
+boot/PID/start identities, including detached descendants and nested gate runners,
+not just the first process/group's exit. Other platforms fail closed with an
+explicit unsupported-quiescence result; they do not silently count a child exit as
+a successful gate. Unknown cleanup retains controller ownership for reconciliation.
+This is cooperative workflow ownership, not an OS sandbox against a hostile
+process deliberately stripping its token and escaping before observation.
 
 Only the controller pushes the verified integration SHA, then fast-forwards local
 main and performs the established pi-config dependency-pin update for pi-theta.
@@ -101,8 +127,11 @@ Parked attempts, pending work, original evidence and reports remain available.
 
 ## Isolated failure versus global stop
 
-A typed `ok:false` merge verdict is a legitimate negative result. Its findings are
-reported, not mislabeled a schema error. A setup, conflict, gate or review refusal
+A typed `ok:false` preparation or review verdict is a legitimate negative result.
+The parent saves the returned evidence **before** attempting settlement, so a
+failed settlement does not erase the original refusal. Preparation and final
+review are separate records. Saving a verdict does not prove process quiescence
+or grant shipment authority. Its findings are reported, not mislabeled a schema error. A setup, conflict, gate or review refusal
 can be **parked** if the controller proves:
 
 - source hosts and the integration worker have settled;
@@ -138,9 +167,10 @@ Releasing a settled lease after an early stop does not make the headline COMPLET
 
 The batch directory contains:
 
-- `report.json`: complete machine-readable outcomes, source locations, pending
-  decision summaries, shipment SHAs and errors;
-- `report.txt`: expanded human-readable audit, source branches/worktrees,
+- `report.json`: machine-readable recorded outcomes, source locations, pending
+  decision summaries, shipment SHAs and errors, refreshed at controller state
+  transitions with `stateRevision` and `generatedAt` freshness metadata;
+- `report.txt`: the last explicitly rendered expanded human-readable audit, source branches/worktrees,
   recommendations, rationale, alternatives and exact decision-record links;
 - catalog/plan/snapshots, job manifests and launch claims, source exports,
   integration contexts, bootstrap/verification logs and retained attempts.
@@ -150,6 +180,21 @@ in source decision records and captured approval audits. Even the 1000-bug ceili
 fits the overview's Bash byte/line budget. Reports are local evidence, not backups;
 review sensitive provider content before sharing and preserve essential proof in
 tracked bug records before eventual shipment.
+
+### Inspect without changing the run
+
+From the original owner checkout:
+
+```sh
+node tools/bugfix/batch.mjs inspect /absolute/run/path
+```
+
+`inspect` reads recorded state and controller ownership even when a lock exists.
+It does not acquire/remove locks, rewrite reports or reconcile children. Recorded
+job dispositions are not a live reconciliation of every source checkpoint; a
+fresh observation timestamp does not mean a child is verified or settled.
+The older `report` and `render-report` commands still acquire the controller lock
+and publish files; do not use them as harmless inspection of an active run.
 
 ## Resume rather than start over
 
@@ -186,6 +231,64 @@ worktree is retained. If there is any activity marker or push/consumer uncertain
 inspect and reconcile that first. Never delete a lock just to make another run
 start. There is no automatic takeover of a live/uncertain process.
 
+### Explicit interrupted-controller recovery
+
+Never infer staleness from lock age or a dead PID alone. A controller killed by an
+outer timeout can leave a live detached gate child; PID reuse and missing launch
+identity are also uncertainty. The recovery path below is **operator-invoked**, not
+an automatic retry, and currently requires Linux process/start/group observations.
+Unsupported hosts fail closed rather than pretending to establish ownership.
+
+After confirming the original workflow and ALL its commands have stopped, request
+an inspection-only preflight for the affected integration:
+
+```sh
+node tools/bugfix/batch.mjs recovery-plan /absolute/run/path 0519
+```
+
+This prints a JSON request seed without writing to the run. Save it outside the
+integration artifact directory. Review the identities, fingerprint, process-census
+limitations and proposed action. Add explicit operator confirmation:
+
+```json
+"confirmation": {
+  "allExecutionStopped": true,
+  "legacy": true,
+  "reason": "How the original workflow and all owned processes were confirmed stopped"
+}
+```
+
+`legacy: true` is required only for historical empty locks. It is a human
+attestation, not machine-derived proof. Protected unrelated processes may hide
+cwd; that limitation is disclosed. Known controller/gate ownership and live group
+members are checked independently and cannot be overridden by attestation.
+An optional `verdict: {"ok": false, "findings": "..."}` may preserve the actual
+worker refusal with provenance retained in the request; recovery never accepts
+an approving verdict. Do not invent an answer or overwrite a different record.
+
+After explicit authorization, apply that exact saved preflight:
+
+```sh
+node tools/bugfix/batch.mjs recover /absolute/run/path /absolute/request.json
+```
+
+Recovery revalidates the bound state/context/source/merge/lease and remote identity,
+refuses active/uncertain execution and any shipment intent, then archives the old
+controller lock and integration activity marker under `recoveries/<uuid>/`.
+Original source red/green/review/decision proofs are validated read-only before
+ownership changes; changing proof files after preflight invalidates recovery.
+It preserves the previous state, request, intent and completion audit, advances
+attempt bookkeeping past existing evidence, and invalidates gate authority. It
+does **not** integrate, ship, release the batch lease or discard the retained merge.
+A partially applied recovery retains its own `recovery.lock` for investigation;
+there is no automatic takeover of that interrupted recovery.
+
+A committed, bounded workflow-only owner repair is permitted before this preflight;
+recovery does not itself adopt the new base. Normal resume subsequently records the
+authenticated upgrade, parks/retains the old pre-push integration attempt and creates
+a fresh one. Resume can automatically push eligible fixes and update/push pi-config:
+obtain the intended authorization before resuming, not after it starts.
+
 ## Development verification
 
 `tests/bugfix-worktree-env.test.ts` covers frozen bootstrap, local SDK checks,
@@ -195,5 +298,9 @@ negative verdicts, activity/push uncertainty, retained attempts, resume, evidenc
 identity and bounded complete reporting. `tests/fix-all-bugs-workflow.test.ts`
 drives the real Pi host and production orchestration with deterministic children
 and a local bare remote, without provider requests. Relevant live acceptance tests
-exercise the actual Astra planner and conflicting merge worker. These complement,
+exercise the actual Astra planner, conflicting merge preparer and fresh independent
+reviewer. `tests/bugfix-gate-runner.test.ts` exercises real subprocess/group cleanup,
+partial logs, timeouts and identity uncertainty; `tests/bugfix-batch-recovery.test.ts`
+covers killed controllers, retained attempts, no-write inspection and explicit
+recovery refusal/success. These complement,
 not replace, the full default suite and committed-fixture parse gate.

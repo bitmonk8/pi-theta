@@ -2599,7 +2599,7 @@ describe("bug 0124 (x) — the committed corpus declares no annotation in this c
       `x1: the census is over ${files.length} committed files; a change in the corpus size means ` +
         `the inventory below must be re-derived rather than trusted. Files: ` +
         `${JSON.stringify(files)}`,
-    ).toEqual([62, 3]);
+    ).toEqual([63, 3]);
 
     const lets: string[] = [];
     const params: string[] = [];
@@ -2636,7 +2636,10 @@ describe("bug 0124 (x) — the committed corpus declares no annotation in this c
     // and the coordinator add four sinks, six fn parameters and four returns.
     // Batch recovery replaces two annotated local sinks and adds ten explicit
     // helper parameters/four returns; no annotation acquires a new disposition.
-    ).toEqual([51, 64, 26]);
+    // Deterministic integration gating adds integration_gate (one param/return),
+    // save_verdict (three params/one return), and the fresh BatchReview sink/file.
+    // Existing fixtures and refusal expectations are unchanged.
+    ).toEqual([52, 68, 28]);
     expect(
       offenders,
       `x1: ZERO offenders — no committed fixture changes disposition when the refusal lands, so ` +

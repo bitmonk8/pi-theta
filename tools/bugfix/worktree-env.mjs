@@ -86,7 +86,7 @@ function requiredFiles(root, lock, manifest) {
   return Object.fromEntries([...new Set(files)].map(path => [relative(root, path), hash(readFileSync(path))]));
 }
 
-export function prepareWorktreeEnvironment(root, reportDirectory, runCommand) {
+function* prepareEnvironment(root, reportDirectory) {
   root = realpathSync(root);
   reportDirectory = realpathSync(reportDirectory);
   if (inside(root, reportDirectory)) throw new Error('Bootstrap evidence must be outside the worktree');
@@ -136,7 +136,7 @@ export function prepareWorktreeEnvironment(root, reportDirectory, runCommand) {
         record.argv = process.platform === 'win32'
           ? [process.env.ComSpec || 'cmd.exe', '/d', '/s', '/c', 'npm ' + npmArgs.join(' ')]
           : ['npm', ...npmArgs];
-        const result = runCommand(record.argv, root, 30 * 60 * 1000, { ...env, NODE_ENV: 'development', npm_config_include: 'dev', npm_config_omit: '', npm_config_global: 'false' });
+        const result = yield [record.argv, root, 30 * 60 * 1000, { ...env, NODE_ENV: 'development', npm_config_include: 'dev', npm_config_omit: '', npm_config_global: 'false' }];
         record.exitCode = result.code;
         record.commandError = result.error;
         writeFileSync(record.outputPath, result.output ?? '');
@@ -156,4 +156,26 @@ export function prepareWorktreeEnvironment(root, reportDirectory, runCommand) {
     writeFileSync(recordPath, JSON.stringify(record, null, 2) + '\n');
     throw new Error(`Worktree bootstrap failed: ${error.message} (evidence: ${recordPath})`, { cause: error });
   }
+}
+
+// One bootstrap contract, with sync legacy callers and a supervised async gate.
+export function prepareWorktreeEnvironment(root, reportDirectory, runCommand) {
+  const work = prepareEnvironment(root, reportDirectory);
+  let step = work.next();
+  while (!step.done) {
+    let result;
+    try { result = runCommand(...step.value); } catch (error) { step = work.throw(error); continue; }
+    step = work.next(result);
+  }
+  return step.value;
+}
+export async function prepareWorktreeEnvironmentAsync(root, reportDirectory, runCommand) {
+  const work = prepareEnvironment(root, reportDirectory);
+  let step = work.next();
+  while (!step.done) {
+    let result;
+    try { result = await runCommand(...step.value); } catch (error) { step = work.throw(error); continue; }
+    step = work.next(result);
+  }
+  return step.value;
 }

@@ -9,24 +9,35 @@
 // plan.json and integration-result-ID.json {ok:boolean, findings:string}; workers
 // commit/gate only the context's integration checkout. Failure locks are durable.
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, readdirSync, rmSync, realpathSync, lstatSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, readdirSync, rmSync, realpathSync, lstatSync, openSync, closeSync, fsyncSync } from 'node:fs';
 import { resolve, join, dirname, isAbsolute, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { command, validateWitnesses, worktreePath, prepareWorktreePath, executionControlPaths } from './run.mjs';
+import { command, validateWitnesses, worktreePath, prepareWorktreePath, executionControlPaths, verifiedSourceEvidence } from './run.mjs';
 import { updatePiConfig } from './update-pi-config.mjs';
-import { prepareWorktreeEnvironment } from './worktree-env.mjs';
+import { prepareWorktreeEnvironment, prepareWorktreeEnvironmentAsync } from './worktree-env.mjs';
+import { runGateCommand, GATE_TOTAL_TIMEOUT_MS, GATE_COMMAND_TIMEOUT_MS, GATE_SHELL_TIMEOUT_SECONDS } from './gate-runner.mjs';
+import { acquireController, releaseController, controllerObservation, recoveryPlan, recoverController } from './controller-recovery.mjs';
 
 const standalone = fileURLToPath(new URL('./run.mjs', import.meta.url));
 const hash = text => createHash('sha256').update(text).digest('hex');
 const read = path => JSON.parse(readFileSync(path, 'utf8'));
 const encode = value => JSON.stringify(value, null, 2) + '\n';
+function syncDirectory(path) {
+  if (process.platform === 'win32') return;
+  const fd = openSync(dirname(path), 'r');
+  try { fsyncSync(fd); } catch (error) { if (!['EINVAL', 'ENOTSUP'].includes(error.code)) throw error; } finally { closeSync(fd); }
+}
+function immutable(path, value) {
+  const fd = openSync(path, 'wx', 0o600);
+  try { writeFileSync(fd, encode(value)); fsyncSync(fd); } finally { closeSync(fd); }
+  syncDirectory(path);
+}
 function save(path, value) {
   const temp = path + '.' + randomUUID() + '.tmp';
-  writeFileSync(temp, encode(value), { flag: 'wx' }); renameSync(temp, path);
+  immutable(temp, value); renameSync(temp, path); syncDirectory(path);
 }
-function immutable(path, value) { writeFileSync(path, encode(value), { flag: 'wx' }); }
 function git(root, ...args) {
-  const r = command(['git', ...args], root);
+  const r = command(['git', ...args], root, undefined, { ...process.env, GIT_OPTIONAL_LOCKS: '0' });
   if (r.code !== 0) throw new Error(`git ${args[0]} failed: ${r.output}`);
   return r.output.trim();
 }
@@ -347,21 +358,73 @@ function integrationStart(run, state, id) {
   job.environment = prepareWorktreeEnvironment(ctx.root, folder, command).recordPath;
   return job.integration;
 }
-function integrationGate(run, state, id) {
-  const ctx = integrationContext(run, state, id); const identity = gateIdentity(ctx); const job = state.jobs[id];
+async function integrationGate(run, state, id, signal) {
+  const began = performance.now();
+  const ctx = integrationContext(run, state, id);
+  if (existsSync(join(ctx.reportDirectory, 'active'))) throw new Error('Integration worker is still marked active; settle it before controller-owned gates');
+  assertSettledSources(run, state);
+  const identity = gateIdentity(ctx); const job = state.jobs[id];
   delete job.gateDigest; delete job.gateIdentity;
-  job.gateAttempts = (job.gateAttempts ?? 0) + 1;
-  const attempt = join(dirname(job.integration), 'gate-' + job.gateAttempts); mkdirSync(attempt);
-  const prepared = prepareWorktreeEnvironment(ctx.root, attempt, command);
+  // An interrupted process may have allocated an attempt without publishing its
+  // old counter. Never overwrite an orphan directory, even on legacy runs.
+  const folder = dirname(job.integration);
+  job.gateAttempts = Math.max(job.gateAttempts ?? 0, ...readdirSync(folder).filter(n => /^gate-\d+$/.test(n)).map(n => Number(n.slice(5)))) + 1;
+  const attempt = join(folder, 'gate-' + job.gateAttempts); mkdirSync(attempt);
+  const operationId = randomUUID();
+  for (const field of ['reviewContextPath', 'reviewContextDigest', 'reviewResultPath', 'reviewResultDigest']) delete job[field];
+  if (existsSync(ctx.verdictPath)) renameSync(ctx.verdictPath, join(attempt, 'prior-verdict.json'));
+  immutable(join(attempt, 'reservation.json'), { version: 1, operationId, id, contextDigest: job.integrationDigest, ...identity, totalTimeoutMs: GATE_TOTAL_TIMEOUT_MS, commandTimeoutMs: GATE_COMMAND_TIMEOUT_MS, shellTimeoutSeconds: GATE_SHELL_TIMEOUT_SECONDS, startedAt: new Date().toISOString() });
+  // Reservation, invalidated prior authority and attempt number precede spawn.
+  state.revision++; save(join(run, 'state.json'), state); publishReport(run, state);
+  const execute = async (argv, cwd, prefix, env) => {
+    const remaining = Math.floor(GATE_TOTAL_TIMEOUT_MS - (performance.now() - began));
+    if (signal.aborted || remaining <= 0) throw new Error('Integration gate cancelled or aggregate deadline exhausted; evidence retained: ' + attempt);
+    let result;
+    try { result = await runGateCommand(argv, cwd, join(attempt, prefix), { env, signal, operationId, timeoutMs: Math.min(GATE_COMMAND_TIMEOUT_MS, remaining) }); }
+    catch (error) { error.retainControllerLock = true; throw error; }
+    if (!result.settled) { const error = new Error('Integration gate execution is uncertain; retain controller ownership and inspect: ' + attempt); error.retainControllerLock = true; throw error; }
+    return result;
+  };
+  const prepared = await prepareWorktreeEnvironmentAsync(ctx.root, attempt, (argv, cwd, _timeout, env) => execute(argv, cwd, 'bootstrap-command', env));
   const results = [];
   for (let i = 0; i < ctx.commands.length; i++) {
-    const argv = ctx.commands[i]; const result = command(argv, ctx.root, undefined, prepared.env);
-    const log = join(attempt, `${i}.json`); immutable(log, { argv, ...result }); results.push({ path: log, digest: hash(regular(log)) });
+    const argv = ctx.commands[i]; const result = await execute(argv, ctx.root, String(i), prepared.env);
+    const log = join(attempt, `${i}.json`); immutable(log, { argv, ...result });
+    // Bind streaming logs and lifecycle evidence as well as the bounded result.
+    const evidence = [result.intentPath, result.startedPath, result.finishedPath, result.stdoutPath, result.stderrPath].filter(path => path && existsSync(path)).map(path => ({ path, digest: hash(regular(path)) }));
+    results.push({ path: log, digest: hash(regular(log)), evidence });
     if (result.code !== 0) throw new Error('Integration gate failed; all logs retained: ' + attempt);
   }
+  if (signal.aborted || performance.now() - began >= GATE_TOTAL_TIMEOUT_MS) throw new Error('Integration gate cancelled or aggregate deadline exhausted');
   if (JSON.stringify(gateIdentity(ctx)) !== JSON.stringify(identity)) throw new Error('Integration checkout changed during gates');
-  const gate = { version: 1, contextDigest: job.integrationDigest, ...identity, commands: ctx.commands, results };
+  const gate = { version: 1, operationId, contextDigest: job.integrationDigest, ...identity, commands: ctx.commands, results };
   save(ctx.gatePath, gate); job.gateDigest = hash(regular(ctx.gatePath)); job.gateIdentity = identity;
+  return 'PASS';
+}
+function integrationReviewStart(run, state, id) {
+  const ctx = integrationContext(run, state, id); const job = state.jobs[id];
+  if (existsSync(join(ctx.reportDirectory, 'active'))) throw new Error('Integration worker is still marked active; cannot start another review binding');
+  assertSettledSources(run, state);
+  const identity = gateIdentity(ctx);
+  if (!job.gateDigest || hash(regular(ctx.gatePath)) !== job.gateDigest || JSON.stringify(identity) !== JSON.stringify(job.gateIdentity)) throw new Error('Independent review requires a fresh integration gate');
+  const path = attemptPath(ctx.reportDirectory, 'review-context');
+  immutable(path, { version: 1, contextDigest: job.integrationDigest, gateDigest: job.gateDigest, ...identity });
+  job.reviewContextPath = path; job.reviewContextDigest = hash(regular(path));
+  delete job.reviewResultPath; delete job.reviewResultDigest;
+  return 'PASS';
+}
+function integrationReviewRecord(run, state, id) {
+  const ctx = integrationContext(run, state, id); const job = state.jobs[id];
+  if (existsSync(join(ctx.reportDirectory, 'active'))) throw new Error('Independent reviewer has not settled');
+  const identity = gateIdentity(ctx);
+  if (!job.reviewContextPath || hash(regular(job.reviewContextPath)) !== job.reviewContextDigest) throw new Error('Missing independent review start binding');
+  const started = read(job.reviewContextPath);
+  if (started.contextDigest !== job.integrationDigest || started.gateDigest !== job.gateDigest || hash(regular(ctx.gatePath)) !== job.gateDigest || ['sha', 'tree', 'index'].some(key => started[key] !== identity[key])) throw new Error('Checkout or gate changed after independent review started');
+  const verdict = read(ctx.verdictPath);
+  if (typeof verdict.ok !== 'boolean' || typeof verdict.findings !== 'string' || !verdict.findings.trim()) throw new Error('Malformed independent review verdict');
+  const path = attemptPath(ctx.reportDirectory, 'review-result');
+  immutable(path, { ...started, reviewContextDigest: job.reviewContextDigest, verdictDigest: hash(regular(ctx.verdictPath)), verdict });
+  job.reviewResultPath = path; job.reviewResultDigest = hash(regular(path));
   return 'PASS';
 }
 function integrateRecord(run, state, id) {
@@ -376,7 +439,13 @@ function integrateRecord(run, state, id) {
   if (!job.gateDigest || !gateBytes || hash(gateBytes) !== job.gateDigest || JSON.stringify(identity) !== JSON.stringify(job.gateIdentity)) throw new Error('Missing fresh integration gate for the final committed checkout');
   const gate = JSON.parse(gateBytes);
   if (gate.contextDigest !== job.integrationDigest || gate.sha !== identity.sha) throw new Error('Gate does not bind this integration');
-  for (const result of gate.results) if (hash(regular(result.path)) !== result.digest || read(result.path).code !== 0) throw new Error('Integration gate log changed or failed');
+  for (const result of gate.results) {
+    if (hash(regular(result.path)) !== result.digest || read(result.path).code !== 0) throw new Error('Integration gate log changed or failed');
+    for (const proof of result.evidence ?? []) if (hash(regular(proof.path)) !== proof.digest) throw new Error('Integration gate streaming evidence changed');
+  }
+  if (!job.reviewResultPath || hash(regular(job.reviewResultPath)) !== job.reviewResultDigest) throw new Error('Missing fresh independent review binding');
+  const reviewed = read(job.reviewResultPath);
+  if (reviewed.contextDigest !== job.integrationDigest || reviewed.gateDigest !== job.gateDigest || reviewed.verdictDigest !== hash(regular(ctx.verdictPath)) || ['sha', 'tree', 'index'].some(key => reviewed[key] !== identity[key])) throw new Error('Independent review does not bind the final checkout/gate/verdict');
   const source = sourceState(run, state, id);
   if (source.root !== ctx.sourceRoot || source.branch !== ctx.sourceBranch || git(source.root, 'rev-parse', 'HEAD') !== ctx.sourceSha || hash(regular(join(job.sourceRun, 'witnesses.json'))) !== ctx.witnessDigest) throw new Error('Source identity/witnesses changed after integration setup');
   requirePass(standaloneCall(state, 'export-verified', job.sourceRun));
@@ -415,10 +484,13 @@ function integrateRecord(run, state, id) {
 function report(run, state) {
   const inventory = state.planDigest ? checkedPlan(run, state).bugs : existsSync(join(run, 'catalog.json')) ? read(join(run, 'catalog.json')).open : reports(state.root).filter(b => b.open);
   const bugs = inventory.map(b => ({ id: b.id, status: state.planDigest ? 'pending' : 'not-assessed', reason: b.reason ?? 'Readiness not assessed; no fix attempted.', ...(state.outcomes[b.id] ?? {}), ...(state.jobs[b.id] ?? {}) }));
-  return { version: 1, run, root: state.root, base: state.base, finished: state.finished ?? false, schedulingComplete: state.schedulingComplete ?? false,
+  return { version: 1, run, root: state.root, base: state.base, stateRevision: state.revision, generatedAt: new Date().toISOString(), finished: state.finished ?? false, schedulingComplete: state.schedulingComplete ?? false,
     catalog: join(run, 'catalog.json'), plan: join(run, 'plan.json'), detailPath: join(run, 'report.txt'), integrationLock: existsSync(join(run, 'integration.lock')) ? join(run, 'integration.lock') : null,
     lastError: state.lastError ?? null, finishError: state.finishError ?? null, errors: state.errors ?? [],
     counts: { total: bugs.length, attempted: bugs.filter(b => b.sourceRun).length, shipped: bugs.filter(b => b.shipment?.pushed).length, ownerDecisions: bugs.reduce((n, b) => n + (b.approvals?.length ?? (b.authority === 'pending' || b.status === 'pending-approval' ? 1 : 0)), 0), authorizationItems: bugs.filter(b => ['authorization-required', 'excluded'].includes(b.status)).length }, bugs };
+}
+function publishReport(run, state) {
+  save(join(run, 'report.json'), report(run, state));
 }
 function renderReport(value) {
   const short = (text, n = 180) => String(text ?? '').replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, n);
@@ -473,7 +545,11 @@ function parkIntegration(run, state, id) {
 function workflowPath(path) {
   return /^tools\/bugfix\/[a-z-]+\.mjs$/.test(path) || /^\.pi\/theta\/(?:fix-(?:all-bugs|bug)\.theta|workers\/bugfix-[a-z-]+\.theta)$/.test(path)
     || /^tests\/(?:live\/acceptance\/)?(?:bugfix-[a-z-]+|fix-all-bugs-workflow)\.test\.ts$/.test(path)
-    || ['docs/how-to/fix-all-bugs.md', 'docs/how-to/fix-a-numbered-bug.md', 'tests/annotation-nontype-text-refusal.test.ts'].includes(path);
+    // Adding a workflow worker necessarily advances these exact corpus pins.
+    // Keep the exception named and bounded, never allow arbitrary test paths.
+    || ['docs/how-to/fix-all-bugs.md', 'docs/how-to/fix-a-numbered-bug.md', 'tests/annotation-nontype-text-refusal.test.ts',
+      'tests/committed-fixture-parse-gate.test.ts', 'tests/interpolation-parse-diagnostics.test.ts',
+      'tests/for-empty-array-iterand-adjudication.test.ts', 'tests/match-fn-return-lub-dominating-discipline.test.ts'].includes(path);
 }
 function resumeBatch(run, state) {
   clean(state.root);
@@ -549,7 +625,39 @@ function resumeBatch(run, state) {
   state.resumeCount = (state.resumeCount ?? 0) + 1;
   delete state.lastError; delete state.finishError;
 }
-export function main(args, cwd = process.cwd()) {
+function validateRecovery(run, state, id) {
+  assertLease(run, state); clean(state.root); assertSettledSources(run, state);
+  if (git(state.root, 'branch', '--show-current') !== 'main') throw new Error('Recovery requires owner main');
+  const head = git(state.root, 'rev-parse', 'HEAD'); const remote = remoteMain(state);
+  // A tested workflow-only repair can be committed before reconciliation. Do
+  // not adopt it here: ordinary resume will write the authenticated upgrade.
+  if (head !== state.base) {
+    ancestry(state.root, state.base, head);
+    const paths = git(state.root, 'diff', '--name-only', '-z', state.base, head).split('\0').filter(Boolean);
+    if (!paths.length || paths.some(path => !workflowPath(path))) throw new Error('Owner main changed outside the bounded workflow repair scope');
+  }
+  if (remote !== (state.remoteBase ?? state.base)) throw new Error('Remote main changed; shipment state requires separate reconciliation');
+  const job = state.jobs[id];
+  if (!job || job.status !== 'integrating') throw new Error('Recovery requires an existing integrating job');
+  const transaction = read(join(run, 'integration.lock/owner.json'));
+  if (transaction.id !== id) throw new Error('Integration transaction identity changed');
+  const contextBytes = regular(job.integration);
+  if (hash(contextBytes) !== job.integrationDigest) throw new Error('Integration context changed');
+  const ctx = JSON.parse(contextBytes);
+  const suffix = (job.integrationAttempt ?? 1) > 1 ? '-attempt-' + job.integrationAttempt : '';
+  if (ctx.batchRun !== run || ctx.id !== id || ctx.ownerRoot !== state.root || ctx.base !== state.base || ctx.root !== worktreePath(state.root, basename(run) + '-integrate-' + id + suffix) || ctx.reportDirectory !== dirname(job.integration) || ctx.verdictPath !== join(ctx.reportDirectory, 'verdict.json')) throw new Error('Recovery context is not bound to this transaction');
+  if (job.shipment || ['push-attempt.json', 'shipment.json'].some(name => existsSync(join(ctx.reportDirectory, name)))) throw new Error('Shipment was attempted or may have succeeded; recovery cannot replay it');
+  const source = sourceState(run, state, id);
+  if (hash(regular(job.exportPath)) !== job.exportDigest || source.root !== ctx.sourceRoot || source.branch !== ctx.sourceBranch || git(source.root, 'rev-parse', 'HEAD') !== ctx.sourceSha || hash(regular(join(job.sourceRun, 'witnesses.json'))) !== ctx.witnessDigest) throw new Error('Source identity or frozen evidence changed');
+  clean(source.root);
+  if (git(ctx.root, 'branch', '--show-current') !== ctx.branch) throw new Error('Integration branch changed');
+  const merge = gateIdentity(ctx);
+  const activity = join(ctx.reportDirectory, 'active/owner.json');
+  if (existsSync(activity) && read(activity).contextDigest !== job.integrationDigest) throw new Error('Integration activity identity changed');
+  const sourceProof = verifiedSourceEvidence(job.sourceRun, source);
+  return { ctx, head, remote, merge, sourceProof, sourceStateDigest: hash(regular(join(job.sourceRun, 'state.json'))), exportDigest: job.exportDigest };
+}
+export async function main(args, cwd = process.cwd()) {
   const [op, arg, id] = args;
   if (op === 'lane-arguments') {
     const manifest = read(arg); const parent = read(join(manifest.batchRun, 'state.json')); const job = parent.jobs?.[manifest.id];
@@ -580,11 +688,26 @@ export function main(args, cwd = process.cwd()) {
     selected = pointer.run;
   }
   const run = realpathSync(resolve(cwd, selected ?? '')); const statePath = join(run, 'state.json');
-  const guard = join(run, 'controller.lock');
-  try { mkdirSync(guard); } catch { throw new Error('Another batch controller operation is in progress; do not remove lock while commands are active'); }
-  try {
+  const load = () => {
     const state = read(statePath);
     if (state.version !== 1 || state.root !== realpathSync(git(cwd, 'rev-parse', '--show-toplevel')) || !run.startsWith(join(state.root, '.pi/tmp/fix-all-bugs-'))) throw new Error('Batch belongs to another owner checkout');
+    return state;
+  };
+  // Inspect and preflight do not acquire locks, mutate reports or reconcile state.
+  if (op === 'inspect') {
+    const state = load(); const value = report(run, state);
+    console.log(encode({ ...value, controllerLock: controllerObservation(run), recoveryLock: existsSync(join(run, 'recovery.lock')), observation: 'Recorded batch state only; not a claim that children settled or verification passed.' }).trimEnd()); return;
+  }
+  const recoveryDeps = { validate: validateRecovery, saveState: state => save(statePath, state), publishReport: state => publishReport(run, state) };
+  if (op === 'recovery-plan') { console.log(encode(recoveryPlan(run, load(), id, recoveryDeps)).trimEnd()); return; }
+  if (op === 'recover') { console.log(recoverController(run, load(), resolve(cwd, id ?? ''), recoveryDeps)); return; }
+  const owner = acquireController(run, op, id);
+  let retainControllerLock = false;
+  const cancellation = new AbortController();
+  const cancel = () => cancellation.abort();
+  if (op === 'integration-gate') { process.on('SIGINT', cancel); process.on('SIGTERM', cancel); }
+  try {
+    const state = load();
     if (op === 'report' || op === 'render-report') {
       const value = report(run, state); save(join(run, 'report.json'), value);
       console.log(op === 'report' ? encode(value).trimEnd() : renderReport(value)); return;
@@ -595,7 +718,7 @@ export function main(args, cwd = process.cwd()) {
       mkdirSync(lease); immutable(join(lease, 'owner.json'), { run, kind: 'batch' }); acquired = true;
     }
     try { assertLease(run, state); } catch (error) { if (acquired) rmSync(lease, { recursive: true }); throw error; }
-    if (['collect', 'integration-start', 'integration-gate', 'integrate-record', 'integration-park', 'integration-verdict-path', 'integration-enter', 'integration-settled'].includes(op) && !/^\d{4}$/.test(id ?? '')) throw new Error('Expected four-digit job id');
+    if (['collect', 'integration-start', 'integration-gate', 'integration-review-start', 'integration-review-record', 'integrate-record', 'integration-park', 'integration-verdict-path', 'integration-enter', 'integration-settled'].includes(op) && !/^\d{4}$/.test(id ?? '')) throw new Error('Expected four-digit job id');
     let output = 'PASS';
     try {
       if (op === 'resume') { resumeBatch(run, state); output = run; }
@@ -612,7 +735,9 @@ export function main(args, cwd = process.cwd()) {
         output = state.jobs[id].status === 'verified' ? 'VERIFIED' : state.jobs[id].status === 'pending-approval' ? 'PENDING' : 'BLOCKED';
       }
       else if (op === 'integration-start') output = integrationStart(run, state, id);
-      else if (op === 'integration-gate') output = integrationGate(run, state, id);
+      else if (op === 'integration-gate') output = await integrationGate(run, state, id, cancellation.signal);
+      else if (op === 'integration-review-start') output = integrationReviewStart(run, state, id);
+      else if (op === 'integration-review-record') output = integrationReviewRecord(run, state, id);
       else if (op === 'integrate-record') integrateRecord(run, state, id);
       else if (op === 'integration-park') output = parkIntegration(run, state, id);
       else if (op === 'integration-verdict-path') output = integrationContext(run, state, id).verdictPath;
@@ -635,20 +760,24 @@ export function main(args, cwd = process.cwd()) {
           const plan = checkedPlan(run, state);
           if (plan.bugs.some(b => !state.jobs[b.id] && !state.outcomes[b.id])) throw new Error('Unclassified pending bugs remain; call next to propagate prerequisite failures');
         }
-        state.finished = true; save(join(run, 'report.json'), report(run, state)); rmSync(join(state.root, '.pi/tmp/fix-bug.lock'), { recursive: true });
+        state.finished = true; rmSync(join(state.root, '.pi/tmp/fix-bug.lock'), { recursive: true });
       } else throw new Error('Unknown operation: ' + op);
       if (op === 'finish') delete state.finishError;
       else delete state.lastError;
     } catch (error) {
+      retainControllerLock = error.retainControllerLock === true || error.cause?.retainControllerLock === true;
       const failure = { op, id, message: error.message };
       state.errors = [...(state.errors ?? []), failure];
       if (op === 'finish') state.finishError = failure;
       else state.lastError = failure;
       throw error;
-    } finally { state.revision++; save(statePath, state); }
+    } finally { state.revision++; save(statePath, state); publishReport(run, state); }
     console.log(output);
-  } finally { rmSync(guard, { recursive: true }); }
+  } finally {
+    if (op === 'integration-gate') { process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel); }
+    if (!retainControllerLock) releaseController(run, owner);
+  }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  try { main(process.argv.slice(2)); } catch (error) { console.error('BLOCKED: ' + error.message); process.exitCode = 1; }
+  main(process.argv.slice(2)).catch(error => { console.error('BLOCKED: ' + error.message); process.exitCode = 1; });
 }

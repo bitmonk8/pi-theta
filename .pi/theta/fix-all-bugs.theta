@@ -9,6 +9,7 @@ tools:
   - ./workers/bugfix-batch-plan.theta
   - ./workers/bugfix-batch-lane.theta
   - ./workers/bugfix-batch-merge.theta
+  - ./workers/bugfix-batch-review.theta
 params:
   arguments: string
 ---
@@ -34,8 +35,22 @@ fn error_reason(error: QueryError): string {
   error.message
 }
 fn control(command: string): string {
-  let output = match bash({ command: command }) { Ok(text) => text, Err(error) => error.message }
+  // Setup can bootstrap dependencies and promotion can update the consumer.
+  // These are not all quick queries; never impose a one/two-minute host cap.
+  let output = match bash({ command: command, timeout: 3660 }) { Ok(text) => text, Err(error) => error.message }
   output.trim()
+}
+fn integration_gate(command: string): string {
+  // Controller: 3600s aggregate, 1800s/command, <=5s cleanup. The outer
+  // deadline must leave headroom; model turns do not own this gate execution.
+  let output = match bash({ command: command, timeout: 3660 }) { Ok(text) => text, Err(error) => error.message }
+  output.trim()
+}
+fn save_verdict(path: string, ok: boolean, findings: string): string {
+  match write({ path: path, content: "{\"ok\":" + (ok ? "true" : "false")
+    + ",\"findings\":" + json_text(findings) + "}" }) {
+    Ok(_) => "PASS", Err(error) => error.message,
+  }
 }
 fn run_json(path: string, run: string): boolean {
   path.startsWith(run + "/") && path.endsWith(".json") && !path.includes("\n")
@@ -61,8 +76,13 @@ fn integrate(run: string, id: string) {
   let context = control(prefix + "integration-start " + args)
   if !run_json(context, run) { return park(run, id, "Integration setup failed: " + context)? }
   let path = control(prefix + "integration-verdict-path " + args)
-  if !run_json(path, run) { return park(run, id, "Invalid per-attempt verdict path: " + path)? }
-  theta_print({ text: "Astra is integrating bug " + id + " sequentially; fresh merged-tree gates are mandatory." })?
+  if !run_json(path, run) || !path.endsWith("/verdict.json") {
+    return park(run, id, "Invalid registered per-attempt verdict path: " + path)?
+  }
+  // Derive ONLY from the registered canonical basename, never replace arbitrary
+  // occurrences in a run/context path. Successful preparation is not authority.
+  let prepare_path = path.split("/").slice(0, -1).join("/") + "/prepare-verdict.json"
+  theta_print({ text: "Astra is preparing bug " + id + " sequentially; a deterministic gate and fresh independent review follow." })?
   let entered = control(prefix + "integration-enter " + args)
   if entered != "PASS" { return park(run, id, "Could not enter merge worker: " + entered)? }
   let merged = bugfix_batch_merge(context)
@@ -73,15 +93,49 @@ fn integrate(run: string, id: string) {
     return "BATCH STOP — integration worker did not return a typed verdict for bug " + id
       + "; liveness is uncertain. Integration marker and lease retained.\n" + failure
   }
-  let verdict = merged?
-  // A typed negative result is settled, valid evidence, not malformed output.
-  let settled = control(prefix + "integration-settled " + args)
-  if settled != "PASS" { return park(run, id, "Could not record worker settlement: " + settled)? }
-  let saved = match write({ path: path, content: "{\"ok\":" + (verdict.ok ? "true" : "false")
-    + ",\"findings\":" + json_text(verdict.findings) + "}" }) {
-    Ok(_) => "PASS", Err(error) => error.message,
+  let preparation = merged?
+  // Preserve the actual typed return BEFORE fallible settlement. Negative
+  // preparation is also a final refusal, but successful preparation is not.
+  let prepared = save_verdict(prepare_path, preparation.ok, preparation.findings)
+  if prepared != "PASS" {
+    return "BATCH STOP — could not save preparation verdict; integration marker retained.\n" + preparation.findings + "\n" + prepared
   }
-  if saved != "PASS" { return park(run, id, "Could not save worker verdict: " + saved)? }
+  if !preparation.ok {
+    let refused = save_verdict(path, preparation.ok, preparation.findings)
+    if refused != "PASS" { return "BATCH STOP — could not save final refusal; marker retained.\n" + preparation.findings + "\n" + refused }
+  }
+  let settled = control(prefix + "integration-settled " + args)
+  if settled != "PASS" {
+    return "BATCH STOP — could not record preparation worker settlement; marker and verdict retained.\n" + preparation.findings + "\n" + settled
+  }
+  if !preparation.ok { return park(run, id, "Preparation declined: " + preparation.findings)? }
+
+  // No model worker is active during the exact controller-owned merged gate.
+  let gated = integration_gate(prefix + "integration-gate " + args)
+  if gated != "PASS" {
+    let refused = save_verdict(path, false, "Integration gate failed: " + gated)
+    if refused != "PASS" { return "BATCH STOP — gate failed and final refusal could not be saved.\n" + gated + "\n" + refused }
+    return park(run, id, "Integration gate failed: " + gated)?
+  }
+  let review_started = control(prefix + "integration-review-start " + args)
+  if review_started != "PASS" { return park(run, id, "Could not bind independent review to the gate: " + review_started)? }
+  let reviewing = control(prefix + "integration-enter " + args)
+  if reviewing != "PASS" { return park(run, id, "Could not enter independent reviewer: " + reviewing)? }
+  let reviewed = bugfix_batch_review(context)
+  let review_failure = match reviewed { Ok(_) => "", Err(error) => error_reason(error) }
+  if review_failure != "" {
+    return "BATCH STOP — independent reviewer did not return a typed verdict for bug " + id
+      + "; liveness is uncertain. Integration marker, preparation and gate retained.\n" + review_failure
+  }
+  let verdict = reviewed?
+  let saved = save_verdict(path, verdict.ok, verdict.findings)
+  if saved != "PASS" { return "BATCH STOP — could not save independent review verdict; marker retained.\n" + verdict.findings + "\n" + saved }
+  let review_settled = control(prefix + "integration-settled " + args)
+  if review_settled != "PASS" {
+    return "BATCH STOP — could not record independent reviewer settlement; marker and verdict retained.\n" + verdict.findings + "\n" + review_settled
+  }
+  let review_recorded = control(prefix + "integration-review-record " + args)
+  if review_recorded != "PASS" { return park(run, id, "Independent review binding failed: " + review_recorded)? }
   let recorded = control(prefix + "integrate-record " + args)
   if recorded != "PASS" { return park(run, id, recorded)? }
   "PASS"

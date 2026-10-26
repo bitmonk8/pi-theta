@@ -1,8 +1,8 @@
-// Real production Astra planner/merge workers, not model-authored replacement
+// Real production Astra planner/merge/independent-review workers, not replacement
 // verdicts. Prompt-mode callers only persist the actual typed child return.
 // Every Git operation and mandatory gate is confined to disposable repositories.
 import { describe, expect, it } from "vitest";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -23,7 +23,7 @@ async function requireAstra() {
   const registry = new ModelRegistry(runtime);
   await registry.refresh();
   if (!registry.getAvailable().some(model => model.provider === "openai" && model.id === "gpt-6-astra")) {
-    failLoudly("bugfix batch live precondition unmet: credentialed openai/gpt-6-astra is required for the actual production planner and conflict resolver; no substitute or silent skip.");
+    failLoudly("bugfix batch live precondition unmet: credentialed openai/gpt-6-astra is required for the actual production planner, conflict resolver and independent reviewer; no substitute or silent skip.");
   }
 }
 function git(cwd: string, ...args: string[]) {
@@ -55,7 +55,10 @@ const serialization = [
   '  "[" + text + "]"',
   '}',
 ].join("\n");
-function installProbe(cwd: string, kind: "plan" | "merge") {
+function installProbe(cwd: string, kind: "plan" | "merge" | "review"): string {
+  // Ship both actual model workers before committing the fixture. Each gets a
+  // fresh real child context; only the deterministic test parent runs the gate.
+  if (kind === "merge") installProbe(cwd, "review");
   const theta = join(cwd, ".pi/theta");
   const worker = "bugfix-batch-" + kind;
   const workerPath = join(theta, "workers", worker + ".theta");
@@ -76,13 +79,14 @@ function installProbe(cwd: string, kind: "plan" | "merge") {
     '}',
     'write({ path: context_path + ".actual.json", content: "{\\\"bugs\\\":[" + bugs + "],\\\"guidance\\\":" + json_list(guidance) + "}" })?',
   ] : [
-    'let actual = bugfix_batch_merge(context_path)?',
+    'let actual = bugfix_batch_' + kind + '(context_path)?',
     'write({ path: context_path + ".actual.json", content: "{\\\"ok\\\":" + (actual.ok ? "true" : "false") + ",\\\"findings\\\":" + json_text(actual.findings) + "}" })?',
   ];
   const callerPath = join(theta, "batch-" + kind + "-probe.theta");
   put(cwd, join(".pi", "theta", "batch-" + kind + "-probe.theta"), [
     "---", "mode: prompt", "tools:", "  - ./workers/" + worker + ".theta", "  - write",
-    "params:", "  context_path: string", "---", serialization, ...body,
+    "params:", "  context_path: string", "---", serialization,
+    ...body.map(line => line.replace('".actual.json"', JSON.stringify('.' + kind + '.actual.json'))),
     '"Actual batch worker return captured without granting shipment authority"', "",
   ].join("\n"));
   for (const path of [callerPath, workerPath]) {
@@ -96,26 +100,30 @@ function init(cwd: string) {
   git(cwd, "config", "user.name", "Test");
   git(cwd, "add", "."); git(cwd, "commit", "-m", "bounded live batch fixture");
 }
-async function drive(cwd: string, theta: string, kind: "plan" | "merge", context: string) {
+async function drive(cwd: string, theta: string, kind: "plan" | "merge" | "review", context: string) {
   const session = join(cwd, ".pi/tmp/batch-" + kind + "-session.jsonl");
   mkdirSync(dirname(session), { recursive: true });
+  const actualPath = context + '.' + kind + '.actual.json';
+  expect(existsSync(actualPath), 'each phase must produce its own fresh actual verdict').toBe(false);
   // Harness scrubs inherited theta invocation state and authenticates/pins both
   // the real CLI and this checkout's extension across the real child process.
   const result = await spawnPiPrint({
     cwd, thetaDir: theta, extraThetaDirs: [join(theta, "workers")],
     slashInvocation: "/batch-" + kind + "-probe " + context,
     extraArgs: ["--mode", "json", "--session", session],
-    abortAfterMs: kind === "merge" ? 330000 : 210000,
+    abortAfterMs: kind === "plan" ? 210000 : 330000,
   });
   // Durable diagnostics survive fixture cleanup and permit unlimited inspection
   // without repeating a provider run. Never pipe the expensive run to a filter.
   const logs = mkdtempSync(join(tmpdir(), "bugfix-batch-live-" + kind + "-logs-"));
   writeFileSync(join(logs, "host.stdout.jsonl"), result.stdout);
   writeFileSync(join(logs, "host.stderr.txt"), result.stderr);
-  if (existsSync(context + ".actual.json")) copyFileSync(context + ".actual.json", join(logs, "actual.json"));
+  if (existsSync(actualPath)) copyFileSync(actualPath, join(logs, "actual.json"));
   if (existsSync(session)) copyFileSync(session, join(logs, "session.jsonl"));
+  const children = session.replace(/\.jsonl$/, '');
+  if (existsSync(children)) cpSync(children, join(logs, 'child-sessions'), { recursive: true });
   copyFileSync(context, join(logs, "context.json"));
-  if (kind === "merge") {
+  if (kind !== "plan") {
     const ctx = json(context);
     if (existsSync(ctx.gatePath)) {
       copyFileSync(ctx.gatePath, join(logs, "gate.json"));
@@ -136,8 +144,8 @@ async function drive(cwd: string, theta: string, kind: "plan" | "merge", context
   // session file. If a persisted transcript exists, inspect it in addition to
   // the full host stream; the actual sink file below is mandatory either way.
   if (existsSync(session)) expect(readFileSync(session, "utf8"), diagnostic).not.toMatch(/"customType"\s*:\s*"theta-system-note"/);
-  expect(existsSync(context + ".actual.json"), diagnostic).toBe(true);
-  return json(context + ".actual.json");
+  expect(existsSync(actualPath), diagnostic).toBe(true);
+  return json(actualPath);
 }
 interface Bug { id: string; ready: boolean; reason: string; dependencies: string[]; files: string[] }
 interface Plan { bugs: Bug[]; guidance: string[] }
@@ -205,7 +213,7 @@ describe("live Astra production bugfix batch workers", () => {
     } finally { rmSync(cwd, { recursive: true, force: true }); }
   }, 240000);
 
-  it("merges two same-wave fixes with a real source conflict, preserves both regressions, and runs fresh mandatory merged-tree gates before controller promotion", async () => {
+  it("prepares two same-wave fixes with a real conflict, deterministically gates them, and requires fresh independent Astra review before promotion", async () => {
     await requireAstra();
     const cwd = mkdtempSync(join(tmpdir(), "theta-batch-merge-live-"));
     try {
@@ -215,7 +223,7 @@ describe("live Astra production bugfix batch workers", () => {
         "Preserve the established format contract: null/undefined label becomes empty string; negative count becomes zero; valid labels/counts are unchanged.",
         "Both behaviors are mandatory and independent. No owner decision, policy tradeoff or specification change is needed.",
         "Keep all existing tests and original witness/red files unchanged. No new dependency, external communication or weakened test assertion.",
-        "Use the controller integration gate after committing the merged result. Only the controller may promote main or push to this fixture's local origin.", "",
+        "The merge worker prepares a committed tree only; the deterministic parent then runs the controller integration gate and a fresh independent worker reviews its evidence and committed diff. Only the controller may promote main or push to this fixture's local origin.", "",
       ].join("\n"));
       put(cwd, "docs/spec_topics/format.md", "# Formatter\nformat(label,count) returns label:count. Null and undefined labels become empty strings, negative counts become zero. Other labels/counts preserve their values. These are existing approved requirements, not new policy.\n");
       put(cwd, "src/format.cjs", "exports.format = (label, count) => `${label}:${count}`;\n");
@@ -317,7 +325,34 @@ describe("live Astra production bugfix batch workers", () => {
         expect(verdictPath.startsWith(run + "/")).toBe(true);
         expect(verdictPath).not.toBe(join(run, "integration-result-" + source.id + ".json"));
         expect(invoke(cwd, batchHelper, "integration-enter", run, source.id)).toBe("PASS");
-        const actual = await drive(cwd, theta, "merge", contextPath) as { ok: boolean; findings: string };
+        const preparation = await drive(cwd, theta, "merge", contextPath) as { ok: boolean; findings: string };
+        // Preserve the ACTUAL typed preparation before any fallible settlement.
+        const preparePath = join(dirname(verdictPath), "prepare-verdict.json");
+        writeFileSync(preparePath, JSON.stringify(preparation));
+        if (!preparation.ok) writeFileSync(verdictPath, JSON.stringify(preparation));
+        expect(invoke(cwd, batchHelper, "integration-settled", run, source.id)).toBe("PASS");
+        expect(preparation.ok, preparation.findings).toBe(true);
+        expect(preparation.findings.trim().length).toBeGreaterThan(0);
+        expect(existsSync(ctx.gatePath), "preparation worker must not execute the gate").toBe(false);
+        expect(existsSync(verdictPath), "successful preparation is not final review authority").toBe(false);
+        expect(existsSync(join(ctx.reportDirectory, "active"))).toBe(false);
+        // Exact controller-owned gate, deterministically between the TWO actual
+        // production workers, with an explicit outer budget (not a model tool).
+        const gated = spawnSync(process.execPath, [batchHelper, "integration-gate", run, source.id], {
+          cwd, encoding: "utf8", timeout: 3660000,
+        });
+        expect(gated.error, gated.stdout + gated.stderr).toBeUndefined();
+        expect(gated.status, gated.stdout + gated.stderr).toBe(0);
+        expect(gated.stdout.trim()).toBe("PASS");
+        expect(existsSync(join(ctx.reportDirectory, "active"))).toBe(false);
+        expect(git(cwd, "rev-parse", "HEAD")).toBe(previousMain);
+        expect(git(bare, "rev-parse", "refs/heads/main")).toBe(previousMain);
+        expect(invoke(cwd, batchHelper, "integration-review-start", run, source.id)).toBe("PASS");
+        expect(invoke(cwd, batchHelper, "integration-enter", run, source.id)).toBe("PASS");
+        const actual = await drive(cwd, theta, "review", contextPath) as { ok: boolean; findings: string };
+        // This is the fresh production reviewer's actual result, not a canned
+        // success inferred from preparation or the deterministic gate.
+        writeFileSync(verdictPath, JSON.stringify(actual));
         expect(invoke(cwd, batchHelper, "integration-settled", run, source.id)).toBe("PASS");
         expect(actual.ok, actual.findings).toBe(true);
         expect(actual.findings.trim().length).toBeGreaterThan(0);
@@ -343,9 +378,11 @@ describe("live Astra production bugfix batch workers", () => {
           expect(readFileSync(join(retained.run, "witnesses.json"))).toEqual(retained.witness);
           expect(readFileSync(join(retained.run, "red-0.json"))).toEqual(retained.red);
         }
-        // Persist ONLY the actual typed production worker verdict. The real
+        // ONLY the actual typed fresh review can authorize promotion. The real
         // controller verifies the fresh gated SHA before push/main promotion.
-        writeFileSync(verdictPath, JSON.stringify(actual));
+        expect(json(verdictPath)).toEqual(actual);
+        expect(json(preparePath)).toEqual(preparation);
+        expect(invoke(cwd, batchHelper, "integration-review-record", run, source.id)).toBe("PASS");
         expect(invoke(cwd, batchHelper, "integrate-record", run, source.id)).toBe("PASS");
         expect(git(cwd, "rev-parse", "HEAD")).toBe(merged);
         expect(git(bare, "rev-parse", "refs/heads/main")).toBe(merged);
@@ -369,5 +406,5 @@ describe("live Astra production bugfix batch workers", () => {
       expect(json(join(run, "state.json")).finished).toBe(true);
       expect(git(cwd, "status", "--porcelain")).toBe("");
     } finally { rmSync(cwd, { recursive: true, force: true }); }
-  }, 720000);
+  }, 1500000);
 });

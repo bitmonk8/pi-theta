@@ -1,5 +1,5 @@
 ---
-description: Integrate one verified bugfix with Astra and reverify conflict resolution
+description: Prepare one committed bugfix merge with Astra, without gate or shipment authority
 mode: subagent
 model: "openai/gpt-6-astra"
 thinking: high
@@ -10,7 +10,9 @@ params:
   context_path: string
 ---
 schema BatchMerge { ok: boolean, findings: string }
-let verdict: BatchMerge = @`Integrate ONE verified /fix-bug branch. Read the controller-created
+let verdict: BatchMerge = @`Prepare ONE verified /fix-bug branch for integration. Your typed
+BatchMerge result describes PREPARATION ONLY, never final review or shipment approval.
+Read the controller-created
 context at ${context_path} first, then AGENTS.md, the source run's plan, original
 red witnesses, reviews and final gate evidence. Read decision-authorizations.md
 and its immutable records WHEN state.decisions is nonempty; if there are no
@@ -43,15 +45,14 @@ worktree for inspection. Do not ask for approval mid-run or manufacture consent.
 
 For a conflict-free merge, inspect the combined changes rather than rubber stamp.
 For conflicts, resolve and complete the merge commit on the INTEGRATION branch.
-After all resolution and final integration commits, execute the controller's
-integration-gate operation from its original owner checkout as specified in the
-context, using its exact gateArgv. Bootstrap is not a gate and earlier attempt gates
-are not fresh verification. It captures mandatory offline gates, original regression
-witnesses and relevant live commands. Capture any other expensive commands to durable log files.
-Require its exact PASS; nonzero exit or BLOCKED text is failure. After the gate,
-inspect its records and the final committed diff. Any later edits or commits
-invalidate the gate and require another complete integration-gate run. A resolved
-prompt or your own confidence is not verification.
+After all resolution and final integration commits, inspect the clean committed
+checkout and both ancestors. STOP at preparation: do NOT invoke integration-gate,
+run the mandatory merged-tree gate inventory, write gate or verdict records, or
+claim independent final review. The deterministic parent executes the exact
+controller gate AFTER you return and settle. A FRESH independent Astra reviewer
+then inspects the committed diff and actual gate evidence. Bootstrap and source
+run gates do not substitute for that sequence. Capture any other necessary
+bounded diagnostic commands to durable logs; do not start background commands.
 
 You MAY create the merge/conflict-resolution commit ONLY on the integration
 branch. Never stage/commit on main or the source bugfix branch. Do not push, reset,
@@ -60,9 +61,10 @@ modify controller state/contexts or release locks. Only the controller may promo
 the gated, reviewed integrated SHA to main, push and clean up. Missing evidence,
 failed gates, explicit owner restrictions or unresolved tradeoffs block integration.
 
-Return ok=true ONLY after a clean committed merge, source SHA and recorded main
-base both retained as ancestors, exact controller gate PASS, and your independent
-post-merge correctness review. findings must cite integration decisions, any
-conflict resolutions, preserved bug behaviors and actual verification evidence.
+Return ok=true ONLY for a clean committed prepared merge with source SHA and
+recorded main base both retained as ancestors. This is NOT permission to ship.
+findings must cite the prepared commit, integration decisions, conflict resolutions,
+preserved bug behaviors, inspected prerequisite evidence and any remaining concerns
+for the fresh reviewer. Do not claim gates passed or final review occurred.
 Return ok=false otherwise, with actionable blockers and retained artifact paths.`?
 verdict

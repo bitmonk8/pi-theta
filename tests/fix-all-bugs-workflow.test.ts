@@ -23,7 +23,8 @@ const header = (params: string, tools = "bash") => `---\nmode: subagent\ntools: 
 const quoteFn = `fn q(s: string): string { "'" + s.replace("'", "'\\\\''") + "'" }\n`;
 const stageValue = (status: string) => `BugStage { status: "${status}", summary: "Deterministic batch stage.", environment: "No infrastructure blocker.", bug_validity: "Witness proves reported failure.", fixability: "Bounded fixture fix.", progress: "See durable stage and gate evidence.", next_action: "Continue within recorded scope.", recommendation: "Preserve original witnesses." }`;
 
-type Scenario = "complete" | "ungated" | "isolated" | "uncertain" | "resume" | "planner-failure" | "empty";
+type Scenario = "complete" | "ungated" | "isolated" | "uncertain" | "resume" | "planner-failure" | "empty"
+  | "prepare-negative" | "prepare-settlement-blocked" | "review-negative" | "review-uncertain" | "review-settlement-blocked";
 function workers(cwd: string, scenario: Scenario) {
   const theta = join(cwd, ".pi/theta");
   const ids = scenario === "complete" ? ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009"]
@@ -51,10 +52,13 @@ function workers(cwd: string, scenario: Scenario) {
     + (scenario === "uncertain"
       ? 'bash({ command: "node fixture.mjs merge-interrupted " + q(context_path) })?\nread({ path: "WORKER_TRANSPORT_FAILURE_NO_TYPED_VERDICT" })?\n'
       : scenario === "ungated" ? ""
-      : scenario === "isolated"
-        ? 'let failed = bash({ command: "node fixture.mjs merge-isolated " + q(context_path) })?.trim()\nif failed == "NEGATIVE" { return BatchMerge { ok: false, findings: "Integration mandatory test failed before push; original source remains verified. Inspect gate-1/1.json and retained integration worktree." } }\n'
-        : 'bash({ command: "node fixture.mjs merge " + q(context_path) })?\n')
-    + 'BatchMerge { ok: true, findings: "CLEAN — deterministic integration review; actual gates remain controller authority." }\n');
+      : 'bash({ command: "node fixture.mjs ' + (scenario === "isolated" ? "merge-isolated" : scenario.startsWith("prepare-") ? scenario : "merge") + ' " + q(context_path) })?\n')
+    + `BatchMerge { ok: ${!scenario.startsWith("prepare-")}, findings: "${scenario.startsWith("prepare-") ? "Preparation declined: preserved typed negative evidence." : "Committed merge prepared; no gate or shipment authority."}" }\n`);
+  writeFileSync(join(theta, "workers/bugfix-batch-review.theta"), header("  context_path: string\n", "bash, read")
+    + 'schema BatchReview { ok: boolean, findings: string }\n' + quoteFn
+    + 'bash({ command: "node fixture.mjs ' + (scenario.startsWith("review-") ? scenario : "review") + ' " + q(context_path) })?\n'
+    + (scenario === "review-uncertain" ? 'read({ path: "REVIEW_TRANSPORT_FAILURE_NO_TYPED_VERDICT" })?\n' : "")
+    + `BatchReview { ok: ${scenario !== "review-negative" && scenario !== "review-settlement-blocked"}, findings: "${scenario === "review-negative" || scenario === "review-settlement-blocked" ? "Independent fresh review declined despite passing gate." : "CLEAN — independent committed-diff review with actual gate evidence."}" }\n`);
   // No ranker is involved when /fix-bug receives its private batch manifest.
   writeFileSync(join(theta, "workers/bugfix-rank.theta"), header("  catalog_path: string\n", "read")
     + 'read({ path: "BATCH_MUST_NOT_CALL_RANKER" })?\n"UNREACHABLE"\n');
@@ -108,7 +112,28 @@ if (op === 'stage') {
     event(s.ownerRoot, { type: 'lane-close', id: s.id });
   }
   process.stdout.write('PASS');
-} else if (op.startsWith('merge')) {
+} else if (op === 'test-gate') {
+  const marker = join(process.cwd(), '.pi/tmp/integration-context');
+  if (existsSync(marker)) {
+    const c = read(readFileSync(marker, 'utf8'));
+    if (existsSync(join(c.reportDirectory, 'active'))) throw new Error('Gate ran inside a model worker instead of deterministic parent orchestration');
+    if (!read(join(c.reportDirectory, 'prepare-verdict.json')).ok) throw new Error('Gate lacks successful durable preparation');
+    event(c.ownerRoot, { type: 'controller-gate', id: c.id });
+    if (existsSync(join(process.cwd(), '.pi/tmp/reject-integration'))) {
+      event(c.ownerRoot, { type: 'merge-rejected', id: c.id });
+      console.error('INTEGRATION_ONLY_FAILURE'); process.exit(1);
+    }
+  }
+} else if (op.startsWith('review')) {
+  const c = read(path);
+  if (!existsSync(join(c.reportDirectory, 'active'))) throw new Error('Independent reviewer lacks active marker');
+  if (!read(join(c.reportDirectory, 'prepare-verdict.json')).ok) throw new Error('Review lacks preparation');
+  if (read(c.gatePath).sha !== git(c.root, 'rev-parse', 'HEAD')) throw new Error('Review lacks current committed gate');
+  if (git(c.ownerRoot, 'rev-parse', 'HEAD') !== c.base || git(c.ownerRoot, 'ls-remote', 'origin', 'refs/heads/main').split(/\s/)[0] !== c.base) throw new Error('Integration shipped before independent review');
+  event(c.ownerRoot, { type: 'merge-gated', id: c.id, sha: git(c.root, 'rev-parse', 'HEAD') });
+  if (op === 'review-settlement-blocked') mkdirSync(join(c.batchRun, 'controller.lock'));
+  process.stdout.write('PASS');
+} else if (op.startsWith('merge') || op.startsWith('prepare-')) {
   const c = read(path);
   if (c.root !== join(c.ownerRoot, '.trees', basename(c.batchRun) + '-integrate-' + c.id) || git(c.ownerRoot, 'check-ignore', c.root) !== c.root) throw new Error('Integration worktree is not in ignored owner-root .trees');
   for (const name of readdirSync(join(c.ownerRoot, '.pi/tmp')).filter(n => n.startsWith('fix-bug-'))) {
@@ -121,17 +146,11 @@ if (op === 'stage') {
   if (git(c.ownerRoot, 'rev-parse', 'HEAD') !== c.base) throw new Error('Owner changed before integration');
   run(c.root, c.mergeArgv);
   if (op === 'merge-interrupted') { process.stdout.write('PASS'); process.exit(0); }
-  if (op === 'merge-isolated' && c.id === '0001') {
-    mkdirSync(join(c.root, '.pi/tmp'), { recursive: true });
-    writeFileSync(join(c.root, '.pi/tmp/reject-integration'), 'Known integration-only prepush failure.');
-    const failure = spawnSync(c.gateArgv[0], c.gateArgv.slice(1), { cwd: c.ownerRoot, encoding: 'utf8' });
-    if (failure.status === 0 || !(failure.stdout + failure.stderr).includes('Integration gate failed')) throw new Error('Expected genuine integration gate failure: ' + failure.stdout + failure.stderr);
-    event(c.ownerRoot, { type: 'merge-rejected', id: c.id });
-    process.stdout.write('NEGATIVE'); process.exit(0);
-  }
-  if (run(c.ownerRoot, c.gateArgv) !== 'PASS') throw new Error('Gate did not pass exactly');
-  if (git(c.ownerRoot, 'rev-parse', 'HEAD') !== c.base || git(c.ownerRoot, 'ls-remote', 'origin', 'refs/heads/main').split(/\s/)[0] !== c.base) throw new Error('Integration shipped before merged-tree gate/review');
-  event(c.ownerRoot, { type: 'merge-gated', id: c.id, sha: git(c.root, 'rev-parse', 'HEAD') });
+  mkdirSync(join(c.root, '.pi/tmp'), { recursive: true });
+  writeFileSync(join(c.root, '.pi/tmp/integration-context'), path);
+  if (op === 'merge-isolated' && c.id === '0001') writeFileSync(join(c.root, '.pi/tmp/reject-integration'), 'Known integration-only prepush failure.');
+  if (op === 'prepare-settlement-blocked') mkdirSync(join(c.batchRun, 'controller.lock'));
+  event(c.ownerRoot, { type: 'merge-prepared', id: c.id });
   process.stdout.write('PASS');
 } else throw new Error('Unknown fixture operation');
 `;
@@ -156,12 +175,13 @@ function probe(scenario: Scenario) {
     writeFileSync(join(cwd, "src/initial.txt"), "initial\n");
     writeFileSync(join(cwd, "tests/initial.txt"), "initial\n");
     writeFileSync(join(cwd, "AGENTS.md"), "Preserve all witnesses; fixture policy tradeoffs require owner approval before shipment.\n");
-    writeFileSync(join(cwd, "package.json"), JSON.stringify({ name: "batch-host-fixture", scripts: { typecheck: 'node --check fixture.mjs', test: 'node -e "if(require(\'fs\').existsSync(\'.pi/tmp/reject-integration\')){console.error(\'INTEGRATION_ONLY_FAILURE\');process.exit(1)}"' } }));
+    writeFileSync(join(cwd, "package.json"), JSON.stringify({ name: "batch-host-fixture", scripts: { typecheck: 'node --check fixture.mjs', test: 'node fixture.mjs test-gate' } }));
     writeFileSync(join(cwd, "fixture.mjs"), fixture);
     writeFileSync(join(agent, "auth.json"), JSON.stringify({ openai: { type: "api_key", key: "pi-theta-no-network" } }));
     writeFileSync(join(agent, "settings.json"), JSON.stringify({ defaultProvider: "openai", defaultModel: "gpt-6.1-sol", defaultProjectTrust: "always", theta: { binderModel: "openai/gpt-6.1-sol" } }));
     for (const file of ["fix-all-bugs.theta", "fix-bug.theta", "workers/bugfix-batch-lane.theta"]) writeFileSync(join(theta, file), production(file));
-    for (const file of ["batch.mjs", "run.mjs", "worktree-env.mjs", "update-pi-config.mjs"]) copyFileSync(join(root, "tools/bugfix", file), join(cwd, "tools/bugfix", file));
+    // Controller-owned gate/recovery helpers are part of the shipped control surface.
+    for (const file of readdirSync(join(root, "tools/bugfix")).filter(name => name.endsWith(".mjs"))) copyFileSync(join(root, "tools/bugfix", file), join(cwd, "tools/bugfix", file));
     const ids = workers(cwd, scenario);
     for (const id of ids) writeFileSync(join(cwd, "docs/bugs", id + "-fixture.md"), `# Fixture ${id}\n- **Status:** open\n${id === "0008" ? "Explicit owner hold; do not attempt.\n" : ""}`);
     // Refusal fallback must never accidentally turn a parse regression into a
@@ -243,7 +263,7 @@ function probe(scenario: Scenario) {
         const folder = join(context.reportDirectory, name);
         return readdirSync(folder).filter(file => /^\d+\.json$/.test(file)).map(file => json(join(folder, file)));
       });
-      return [id, { context, retained: existsSync(context.root), active: existsSync(join(context.reportDirectory, "active")), verdict: existsSync(context.verdictPath) ? json(context.verdictPath) : null, gateLogs, gate: existsSync(context.gatePath) ? json(context.gatePath) : null, binding: existsSync(binding) ? json(binding) : null }];
+      return [id, { context, retained: existsSync(context.root), active: existsSync(join(context.reportDirectory, "active")), verdict: existsSync(context.verdictPath) ? json(context.verdictPath) : null, preparation: existsSync(join(context.reportDirectory, "prepare-verdict.json")) ? json(join(context.reportDirectory, "prepare-verdict.json")) : null, gateLogs, gate: existsSync(context.gatePath) ? json(context.gatePath) : null, binding: existsSync(binding) ? json(binding) : null }];
     }));
     for (const [id, original] of Object.entries(originals)) {
       expect(state.jobs[id].sourceRun).toBe(original.run);
@@ -255,9 +275,10 @@ function probe(scenario: Scenario) {
       expect(sources[id]!.state.branch).toBe(original.branch);
     }
     const sourceRunCount = readdirSync(join(cwd, ".pi/tmp")).filter(name => /^fix-bug-\d{4}-/.test(name)).length;
-    const detail = json(join(run, "report.json"));
-    const overview = controller("render-report", run);
-    const fullAudit = readFileSync(join(run, "report.txt"), "utf8");
+    const settlementBlocked = scenario.endsWith("settlement-blocked");
+    const detail = settlementBlocked && !existsSync(join(run, "report.json")) ? null : json(join(run, "report.json"));
+    const overview = settlementBlocked ? "Controller deliberately blocked by fixture; evidence retained." : controller("render-report", run);
+    const fullAudit = settlementBlocked && !existsSync(join(run, "report.txt")) ? "" : readFileSync(join(run, "report.txt"), "utf8");
     const observation = { state, sources, integrations, events, detail, overview, fullAudit, sourceRunCount, beforeResumeEvents, stdout: result.stdout, base, main: git("rev-parse", "HEAD"), remote: git("--git-dir", remote, "rev-parse", "main"), status: git("status", "--porcelain"), branches: git("branch", "--format=%(refname:short)"), worktrees: git("worktree", "list", "--porcelain"), lease: existsSync(join(cwd, ".pi/tmp/fix-bug.lock")), integrationLock: existsSync(join(run, "integration.lock")) };
     writeFileSync(join(tmpdir(), `fix-all-bugs-${scenario}-${process.pid}.json`), JSON.stringify(observation, null, 2));
     return observation;
@@ -315,6 +336,8 @@ describe("/fix-all-bugs through the real host with deterministic workers", () =>
       expect(source.shipment, "lane never ships itself").toBe(false);
       expect(source.retained, "only successfully integrated worktrees are removed").toBe(false);
       const integration = requiredObservation(r.integrations[id], `integration for ${id}`);
+      expect(integration.preparation).toMatchObject({ ok: true, findings: expect.stringContaining("no gate or shipment authority") });
+      expect(integration.verdict).toMatchObject({ ok: true, findings: expect.stringContaining("independent committed-diff review") });
       expect(integration.gate.sha).toBe(integration.binding.sha);
       expect(integration.binding.verdict).toMatchObject({ ok: true });
       expect(integration.retained).toBe(false);
@@ -346,7 +369,7 @@ describe("/fix-all-bugs through the real host with deterministic workers", () =>
     expect(r.lease, "settled batch releases execution lease, not pending artifacts").toBe(false);
   }, 300000);
 
-  it("parks a settled claimed clean merge without fresh gates, retaining both branches/worktrees without pushing", () => {
+  it("still rejects claimed successful preparation without the actual committed merge, retaining both branches/worktrees without pushing", () => {
     const r = probe("ungated");
     expect(r.stdout).not.toContain("BATCH STOP");
     expect(r.state.jobs["0001"].status).toBe("integration-blocked");
@@ -387,13 +410,73 @@ describe("/fix-all-bugs through the real host with deterministic workers", () =>
     expect(r.integrations["0001"]!.retained).toBe(true);
     expect(r.integrations["0001"]!.binding).toBeNull();
     expect(r.integrations["0001"]!.active).toBe(false);
-    expect(r.integrations["0001"]!.verdict).toMatchObject({ ok: false, findings: expect.stringContaining("mandatory test failed") });
+    expect(r.integrations["0001"]!.verdict).toMatchObject({ ok: false, findings: expect.stringContaining("Integration gate failed") });
     expect(r.integrations["0001"]!.gateLogs).toEqual(expect.arrayContaining([expect.objectContaining({ argv: ["npm", "test"], code: 1, output: expect.stringContaining("INTEGRATION_ONLY_FAILURE") })]));
     expect(r.main).toBe(r.remote);
     expect(r.main).not.toBe(r.base);
     expect(r.integrationLock).toBe(false);
     expect(r.lease).toBe(false);
   }, 180000);
+
+  it("requires a fresh independent review after the deterministic gate, not merely successful preparation", () => {
+    const r = probe("review-negative");
+    const integration = requiredObservation(r.integrations["0001"], "review-rejected integration");
+    expect(integration.preparation).toMatchObject({ ok: true });
+    expect(integration.gate).not.toBeNull();
+    expect(r.events.map(e => e.type)).toEqual(expect.arrayContaining(["merge-prepared", "controller-gate", "merge-gated"]));
+    expect(r.events.findIndex(e => e.type === "controller-gate")).toBeLessThan(r.events.findIndex(e => e.type === "merge-gated"));
+    expect(integration.verdict).toMatchObject({ ok: false, findings: expect.stringContaining("Independent fresh review declined") });
+    expect(integration.binding).toBeNull();
+    expect(integration.active).toBe(false);
+    expect(r.state.jobs["0001"].status).toBe("integration-blocked");
+    expect(r.main).toBe(r.base);
+    expect(r.remote).toBe(r.base);
+    expect(r.lease).toBe(false);
+  }, 120000);
+
+  it("preserves a negative preparation as both preparation evidence and final refusal without running gate/review", () => {
+    const r = probe("prepare-negative");
+    const integration = requiredObservation(r.integrations["0001"], "preparation-rejected integration");
+    expect(integration.preparation).toMatchObject({ ok: false, findings: expect.stringContaining("Preparation declined") });
+    expect(integration.verdict).toEqual(integration.preparation);
+    expect(integration.gate).toBeNull();
+    expect(r.events.some(e => e.type === "controller-gate" || e.type === "merge-gated")).toBe(false);
+    expect(r.state.jobs["0001"].status).toBe("integration-blocked");
+    expect(r.main).toBe(r.base);
+    expect(r.remote).toBe(r.base);
+  }, 120000);
+
+  it.each(["prepare-settlement-blocked", "review-settlement-blocked"] as const)("retains the actual typed refusal BEFORE a blocked settlement: %s", scenario => {
+    const r = probe(scenario);
+    const integration = requiredObservation(r.integrations["0001"], "unsettled integration");
+    expect(r.stdout).toContain("BATCH STOP");
+    expect(r.stdout).toMatch(/settlement|settled/i);
+    expect(r.stdout).toMatch(/Preparation declined|Independent fresh review declined/);
+    expect(integration.verdict).toMatchObject({ ok: false });
+    expect(integration.preparation).toMatchObject({ ok: scenario === "review-settlement-blocked" });
+    expect(integration.active).toBe(true);
+    expect(integration.binding).toBeNull();
+    expect(r.state.jobs["0001"].status).toBe("integrating");
+    expect(r.main).toBe(r.base);
+    expect(r.remote).toBe(r.base);
+    expect(r.integrationLock).toBe(true);
+    expect(r.lease).toBe(true);
+  }, 120000);
+
+  it("keeps successful preparation and gate but no final verdict when the fresh reviewer invoke fails", () => {
+    const r = probe("review-uncertain");
+    const integration = requiredObservation(r.integrations["0001"], "uncertain reviewer");
+    expect(r.stdout).toContain("liveness is uncertain");
+    expect(integration.preparation).toMatchObject({ ok: true });
+    expect(integration.gate).not.toBeNull();
+    expect(integration.verdict).toBeNull();
+    expect(integration.active).toBe(true);
+    expect(integration.binding).toBeNull();
+    expect(r.main).toBe(r.base);
+    expect(r.remote).toBe(r.base);
+    expect(r.integrationLock).toBe(true);
+    expect(r.lease).toBe(true);
+  }, 120000);
 
   it("keeps the integration marker and checkout lease after an interrupted worker without a typed verdict", () => {
     const r = probe("uncertain");
