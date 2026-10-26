@@ -556,20 +556,14 @@ export function diagnosticLines(doc: ThetaDocument): string[] {
 }
 
 /**
- * A block's trailing expression under the parser's dual encoding: the
- * promoted `tail`, or the final `ExprStmt`'s expression. The two encodings
- * are runtime-equivalent by design (src/runtime/statement-executor.ts — "the
- * executor's final value [is] invariant to the tail-vs-`expr`-statement
- * encoding"). Used against both a `fn.body` and the depth-0 `ThetaBody`
- * (`doc.body`), whose promotion rules differ (src/parser/body-parser.ts
- * `TailPromotion`): a `FnBody`'s final expression form is promoted to
- * `Block.tail` whenever it is an expression form, so the one expression form
- * it records as a trailing `ExprStmt` is a statement-position `par for`
- * (whose value `executeBlock` returns through the trailing-`expr` rule); a
- * `ThetaBody`'s promotion is `lineStart`-gated, so a same-logical-line final
- * expression there lands as a trailing statement. Asserting through this
- * helper keeps statement-boundary tests pinned to a standalone trailing
- * expression without over-pinning which encoding the parser picks.
+ * Encoding-tolerant trailing-expression inspector: the structural `tail`,
+ * or a final `ExprStmt`'s expression in historical/constructed Blocks.
+ * Production value bodies promote final expressions, including `par for`
+ * (bug 0516); ThetaBody promotion is independent of line packing (bug 0517).
+ * The executor retains trailing bare-expression equivalence for unpromoted
+ * encodings. This helper suits statement-boundary tests that do not assert
+ * structural shape; structural-tail regressions must inspect `Block.tail`
+ * directly instead.
  */
 export function trailingExpr(block: Block): Expr | null {
   if (block.tail !== null) {

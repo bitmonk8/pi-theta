@@ -151,26 +151,15 @@ function canStartExpression(t: Token): boolean {
 }
 
 /**
- * Canonicalise a parsed `{ ... }` body for the ONE position that requires a
- * structural tail (`BlockExpr`, bug 0082 §Fix): promote a trailing bare
- * `ExprStmt` to `Block.tail` when `parseForms` left `tail: null`.
+ * Defensive canonicalisation for `BlockExpr` (bug 0082 §Fix): promote a
+ * trailing bare `ExprStmt` to `Block.tail` if the parsed body still lacks a
+ * tail. `parseBlockExprNode` uses `"final-form"` promotion, which already
+ * handles ordinary expression forms, including `par for` (bug 0516).
  *
- * `parseBlockExprNode` parses its body under `"final-form"` promotion, so a
- * call / invoke / query / plain-expression tail arrives with `Block.tail`
- * already set. The one expression form `parseForms` keeps OUT of that
- * promotion is a trailing statement-position `par for` (`parseForm` records
- * it with `tailExpr = null` — grammar.md §Blocks, "a standalone `par for`
- * reads as an expression statement"), which lands as an un-promoted
- * `ExprStmt`. This function restores `BlockExpr`'s structural tail for
- * exactly that shape, so `Block.tail` genuinely carries the block's value node
- * (grammar.md:118) rather than leaving grammar.md's REQUIRED tail to a
- * runtime fallback that this position's `theta/parse/block-expr-missing-tail`
- * check would otherwise misfire against.
- *
- * Scoped to the returned `BlockExpr.body` alone: `parseBlock`'s other callers
- * (`FnBody` / `StmtBlock` / `ThetaBody`) admit an implicit `null` tail by
- * design (grammar.md :119/:121) and are untouched — this function is never
- * called on their result.
+ * Retain this fallback for the BlockExpr missing-tail check and recovery
+ * path rather than relying on runtime trailing-expression equivalence.
+ * It is called only on `BlockExpr.body`, never on the other body kinds;
+ * their existing promotion policies and optional tails remain unchanged.
  */
 function promoteTrailingExprToTail(block: Block): Block {
   if (block.tail !== null) {
@@ -489,13 +478,12 @@ class BodyParser {
     // FN-5: a fn/theta body's value is its tail expression), including a lone
     // or trailing call/invoke/query — `fn f(n){ g(n) }` MUST return `g(n)`
     // (FN-5), so a bare-call tail is the final value, not a discarded action.
-    // A statement-position `par for` is the one expression form `parseForm`
-    // itself keeps out of this promotion (`tailExpr = null` below, the
-    // separately owned bug 0516): it is recorded as an `expr` statement, not
-    // a candidate `last` here. The V19a-T continuation witness `f(a,\n b)` is
-    // about grouping the multi-line call arguments into ONE form (a lexer
-    // concern), orthogonal to
-    // whether that one form's value is the body's tail.
+    // This includes `par for`: final value-producing uses must be structural
+    // tails visible to static inference (bug 0516). StmtBlock promotion keeps
+    // its existing line-start policy; its value is discarded by its owner.
+    // The V19a-T continuation witness `f(a,\n b)` is about grouping the
+    // multi-line call arguments into ONE form (a lexer concern), orthogonal
+    // to whether that one form's value is the body's tail.
     const last = forms[forms.length - 1];
     const promoteLast =
       last !== undefined && last.expr !== null && (promotion === "final-form" || last.lineStart);
@@ -598,13 +586,9 @@ class BodyParser {
         );
       }
     }
-    // A `par for` in statement position is a discarded-value expression
-    // statement (grammar.md §Blocks): it is NOT promoted to the body tail, so
-    // its value is discarded (`tailExpr = null`). It is recorded as an
-    // `ExprStmt`, so a standalone `par for` reads as an expression statement
-    // rather than a bare tail node whose value would flow on as the body tail.
-    const tailExpr = expr.kind === "par-for" ? null : expr;
-    return this.wrap(this.exprToStmt(expr), tailExpr, lineStart);
+    // Keep every expression, including `par for`, eligible for the body's
+    // tail policy. Non-final forms retain their statement wrapper.
+    return this.wrap(this.exprToStmt(expr), expr, lineStart);
   }
 
   private wrap(stmt: Stmt, expr: Expr | null, lineStart: boolean): Form {

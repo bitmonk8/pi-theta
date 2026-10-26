@@ -163,8 +163,21 @@ describe("RFC-0003 par-for — parses as a value-producing expression", () => {
     ).toBe(1);
   });
 
-  it("grammar#blocks: `par for` stands alone as a discarded-value expression statement (RED — feature absent)", () => {
+  it("grammar#blocks: final par for is the ThetaBody structural tail (bug 0516)", () => {
     const doc = parse("par for f in [1, 2, 3] { f }");
+    expect(doc.diagnostics, "final par-for fixture parses cleanly").toEqual([]);
+    expect(doc.body.statements, "final par-for is not duplicated as an expression statement").toEqual([]);
+    expect(doc.body.tail?.kind, "final par-for occupies the ThetaBody tail").toBe("par-for");
+  });
+
+  it("grammar#blocks: non-final par for remains a discarded-value expression statement (bug 0516)", () => {
+    const doc = parse("par for f in [1, 2, 3] { f }\nlet after = 0");
+    expect(doc.diagnostics).toEqual([]);
+    expect(doc.body.tail).toBeNull();
+    expect(doc.body.statements.map((s) => s.kind)).toEqual(["expr", "let"]);
+    const first = doc.body.statements[0];
+    expect(first?.kind).toBe("expr");
+    expect(first?.kind === "expr" ? first.expr.kind : undefined).toBe("par-for");
     const exprStmts = collectByKind(doc.body, "expr");
     const parForStmts = exprStmts.filter(
       (s) =>
@@ -173,7 +186,7 @@ describe("RFC-0003 par-for — parses as a value-producing expression", () => {
     );
     expect(
       parForStmts.length,
-      "a standalone `par for` is legal as an expression statement (value discarded)",
+      "a non-final standalone par-for remains an expression statement",
     ).toBe(1);
   });
 

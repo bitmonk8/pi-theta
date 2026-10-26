@@ -1,12 +1,15 @@
 # Bug 0516 — a statement-position `par for` that is the last form of a `FnBody`, `ParForBody` or `ThetaBody` yields its `array<Result<…>>` value as the block's final value, although control-flow.md and `parseForm`'s own comment call that value discarded: `parseForm` keeps the `par for` out of tail promotion as an `expr` statement, and `executeBlock`'s trailing-`expr` tail-equivalence rule hands the value back
 
-- **Status:** open — filed 2026-10-03 as residual 6 of the bug-0510 fix
+- **Status:** fixed (unreleased - commit/push only). No new package release
+  is published; this fix is not in the existing published package version.
+  No resolving commit SHA is assigned in this record; the shipment commit
+  will supply it. Filed 2026-10-03 as residual 6 of the bug-0510 fix
   ([0510](./0510-block-trailing-call-value-discarded.md), `## Fix
   (0.496.0)` Residuals, item 6). The divergence predates 0510; the 0510
   witness pins the observed value as a control.
 - **Decision:** option (a) approved — retain final values with required
   structural-tail/static-inference alignment; see §Approved ruling.
-  Open pending implementation.
+  Implemented and independently reviewed; see §Fix (unreleased).
 - **Owning repo:** pi-theta
 - **Sev/Diff estimate (at filing, before ruling):** S4/D3 — S4: the spec contradicts itself on this
   shape (grammar.md's `FnBody`/`ThetaBody` productions and FN-4's closed
@@ -145,7 +148,8 @@ in bug 0517, without expanding statement-block return contributions. Bug 0512
 is fixed in 0.497.0 and is no longer an outstanding collector blocker.
 
 The competing readings below document the pre-ruling ambiguity; option (b)
-was not selected. The report remains open pending implementation.
+was not selected. The original analysis and filing-time citations are preserved
+as historical evidence; the completed correction is recorded in §Fix (unreleased).
 
 ## Expected (pre-ruling spec analysis)
 
@@ -258,3 +262,143 @@ listed fixtures.
   constrains the optional parse-shape step of (a).
 - 0082 (fixed 0.191.0) — introduced `promoteTrailingExprToTail`, the
   `BlockExpr` restore that keeps the `par for` value in that position.
+
+## Fix (unreleased)
+
+The approved option (a) is implemented: final `par for` forms are structural
+tails visible to static inference, and retain their existing array values.
+Non-final uses and `StmtBlock` uses still discard; explicit `void` retains its
+existing discard behavior. No new package release is published. This record
+does not attribute the fix to the package version printed by earlier commands,
+and does not assert a commit, push, merge, tag or publication.
+
+### Cause and actual change
+
+`BodyParser.parseForm` (`src/parser/body-parser.ts:589-591`) now keeps the
+parsed expression in `Form.expr` instead of setting it to null for `par-for`.
+Existing `parseForms` promotion (`:487-496`) selects the final expression and
+removes its statement wrapper, so it is not duplicated in `Block.statements`.
+FnBody, ThetaBody, ParForBody and BlockExpr use the existing final-form policy;
+StmtBlock keeps its existing line-start policy and owning-statement discard.
+
+This is the only executable production change. Owning-tail return collection
+(`collectReturnContributions`, `src/parser/type-layer-walk.ts:856-900`) and
+nested par-for element inference (`src/parser/static-type-inference.ts:589-592`)
+already consume structural tails. They now see the array rather than an empty
+tail. Incompatible early number returns and final array tails produce the
+existing `theta/parse/return-no-common-type` error and are refused at real SDK
+registration. There is no new collector, loader or diagnostic policy.
+
+The exact approved clauses in `docs/spec_topics/control-flow.md:70` and
+`docs/reference/grammar.md:321-330` reconcile the prior prose with FN-3/FN-4/FN-5
+(`docs/spec_topics/functions.md:26-44`). Parser explanations, `executeBlock`'s
+comment (`src/runtime/statement-executor.ts`) and `trailingExpr`'s comment
+(`tests/helpers/e2e-s1.ts`) now describe the same rule. Runtime executable code,
+the helper implementation and BlockExpr's defensive fallback are unchanged.
+No scheduling, Result representation, isolation, side-effect, panic or
+cancellation behavior is changed.
+
+### Preserved red and post-fix green evidence
+
+Durable artifact directory **R** (all log/report names below resolve here):
+
+`/home/thomasa/Projects/pi-theta/.pi/tmp/fix-bug-0516-848ce17a-5047-49e7-ba1d-9684fb16b9cf`
+
+Each row is an earlier captured command, not a test rerun during closure.
+Commands ran in the dedicated worktree with the then-current ready bootstrap's
+external temporary directory exported as TMPDIR/TMP/TEMP. Exact shell wrappers,
+hashes, exit accounting and scope decisions are in R/close.md, reproduce.md,
+diagnose.md, implement.md and preserved history/ reports.
+
+| Exact command | Pre-fix evidence | Post-fix evidence |
+|---|---|---|
+| `npx vitest run tests/b0516-final-par-for-e2e.test.ts` | reproduce-a1-e2e-final.log, exit 1: nine shape/type/missing-diagnostic failures, seven healthy controls | implement-a3-e2e.log and green-1-0.json, exit 0: all 16 cells |
+| `npx vitest run tests/b0516-final-par-for-unit.test.ts` | diagnose-a1-unit.log, exit 1: seven raw-parser/type failures, five controls | implement-a3-unit.log and green-1-2.json, exit 0: all 12 cells |
+| `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/b0516live-final-par-for-registration.test.ts` | reproduce-a1-live.log, exit 1: cellb0516final incorrectly registers, after healthy/refusal/assertion-direction controls | implement-a3-live.log, green-1-1.json and gate-1-initial-2.json, exit 0: final conflict refused, healthy registrations retained |
+
+The accepted structural failure is `expected 'tail=null statements=[expr]' to
+be 'tail=par-for statements=[]'`; the exact type failures expose false null
+payloads, and the public-diagnostic failure is `expected []` instead of the
+required number/array conflict diagnostic. Production success and exact retained
+array checks run before the structural assertions. The real SDK failure is a
+command object where undefined is required, not a provider error or a resolved
+prompt. Original controller red-0/1/2.json, witness sources, manifest, argv and
+failure signatures remain unchanged. Initial test-authoring failures are
+preserved but excluded from accepted proof.
+
+The E2E uses real parsing, production composition and execution with inert
+surrounding-host doubles; it does not itself prove child/provider transport.
+The separate on-disk real SDK discovery/registration witness proves the direct
+load-time observable without a provider turn. Independent review also observes
+the same healthy registrations and conflict refusals through both repo-pinned
+Pi 1.3.0 and the operator's installed Pi 1.4.0 (review-fix-independent-live.log
+and review-fix-independent-operator-host.log, exit 0).
+
+### Controls, migrations and gates
+
+Frozen controls retain void/non-final/StmtBlock discard, BlockExpr value/type,
+exact diagnostics and assertion rejection directions. Fourteen additive tests
+in `tests/b0516-final-par-for-controls.test.ts` cover eight raw if/else/while/for
+single/multi layouts and six taken production discard cases. Existing 0512
+owning-return isolation and 0517 packed/alias final-form rules remain covered.
+The whole par-for suite retains its failure, panic, cancellation and aggregation
+checks. Shared-parser child/live controls observe actual values and settled
+failure-note absence, not prompt resolution.
+
+Delegated exact decisions separately authorized the two normative replacements,
+Cases A/B's obsolete final-shape pins, and Cases C/D/E's collector-shape/reference
+count pins. Original final fixtures, genuine unknown-identifier diagnostic,
+downstream collector assertions and exact `[makeOk(42)]` runtime equality remain.
+A separate non-final fixture retains discarded-use legality. Strict reference
+count is 778 after the approved +6 lines; the immediate old 772 count now has an
+explicit rejecting control, alongside older negative counts. No file-wide
+rebaseline, permissive old/new oracle, skip or weakened helper was used. Original
+sources and post-patch/pre-migration reds remain in R.
+
+| Exact command | Capture under R | Exit/result |
+|---|---|---|
+| `npm test` | implement-a4-default.log; gate-1-initial-1.json | 0: 779 files, 13,320 tests pass in each completed run |
+| `npm run typecheck` | implement-a3-typecheck.log; gate-1-initial-0.json | 0 |
+| `npm run lint` | implement-a3-lint.log | 0 |
+| `npx vitest run tests/committed-fixture-parse-gate.test.ts` | implement-a3-corpus.log | 0: all 67 shipped-fixture cases |
+| `npx vitest run tests/b0516-final-par-for-controls.test.ts tests/par-for.test.ts tests/b0510-block-trailing-call-tail.test.ts tests/b0512-stmtblock-return-contributions-unit.test.ts tests/b0517-depth0-final-form-unit.test.ts` | implement-a3-controls.log | 0: all 239 tests |
+| `npx vitest run tests/theta-callable-call-arity.test.ts tests/grammar-literal-forbidden-access-naming.test.ts tests/b0513-legacy-oracle-direction.test.ts` | implement-a3-cde.log | 0: all 59 tests, including downstream collector assertions |
+| `npx vitest run tests/b0517-depth0-final-form-real-child.test.ts` | implement-a3-real-child-control.log | 0: all three real-child controls |
+| `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/b0517live-depth0-final-form-live-cell.test.ts` | implement-a3-live-shared-parser.log | 0: all three provider/invoke controls |
+
+The earlier implement-a3-default.log remains incomplete after an execution-tool
+timeout; that invocation's command exit is unknown, not a green result. The
+fresh authorized attempt-4 retry completes with exit 0 under an explicit
+1200-second tool timeout. The original six migration failures in
+implement-a2-default.log remain preserved, not rewritten as successful runs.
+
+### Independent review and remaining scope
+
+R/reviews.md verdict is **CLEAN — no actionable in-scope must-fix finding**.
+The reviewer reruns ten complete focused files (326 tests, exit 0,
+review-fix-independent-tests.log), checks exact authorizations and preserved
+red evidence, verifies both SDK hosts, and confirms all 4,190 checkout hashes
+match the reviewed retry context (review-fix-independent-integrity-v2.log).
+Closure entry independently confirms reviewed/verified content and gate digests
+match before the two documentation edits (close-a1-entry.log, exit 0).
+
+No additional residual correctness bug is established by this fix review.
+Already-filed invocation-prose 0509, imported-schema typing 0518 and Windows
+spawning 0519 remain separately owned; no claim is made to fix them. Historical
+and already-stale numeric citations identified in the bounded plan census remain
+unchanged. Child/provider checks supplement the shared parser surface; there is
+no new par-for-specific transport witness or full live-suite claim. No gate is
+waived and closure grants no shipment authority.
+
+## Provenance
+
+- Approved ruling above: prior owner selection of retained values with required
+  structural/inference alignment; original filing analysis remains historical.
+- FN-3/FN-4/FN-5, CTRL-3/CTRL-4/CTRL-5 and Reference §Blocks: owning-tail typing,
+  value/discard boundaries, isolation and unchanged failure/cancellation contract.
+- `BodyParser.parseForm`/`parseForms`, `collectReturnContributions` and par-for
+  static inference: causal correction described above; runtime/helper diffs are
+  comment-only.
+- R/reproduce.md, diagnose.md, plan.md, implement.md, decision-authorizations.md,
+  reviews.md, close.md and named captures: original reds, exact approved scope,
+  completed green verification, independent review and unreleased closure.
