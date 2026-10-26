@@ -318,8 +318,14 @@ ParForBody ::= "{" Stmt* Expr? "}"      // per-iteration body; tail Expr optiona
   `array<Result<T, QueryError>>`, `T` the `ParForBody` tail type (absent tail →
   `null`). `ParForBody` behaves as a `Result<T, QueryError>` scope: a postfix `?`
   inside it propagates to that iteration's element, not out of the loop; a
-  written `return` is not admitted in the body (CTRL-4). A
-  discarded-value `par for` is legal as an expression statement. Scheduling,
+  written `return` is not admitted in the body (CTRL-4). A `par for` that is
+  the last form of a `FnBody`, `ThetaBody`, `ParForBody`, or
+  `BlockExpr` occupies that body's tail `Expr`, contributes its type to the
+  body's static inference, and supplies its success-path value. Non-final
+  standalone uses are discarded-value expression statements; `StmtBlock`
+  uses discard their value even when last and do not supply an implicit
+  return to the enclosing function or theta. An explicit `void` function
+  return type still discards its tail value (FN-4). Scheduling,
   ordering, body restrictions, and failure semantics are owned by
   [Control flow](../spec_topics/control-flow.md#par-for).
 

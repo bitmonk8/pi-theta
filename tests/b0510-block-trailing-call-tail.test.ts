@@ -42,8 +42,8 @@
 // `match` trailing expressions, `?`- and `}`-preceded trailing calls (the
 // `forcedLineStart` restore), the depth-0 `ThetaBody`, a `StmtBlock` whose
 // trailing call is discarded (grammar.md §Blocks: a `StmtBlock` tail is
-// evaluated and discarded), a statement-position `par for` last form, which
-// the parser keeps un-promoted (`tailExpr = null` in `parseForm`), the
+// evaluated and discarded), a final `par for` structural tail that retains
+// its value (bug 0516; non-final and StmtBlock uses discard), the
 // StmtBlock static verdicts (no `return-no-common-type` from an if-body's
 // trailing query or `match`, no `type-as-value` from an if-body's trailing
 // schema name, `discarded-query-result` on an if/for/while body's trailing
@@ -423,22 +423,16 @@ describe("bug 0510 controls — shapes whose trailing value already flows, and p
     expect(execution.result.value, "the if-body call's value does not escape the StmtBlock").toBeNull();
   });
 
-  it("a statement-position `par for` last form stays un-promoted", async () => {
-    // `parseForm` records a statement-position `par for` with `tailExpr = null`,
-    // so promotion never makes it the body tail. `executeBlock`'s
-    // trailing-`expr` statement rule returns its value as the fn's result,
-    // which this cell pins as measured so a change that moves it is visible.
+  it("a final par for is a structural tail and retains its value (bug 0516)", async () => {
+    // A final `par for` is a structural tail and retains its value under the
+    // approved bug-0516 ruling; non-final and StmtBlock uses discard.
     const src = 'fn pure(n: number): number { n + 41 }\nfn wrap() { let z = 1\n par for m in [1] max 2 { pure(m) } }\nwrap()';
     const body = fnBody(parseClean(src), "wrap");
-    const last = body.statements[body.statements.length - 1];
-    expect(shapeOf(body), "the par for is a statement, not the tail").toBe("tail=null statements=[let,expr]");
-    expect(
-      last?.kind === "expr" ? last.expr.kind : `non-expr ${String(last?.kind)}`,
-      "the trailing expression statement wraps the par for",
-    ).toBe("par-for");
+    expect(shapeOf(body), "the final par-for is the structural tail").toBe("tail=par-for statements=[let]");
+    expect(body.tail?.kind, "the tail directly holds the par-for").toBe("par-for");
     const execution = await valueOf(src, "statement-position par for");
     expect(execution.outcome, "the body succeeds").toBe("success");
-    expect(execution.result.value, `measured disposition: ${render(execution.result.value)}`).toEqual([makeOk(42)]);
+    expect(execution.result.value, `approved retained value: ${render(execution.result.value)}`).toEqual([makeOk(42)]);
   });
 });
 

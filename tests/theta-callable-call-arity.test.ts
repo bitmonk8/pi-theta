@@ -890,8 +890,9 @@ const UNIT_SNAPSHOT: CallableSetSnapshot = Object.freeze({
 });
 
 /**
- * Parse the cell-C fixture, failing LOUDLY unless it produced the four
- * statements and exactly the one error-severity diagnostic it declares
+ * Parse the cell-C fixture, failing LOUDLY unless it produced three non-final
+ * call-bearing statements plus a structural par-for tail containing the fourth
+ * call, and exactly the one error-severity diagnostic it declares
  * (`theta/parse/unknown-identifier` for the deliberately unbound `unbound(...)`
  * call — the parse binds callable names from `tools:`, which cannot bind that
  * one). Any other diagnostic set means the body no longer has the shape the
@@ -922,8 +923,13 @@ function unitCallerBody(): ThetaBody {
   ).toEqual(["theta/parse/unknown-identifier"]);
   expect(
     document.body.statements.map((s) => s.kind),
-    "the cell-C fixture no longer parses to its four call-bearing statements",
-  ).toEqual(["tool-call", "tool-call", "tool-call", "expr"]);
+    "the cell-C fixture keeps its three non-final call-bearing statements",
+  ).toEqual(["tool-call", "tool-call", "tool-call"]);
+  expect(document.body.tail, "the cell-C final par-for is a structural tail containing the nested call").toMatchObject({
+    kind: "par-for",
+    variable: "a",
+    body: { statements: [], tail: { kind: "call", callee: "nested" } },
+  });
   return document.body;
 }
 

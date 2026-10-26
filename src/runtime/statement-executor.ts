@@ -821,22 +821,17 @@ export async function executeBlock(
   deps: ExecuteBodyDeps,
   atTerminal: boolean = true,
 ): Promise<EvalResult> {
-  // A trailing bare-expression statement contributes the block's FN-5 final
-  // value (V20e), so the executor's final value is invariant to the
-  // tail-vs-`expr`-statement encoding of a trailing expression. `parseForms`
-  // (../parser/body-parser.ts, `TailPromotion`) leaves a trailing expression
-  // as a statement in two shapes. First, a statement-position `par for`
-  // ending a `FnBody`, `ParForBody`, `StmtBlock` or the `ThetaBody`: `parseForm`
-  // keeps it out of tail promotion, and this rule returns its value (a
-  // `BlockExpr` restores it as the tail through `promoteTrailingExprToTail`).
-  // Second, in a `StmtBlock` (`if` / `else` / `while` / `for` body), a final
-  // expression form that did not begin a logical line. `ThetaBody` promotes
-  // final expression forms regardless of line packing (bug 0517).
-  // `exprToStmt` encodes the latter by kind: a call / invoke / query becomes a
-  // `tool-call` / `invoke` / `query` statement, any other expression an `expr`
-  // statement. Only an `expr` statement carries its value here; any other
-  // trailing statement terminates the block with the literal `null` (FN-5
-  // statement-terminated body).
+  // Value-producing bodies use structural tails, including final `par for`
+  // forms (bug 0516); ThetaBody also promotes regardless of line packing
+  // (bug 0517). Keep trailing bare-expression equivalence (V20e) for
+  // unpromoted StmtBlock encodings and constructed Blocks. A StmtBlock's
+  // ordinary value is discarded by its owning control-flow statement and
+  // is not an implicit return contribution to the enclosing fn/theta.
+  // `parseForms` can leave a StmtBlock's final expression unpromoted under
+  // its line-start policy. `exprToStmt` encodes a call / invoke / query as a
+  // `tool-call` / `invoke` / `query` statement, any other expression as an
+  // `expr` statement. Only an `expr` statement carries its value here; any
+  // other trailing statement terminates the block with literal `null` (FN-5).
   let trailingExprValue: { readonly value: ThetaValue } | undefined;
   for (const stmt of block.statements) {
     const flow = await executeStatement(stmt, env, deps);
