@@ -92,6 +92,14 @@ export interface InvokeChild {
    * Absent when the boundary had no base file to resolve against.
    */
   readonly resolvedCalleePath?: string;
+  /**
+   * The source file containing the invocation token (pre-`realpath`): the
+   * declaring `.thetalib` in an imported fn, otherwise the calling theta.
+   * Captured before `drive()` so residence changes cannot move the hop site.
+   * Independent of callee resolution (bare tools calls stay caller-relative).
+   * Absent for source-less boundaries or legacy/in-memory children.
+   */
+  readonly invocationSourcePath?: string;
   drive(): Promise<DrivenInvokeResult>;
   readonly committed: readonly CommittedSideEffect[];
 }

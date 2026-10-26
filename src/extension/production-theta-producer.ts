@@ -313,18 +313,21 @@ class ProductionThetaProducer implements ThetaProducerDeps {
 
   /**
    * Bug 0088: the `EffectfulStatementHostDeps.recordInvokeHop` implementation
-   * wired into every host built for `theta`. An absolute `calleePath` is the
-   * invoke boundary's own resolution (the declaring `.thetalib` for an invoke
-   * in an imported fn body) and passes through unchanged; a relative literal
-   * resolves against the calling theta's directory. The ledger canonicalises
-   * the pre-`realpath` parent/callee paths. Records nothing when there is no
-   * ledger (no `fileSystem` seam) or `theta.sourcePath` is `undefined`.
+   * wired into every host built for `theta`. The parent path names the source
+   * containing the invocation token: the captured declaring library or theta,
+   * falling back to `theta.sourcePath` for legacy children without metadata.
+   * An absolute `calleePath` is the boundary's own resolution and passes through
+   * unchanged; a relative legacy literal still resolves against the calling
+   * theta, independently of the token source. The ledger canonicalises both
+   * pre-`realpath` paths. Records nothing when there is no ledger (no
+   * `fileSystem` seam) or `theta.sourcePath` is `undefined`.
    */
   async #recordInvokeHop(
     theta: ConversationBindInput["theta"],
     wrapper: InvokeCalleeError,
     calleePath: string,
     callSite: InvokeCallSite,
+    invocationSourcePath?: string,
   ): Promise<void> {
     const sourcePath = theta.sourcePath;
     if (this.#ledger === undefined || sourcePath === undefined) {
@@ -334,7 +337,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       ? calleePath
       : resolvePath(dirname(sourcePath), calleePath);
     await this.#ledger.attach(wrapper, {
-      parentPath: sourcePath,
+      parentPath: invocationSourcePath ?? sourcePath,
       calleePath: resolvedCalleePath,
       callSite,
     });
@@ -766,8 +769,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         this.#invokeMachinery.resolveInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "prompt", ticket.invocationId, trace),
       // Bug 0088: pair the wrapper `runInvokeEffect` builds for a failed hop
       // with its provenance record.
-      recordInvokeHop: (wrapper, calleePath, callSite) =>
-        this.#recordInvokeHop(theta, wrapper, calleePath, callSite),
+      recordInvokeHop: (wrapper, calleePath, callSite, invocationSourcePath) =>
+        this.#recordInvokeHop(theta, wrapper, calleePath, callSite, invocationSourcePath),
       classifyCall: (expr) => this.#toolLadder.classifyCall(theta, expr),
       // RFC 0011 §6.3: wired only when the composition-scope session-control
       // hosts are available; absent → the executor arm is skipped.

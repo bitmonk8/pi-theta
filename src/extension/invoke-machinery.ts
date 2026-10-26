@@ -191,6 +191,7 @@ export class InvokeMachinery {
       parentInvocationId,
       trace,
       resolutionBase,
+      resolutionBase,
     );
   }
 
@@ -242,6 +243,7 @@ export class InvokeMachinery {
       parentInvocationId,
       trace,
       theta.sourcePath,
+      env.currentResidence() ?? theta.sourcePath,
     );
   }
 
@@ -278,11 +280,14 @@ export class InvokeMachinery {
      * source of mode and frontmatter.
      */
     resolutionBase: string | undefined,
+    /** Actual token source, captured independently of the callee's path base. */
+    invocationSourcePath: string | undefined,
   ): InvokeChild {
     const resolvedCalleePath = resolveCalleeAgainstBase(calleePath, resolutionBase);
     return {
       calleePath,
       ...(resolvedCalleePath !== undefined ? { resolvedCalleePath } : {}),
+      ...(invocationSourcePath !== undefined ? { invocationSourcePath } : {}),
       committed: [],
       drive: (): Promise<DrivenInvokeResult> => {
         // INV-4 / ceiling #1 (invocation.md §INV-4, CIO-2): push a countable

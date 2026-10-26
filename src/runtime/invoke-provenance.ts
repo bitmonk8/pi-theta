@@ -3,8 +3,8 @@
 // This module owns the producer seam that, for an executed `invoke` hop,
 // records into the per-frame invocation record:
 //
-//   - the parent theta's **post-`realpath`** path — the same `realpath`-normalised,
-//     forward-slash-normalised parent path V15a captures for discovery-root
+//   - the invocation token's source file (theta or declaring `.thetalib`),
+//     **post-`realpath`** — the same realpath/forward-slash form used for discovery-root
 //     containment (invocation.md §Resolution), minted through the shared
 //     `canonicalizePath` identity so both consumers agree byte-for-byte; and
 //   - the **1-indexed source line** of the call-site token that produced the
@@ -66,13 +66,13 @@ export type InvokeCallSite =
  */
 export interface InvocationRecord {
   /**
-   * The parent theta's **post-`realpath`** absolute path — the same
-   * `realpath`-normalised value V15a captures for discovery-root containment
-   * (invocation.md §Resolution). This is `<parent_path>` in the SLSH-5 suffix.
+   * The invocation token's source file (theta or declaring `.thetalib`),
+   * **post-`realpath`** and absolute, in the same canonical form used for
+   * discovery-root containment. This is `<parent_path>` in the SLSH-5 suffix.
    */
   readonly parentPath: string;
   /**
-   * The **1-indexed** source line of the call-site token in the parent theta
+   * The **1-indexed** source line of the call-site token in `parentPath`
    * (the `invoke(` token, or the `.theta`-callable callee-name identifier) — the
    * `<line>` in the SLSH-5 suffix. Never a receiving binding's line.
    */
@@ -88,18 +88,19 @@ export interface InvocationProvenanceDeps {
 /** Inputs to one `invoke`-hop provenance record. */
 export interface InvocationProvenanceInput {
   /**
-   * The parent theta's path as resolved at the call site (pre-`realpath`); the
+   * The source file containing the call-site token (pre-`realpath`): the
+   * theta or declaring `.thetalib`, including library-to-library calls. The
    * producer canonicalises it through `canonicalizePath` so the recorded
    * `parentPath` is byte-identical to the form V15a's containment check uses.
    */
   readonly parentPath: string;
-  /** The call-site token descriptor whose 1-indexed line is recorded. */
+  /** The token in `parentPath` whose 1-indexed source line is recorded. */
   readonly callSite: InvokeCallSite;
 }
 
 /**
  * Produce the per-frame invocation record for one executed `invoke` hop: the
- * parent theta's post-`realpath` path and the call-site token's 1-indexed line
+ * token's source file post-`realpath` and its 1-indexed line in that file
  * (slash-invocation.md §SLSH-5; invocation.md §Resolution).
  *
  * The parent path is canonicalised through the shared `canonicalizePath`

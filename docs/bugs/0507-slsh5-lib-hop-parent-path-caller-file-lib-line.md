@@ -1,12 +1,15 @@
 # Bug 0507 — the SLSH-5 chain suffix for an `invoke(...)` written in an imported `.thetalib` fn body pairs the CALLING theta's path with the line of the `invoke` token in the LIBRARY file: `invoked at <caller>.theta:<n>` names line `<n>` of the caller, which is not the call site; the spec does not say which file a lib-body hop's `<parent_path>` names
 
-- **Status:** open — filed 2026-10-02 as residual 3 of the bug-0504 fix
+- **Status:** fixed (unreleased - commit/push only). No new package release
+  is published; the existing published package version does not contain this
+  fix. No resolving commit is assigned by this record.
+- **Filed:** 2026-10-02 as residual 3 of the bug-0504 fix
   ([0504](./0504-thetalib-invoke-resolves-caller-relative.md), `## Fix
   (0.495.0)` → Residuals 3; bug-0504 review round 1, R3). Pre-existing:
-  `#recordInvokeHop` has passed the calling theta as `parentPath` since bug
+  `#recordInvokeHop` passed the calling theta as `parentPath` since bug
   0088; the 0504 fix corrected `<callee_path>` only.
-- **Decision:** ruling approved — library file + library invocation line; see
-  §Approved ruling. Open pending implementation, not awaiting adjudication.
+- **Decision:** implemented the approved library file + library invocation
+  line ruling; see §Approved ruling and §Fix below.
 - **Owning repo:** pi-theta
 - **Sev/Diff estimate (at filing, before ruling):** S2/D3 — S2: a wrong failure text. The top-level
   `Err` note's chain suffix cites a `file:line` pair that is no call site in
@@ -53,6 +56,10 @@
   hop in terms of "the invocation site" and "the call-site token in
   `<parent_path>`", and its worked examples cover only `invoke` written in
   a `.theta` body. It does not address an `invoke` in a `.thetalib` fn body.
+
+The following symptom, expected/actual, diagnosis and ruling sections retain
+pre-fix evidence and planning context. Their open/pending wording describes
+that historical state; the fix and verification record below is current.
 
 ## Symptom
 
@@ -219,8 +226,132 @@ Constraints for any ruling:
    leaves unasserted today. Add a lib-to-lib cell if the ruling picks (a)
    or (c).
 
+## Fix (unreleased - commit/push only)
+
+### Cause and change
+
+The invocation token's line was correct. Its source-file identity was lost
+between `InvokeMachinery` and hop recording, where the producer selected the
+bind-time caller theta instead. The fix captures
+`env.currentResidence() ?? theta.sourcePath` before child drive as optional
+readonly `InvokeChild.invocationSourcePath` (`src/runtime/invoke-cancellation.ts`).
+`InvokeMachinery.resolveInvoke` and `resolveCallAsInvoke`
+(`src/extension/invoke-machinery.ts`) carry that snapshot independently of
+callee resolution. The shared wrapper helper
+(`src/runtime/effectful-statement-host.ts`) forwards it as the recorder's fourth
+argument; `#recordInvokeHop` (`src/extension/production-theta-producer.ts`)
+uses it for the ledger's `parentPath`, with the legacy theta-source fallback.
+The ledger still canonicalizes the supplied file by realpath and forward
+slashes; the token line and renderer are unchanged.
+
+Ordinary theta-body bytes, literal/library-relative and bare/caller-relative
+callee resolution, conversation ownership, wrap/cancellation exclusions and
+no-ledger/no-caller-source behavior are preserved. Actual-source realpath
+failure omits a hop, never substitutes caller file + library line. Carrier
+comments now name the token's source file, which can be a library. The exact
+authorized P1–P3 amendment adds the actual-source clause and library example
+to [SLSH-5](../spec_topics/slash-invocation.md#slsh-5) and its
+[reference mirror](../reference/discovery-cli.md). No suffix grammar, wire
+format, parser admission, dependency or version changes are included.
+
+### Red-to-green evidence and controls
+
+Run artifacts are retained outside the worktree at:
+
+```text
+/home/thomasa/Projects/pi-theta/.pi/tmp/fix-bug-0507-7b6760d3-a6e6-4e97-9267-76558756c388
+```
+
+Pre-fix base: `61d4faecde2a63a0f473d08e0b7471775e3edeb4` (not a resolving
+commit). `reproduce.md`, `diagnose.md`, immutable source snapshots and
+`red-0.json` through `red-3.json` preserve the correct-reason failures.
+The complete note named `caller.theta:2` instead of `workers/lib.thetalib:2`;
+independent library/caller line movement and an inner-library chain exposed
+the same defect. Ordinary-theta, direct-ledger and genuine-unknown-name
+controls passed. The missing nested callee deliberately produces a
+language-level load failure after child execution, not a provider or
+executable failure.
+
+These exact frozen commands failed pre-fix with exit 1 and pass post-fix
+with exit 0. Their controller captures pair `red-N.json` with
+`green-1-N.json` in row order; full implementation captures are also retained
+as `implement-attempt-2-witness-{production,real-host,chain,unit}.log`.
+
+```sh
+npx --no-install vitest run tests/b0507-lib-hop-actual-site-production.test.ts
+npx --no-install vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/b0507-lib-hop-actual-site.test.ts
+npx --no-install vitest run tests/b0507-library-site-reachability.test.ts
+npx --no-install vitest run tests/b0507-invoke-site-provenance-unit.test.ts
+```
+
+Production composition now asserts the full declaring-library file/line
+pair, including library-to-library calls, while preserving the leaf, callee,
+hop count and ordinary theta bytes. The real CLI asserts complete stderr
+and settled JSONL notes, expected language-error host exit 1, and no inherited
+`theta_result` or provider-turn/raw-slash fallback. Vitest exits 0. Bare-call
+library residence is a synthetic runtime seam, not a legal-source admission
+claim; the separate genuine-unknown free name remains rejected.
+
+Additive `tests/b0507-invoke-site-carriage.test.ts` and
+`tests/b0507-library-site-canonical-production.test.ts` cover pre-drive
+snapshots, legacy fallback, independent callee base, no-ledger/no-source,
+realpath rejection, cancellation inclusion/exclusions, real symlinks,
+re-export residence and mixed leaf-first ordering. The wrong-source mutation
+in `implement-attempt-1-new-controls-negative.log` fails five intended
+assertions (exit 1); it was restored before the green gates. No original
+witness, signature, assertion or dependency pin is weakened.
+
+### Gates and independent review
+
+- `npm test` — exit 0, 770 files / 13,184 tests, including the 67-case
+  committed-fixture gate and all prior failing cases:
+  `implement-attempt-2-offline.log` and repeated controller
+  `gate-1-initial-1.json`.
+- `npm run typecheck` — exit 0: `implement-attempt-2-typecheck.log` and
+  `gate-1-initial-0.json`. `npm run lint` — exit 0:
+  `implement-attempt-2-lint.log` (existing src-only ESLint scope).
+- `npx --no-install vitest run --config config/vitest/vitest.live.config.ts tests/live/slsh5-invoke-cascade-chain-suffix-live-cell.test.ts`
+  — exit 0: `implement-attempt-2-live-theta-controls.log`; real H8a settled
+  notes for no/one/two hops. The frozen real-host witness also passes again
+  in `gate-1-initial-2.json`.
+- Independent fix review: **CLEAN — no actionable in-scope must-fix
+  findings**, `reviews.md`. Independent focused execution passes 92 tests
+  across 15 files (`audit-fix-focused.log`, exit 0). Both repository-pinned
+  pi 1.3.0 and operator-installed pi 1.4.0 load this worktree's extension and
+  pass both actual-library and ordinary-theta CLI cases; full argv and
+  streams are in `audit-fix-both-hosts.log` (host exit 1 is intentional).
+
+The earlier failed default run and BLOCKED decision remain preserved in
+`implement-attempt-1-offline.log`, `history/implement-2-before-implement.md`
+and `decision-c33a42b8-a051-483f-9754-6a89d38cd395/record.json`. Fresh unchanged
+suite passes replace that blocking gate result, not its history. External
+transient fixture placement avoids owner-SDK ancestor lookup; the historical
+workflow timeout cause is not isolated. No unrelated fixture or timeout
+assertion changed. `close.md` records the exact command ledger, authority,
+source citations, modified files, integrity checks and remaining limits.
+
+### Residual boundaries and shipment
+
+[0505](./0505-invoked-prompt-callee-missing-imports.md) remains separately
+owned; the fixtures avoid imported code in an invoked prompt child. The
+[0509](./0509-spec-invoke-caller-relative-no-thetalib-exception.md) record
+remains outside this closure. Existing WeakMap hop identity does not cross
+serialized process boundaries. Native Windows, exotic bare/subagent-fn
+reachability and provider round trips are not newly established; these
+zero-request live paths prove real dispatch and error delivery, not API
+authentication. No additional residual defect is filed without evidence.
+
+Only bug 0507's report and index entry change during CLOSE. No commit,
+staging, push, tag, version bump or package publication occurs. This is a
+verified fix record, not shipment approval or a release announcement; the
+shipment commit must supply any resolving SHA.
+
 ## Provenance
 
+- Closure draws on the approved actual-site ruling and exact controller-recorded
+  P1–P3 authorization (`decision-authorizations.md` in the run), the source
+  carrier/recorder changes above, immutable pre-fix witnesses, green controller
+  gates and independent CLEAN fix review. Earlier phase reports remain historical.
 - Filed 2026-10-02 from the bug-0504 fix: round-1 `bug-fix-reviewer` finding
   R3, recorded as residual 3 in
   [0504](./0504-thetalib-invoke-resolves-caller-relative.md) `## Fix
