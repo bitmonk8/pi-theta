@@ -1,6 +1,8 @@
 # Bug 0472 — bug 0231's H9a probe cell discriminates the offender's load disposition by a MODEL-COMPUTED arithmetic answer (`verdict + 1000`), so a one-step model slip reds a run in which the refusal under test provably fired: an observed stdout of `954` (the Err arm's `953`, plus 1 instead of plus 1000) is scored identically to the pre-fix leak value `1352`
 
-- **Status:** open.
+- **Status:** fixed (unreleased - commit/push only). No new package release is
+  published. This fix is not part of the existing published package version;
+  the shipment commit will supply the resolving SHA.
 - **Sev/Diff estimate:** S4/D1 — S4 because no shipped behaviour is wrong: the
   refusal, the `match` arm, the registration set and the `parseSystemNoteCodes`
   measurement all held on the observed run; the defect is a live witness that
@@ -140,7 +142,128 @@ Sibling audit obligation: every H9a/H8a cell whose sentinel is a
 compute-from-inline-value answer where only arm identity is at stake carries
 this class. `grep -rn "plus 1000" tests/live/` is the starting set.
 
+## Closure record
+
+The sections above preserve the original report and proposed sketch. The actual
+repair changes only the test fixture and its coverage, not production refusal,
+Result selection, interpolation, or the normative specification.
+
+### Cause and actual fix
+
+`PROBE` in
+`tests/live/acceptance/inline-object-malformed-entry-resync-load-refusal.test.ts`
+encoded the selected arm as a code that the model had to recover from prose and
+add to 1000. Production selected and rendered that code correctly; the reply was
+a stochastic, indirect arm measurement. The repaired fixture selects
+`100 plus 200? Answer with the number only.` on Ok and
+`263 plus 514? Answer with the number only.` on Err, then supplies the common
+literal `What is ` prefix in the shared query. Refusal pins `777`, admission
+pins `300`, and the unchanged healthy question pins `756`.
+
+This differs from the interpolation-only sketch above because
+[QRY-6](../spec_topics/query/query-forms.md#qry-6) correctly warns on an empty
+static template body. The meaningful common prefix preserves the existing
+zero-diagnostic guards without filtering warnings or changing the parser.
+[QRY-18](../spec_topics/query/query-escapes-stringification.md#qry-18) and
+`renderQueryText` (`src/runtime/query-interpolation.ts`) concatenate that prefix
+with the theta-selected suffix to produce the exact fixed-pair question.
+
+Additive unit and real-host tests inspect both selected questions, including
+exact operand mapping. They retain the original positive/opposite-answer,
+attribution, exit, stderr and code-measurement controls. Real-host JSONL checks
+also require one normally stopped assistant, one user query, no failure notes
+and no `theta_result` envelope in the complete stream. The refusal oracle
+rejects `300`, empty output and historical `954`; none is accepted as an
+alternative. The failure explanation distinguishes an unknown reply from proof
+of load admission. No helper, retry, timeout, dependency or sibling changes
+were made. There remains one query per host and none in the callee bodies.
+
+### Red, green and independent review
+
+Artifacts are retained in the run directory:
+
+`/home/thomasa/Projects/pi-theta/.pi/tmp/fix-bug-0472-7ff0c3dd-f0c9-4525-8f2e-ead7a9a5d638/`
+
+Commands below ran after explicitly changing to the dedicated worktree root.
+The witness argv and failure signatures remain unchanged in `witnesses.json`.
+
+```sh
+npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/inline-object-malformed-entry-resync-load-refusal.test.ts
+npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/inline-object-malformed-entry-resync-load-refusal.test.ts -t 'B0472 unit'
+```
+
+- **Pre-fix red:** the full-file command exits 1 in
+  `reproduce-attempt-1-live-regression-red.log` and
+  `diagnose-attempt-1-live-red.log`; the unit command exits 1 in
+  `diagnose-attempt-1-unit-red.log`. Both actual host arms send the old compound
+  question and fail the fixed-pair matcher after successful provider completion
+  and correct old answers (`1953` / `1352`). The healthy control passes.
+  Controller captures `red-0.json` and `red-1.json` preserve the same reds.
+- **Post-fix green:** `implement-attempt-3-live.log` records all nine cases
+  passing, exit 0; `implement-attempt-3-unit.log` records five units passing,
+  exit 0. The unit selector excludes four live cases; the full-file run executes
+  them. Controller `green-1-0.json`, `green-1-1.json` and
+  `gate-1-initial-2.json` repeat these green commands.
+- **Observed mapping:** real healthy, refused and admitted hosts send exactly
+  the 341/415, 263/514 and 100/200 questions and answer `756`, `777` and `300`.
+  Each exits 0 with empty stderr, one query, one assistant stopping normally,
+  no failure note and no complete-stream result envelope. These are actual
+  `openai/gpt-6.1-sol` turns, not success inferred from `prompt()` resolving.
+- **Ordinary gates:** `npm test`, `npm run typecheck`, `npm run lint` and
+  `npx vitest run tests/inline-object-malformed-entry-resync.test.ts` each exit
+  0 in the corresponding `implement-attempt-3-{default-suite,typecheck,lint,offline-controls}.log`.
+  The default suite passes 765 files / 13,158 tests; refusal/parser controls
+  pass all eight. Controller `gate-1-initial-0.json` and
+  `gate-1-initial-1.json` repeat typecheck and the full default suite, exit 0.
+- **Independent verdict:** `reviews.md` records **CLEAN**, no actionable
+  in-scope must-fix findings. The reviewer independently passes the full-file
+  live command and eight offline controls in `fix-audit-independent-live.log`
+  and `fix-audit-offline-controls.log`. `fix-audit-operator-host.log` additionally
+  records all three exact mappings through the operator's pi 1.4.0; the normal
+  suite uses the repository-pinned pi 1.3.0. Neither host version is a pi-theta
+  release attribution.
+
+The two exact Astra CONTINUE decisions authorize the bounded fixture/oracle
+migration and, after replan and independent review, the common-prefix repair:
+`decision-6535a55e-3548-4ab9-b958-a1442de6a2b1/record.json` and
+`decision-3b912605-ac88-46f6-a76b-f389b0a8e093/record.json`.
+Earlier BLOCKED decisions and failed captures remain preserved. In particular,
+two unrelated reporting-host ETIMEDOUT failures in
+`implement-attempt-2-default-suite.log` were not waived: unchanged full-suite
+runs subsequently pass. Their cause remains unknown; no infrastructure repair
+is claimed. `close.md` in the run records the exact execution ledger, hashes,
+source/spec citations and closure checks.
+
+### Limits and residual scope
+
+Historical `954` was not newly observed. A reply alone does not logically prove
+which arm ran; the new exact outbound-text assertions provide that independent
+measurement. Fixed-pair arithmetic can still fail, and unknown answers still
+fail the witness. No measured flake-rate reduction or model infallibility is
+claimed. Unit invoke/query doubles cover production selection/rendering, not
+real loading or provider behavior; the real-host cases cover that boundary.
+These prompt-mode invokes do not add nested-subagent or Windows coverage.
+
+The read-only sibling audit in `diagnose.md` and
+`diagnose-attempt-1-{sibling,expanded}-audit.log` identifies twelve remaining
+arm-code arithmetic forms outside this single-file repair: ten other +1000
+fixtures, one +100 fixture and a separate four-outcome +100100 fixture. They
+remain unmodified; their stochastic failure rates were not measured. Genuine
+computation-propagation tests remain separate. This closes the named fixture
+defect, not the entire family or unrelated open bugs. No new residual runtime
+failure was established or separately filed during closure.
+
+No commit, staging, push, tag, version bump or publication occurs in this stage.
+No new package release is published, and no resolving SHA is invented.
+
 ## Provenance
+
+Closure draws on `PROBE`, `isolatedQuestion` and the B0472/H9a groups in the
+named test, `renderQueryText`, QRY-6/QRY-18, AGENTS.md's observable-channel and
+red-direction guidance, and the preserved run reports, raw host captures,
+controller gates and independent CLEAN review cited above. The original source
+and accepted red logs remain immutable; closure is a documentation-only record
+of the reviewed, verified worktree patch.
 
 Found while root-causing two substantive live reds on branch
 `feat/rfc-0010-visibility` (RFC 0010 Phase 6). Discrimination against that
