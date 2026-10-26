@@ -1,6 +1,8 @@
 # Bug 0515 — a `.theta` file's top-level tail expression after a top-level `return` draws no `theta/parse/unreachable-code`: `checkStructural` discards `walkStatements`' last-was-`return` flag and walks the `ThetaBody` tail without the RET-3 tail arm that `walkBlock` applies to every nested block, so `return 1⏎ 2` warns inside a `fn` body or BlockExpr and is silent at depth 0 under the same registry row
 
-- **Status:** open — filed 2026-10-03 as residual 5 of the bug-0510 fix
+- **Status:** fixed (unreleased - commit/push only). No new package release is
+  published; this fix is not in the existing published package version.
+  Filed 2026-10-03 as residual 5 of the bug-0510 fix
   ([0510](./0510-block-trailing-call-value-discarded.md), `## Fix
   (0.496.0)` Residuals, item 5)
 - **Owning repo:** pi-theta
@@ -182,3 +184,104 @@ Wrapping the same two lines in `fn f(): number { … }⏎f()` yields
 - [0223](./0223-par-for-body-return-folds-unenumerated.md) — owns
   `tests/par-for-body-return-refusal.test.ts`, whose (c1) cell pins RET-3
   beside the CTRL-4 refusal.
+
+## Fix (unreleased - commit/push only)
+
+`checkStructural` (`src/parser/structural-checks.ts`) now walks the root
+ThetaBody through `walkBlock` with role `"value"` and the unchanged context
+`{ inLoop: false, topLevel: true, voidReturn: false }`. The existing block
+walker consumes `walkStatements`' last-return flag and emits the existing
+`theta/parse/unreachable-code` warning at the full tail range, before the
+tail's own structural diagnostics. Reference collection and subsequent
+schema-graph checks retain their order. `UnreachableCode` and
+`checkUnreachableCode` (`src/parser/functions.ts`) receive comment-only
+updates to include the already-registered tail trigger.
+
+The cause is the root-only traversal omission described above, not a
+broken warning factory or diagnostic aggregator. RET-3, the ThetaBody
+body-block grammar, and the registry already require the warning; no
+normative spec, diagnostic payload, runtime, or inference change is needed.
+Value role preserves QRY-19's distinction between ThetaBody and StmtBlock
+query tails. The historical analysis above describes its cited HEAD;
+current `parseBody` already uses final-form root promotion following
+[0517](./0517-depth0-same-line-final-form-not-promoted.md). This repair does
+not alter promotion or restore the older line-start description.
+
+### Regression evidence and controls
+
+All artifacts below are under
+`/home/thomasa/Projects/pi-theta/.pi/tmp/fix-bug-0515-8d08af53-d26f-48b6-96f6-66d1fa93f03a/`.
+Commands run in the dedicated worktree at base
+`61d4faecde2a63a0f473d08e0b7471775e3edeb4`; that SHA identifies the pre-fix
+base, not a resolving commit. Exact shell commands and preservation hashes
+are recorded in `reproduce.md`, `diagnose.md`, `implement.md`, and `close.md`.
+
+| Command | Before fix | After fix / log |
+| --- | --- | --- |
+| `npx vitest run tests/b0515-depth0-return-tail-unreachable.test.ts` | Exit 1: D1/D2/D5 return `[]` instead of the exact warning; five controls pass (`reproduce-a1-e2e-red.log`, `diagnose-a1-e2e-red.log`, `red-0.json`) | Exit 0: all 8 pass (`implement-a1-e2e-green.log`, `green-1-0.json`) |
+| `npx vitest run tests/b0515-depth0-return-tail-unit.test.ts` | Exit 1: five missing-warning failures; eleven controls pass (`diagnose-a1-unit-red.log`, `red-1.json`) | Exit 0: all 16 pass (`implement-a1-unit-green.log`, `green-1-1.json`) |
+| `npx vitest run tests/b0510-block-trailing-call-tail.test.ts tests/par-for-body-return-refusal.test.ts tests/committed-fixture-parse-gate.test.ts tests/b0511-stmtblock-query-tail-unit.test.ts` | Exit 0: 206 controls (`diagnose-a1-related-controls.log`) | Exit 0: 206 controls (`implement-a1-related-controls.log`) |
+| `npm run typecheck` | Exit 0 (`diagnose-a1-typecheck.log`) | Exit 0 (`implement-a1-typecheck.log`, `gate-1-initial-0.json`) |
+| `npm run lint` | Not required to establish the red witness | Exit 0 (`implement-a1-lint.log`, independently repeated in `review-fix-independent-static-gates.log`) |
+| `npm test` | Not used as the pre-fix witness | Exit 0: 767 files / 13,182 tests (`implement-a1-offline-suite.log`, independently repeated in `gate-1-initial-1.json`) |
+
+The source-to-production-`parseThetaDocument` witness checks frontmatter,
+absence of errors, AST slots, first-token positions, and the entire warning
+payload. Original red direction is the specific assertion
+`RET-3 depth-0 tail at 5:1: expected [] to deeply equal [`; it is not an
+infrastructure/provider error. D1/D2/D5 now warn at 5:1/6:1/6:1.
+Controls retain reachable tails, return-only bodies, nested fn/BlockExpr
+warnings, and the sole warning at the first following statement when a let
+intervenes. Isolated units additionally pin root query value role,
+RET-3-before-function-as-value order, nested-block isolation, and no duplicate
+later-tail warning. Test sources, original red logs, and `witnesses.json`
+remain unchanged after diagnosis; no baseline migration or skip is used.
+The committed-fixture gate remains green with warnings included; no shipped
+Theta source moves.
+
+### Review, limits, and delivery
+
+Independent evidence review is **CLEAN** (`evidence-review.md`): its rerun
+finds exactly the eight intended missing-warning failures with 222 passing
+controls (`review-evidence-independent-tests.log`). Independent fix review
+is **CLEAN**, with no actionable in-scope must-fix findings (`reviews.md`):
+230 witness/control tests pass (`review-fix-independent-tests.log`), and
+typecheck, lint, and diff whitespace checks pass
+(`review-fix-independent-static-gates.log`). Controller green witnesses and
+typecheck/default-suite gates also pass in the JSON captures above. These
+are completed implementation-review results, not a claim of final
+post-closure review or shipment.
+
+This synchronous parser-only fix is verified at the returned-diagnostics
+boundary. No bug-specific real-host display, runtime-return, provider,
+binder, or cancellation result is claimed; `live_required` is false for
+this scope. The offline suite's provider-free real-child tests are broader
+compatibility controls, not a bug-specific live witness.
+
+No new residual bug is found. The existing first-following-form syntactic
+policy remains; broader control-flow reachability is not added. Separately
+owned [0516](./0516-statement-position-par-for-trailing-value-kept.md)
+(final par-for alignment), [0518](./0518-imported-schema-member-read-types-as-receiver.md)
+(imported-schema typing), and [0519](./0519-subagent-child-spawns-lack-windowshide.md)
+(Windows spawning) are not fixed or closed here.
+
+No new package release is published. The existing published version does
+not contain this fix. No resolving SHA is assigned: commit/push and final
+post-closure verification/review remain controller/owner actions. This
+closure stage makes documentation changes only; it does not commit, push,
+tag, or publish.
+
+## Provenance
+
+- Existing contract: RET-3 in `docs/spec_topics/return.md`; ThetaBody in
+  `docs/spec_topics/grammar.md`; `theta/parse/unreachable-code` in
+  `docs/spec_topics/diagnostics/code-registry-parse.md`; QRY-19 in
+  `docs/spec_topics/query/query-escapes-stringification.md`.
+- Cause and correction: `checkStructural`, `walkStatements`, and `walkBlock`
+  (`src/parser/structural-checks.ts`); `UnreachableCode` and
+  `checkUnreachableCode` (`src/parser/functions.ts`); unchanged
+  `parseThetaDocument` (`src/parser/theta-document.ts`).
+- Measured behavior: the two bug-0515 regression files and the preserved
+  red/green/control/gate artifacts listed above. Review verdicts come from
+  `evidence-review.md` and `reviews.md`; delivery limits come from the
+  uncommitted worktree state and this run's close-stage scope.

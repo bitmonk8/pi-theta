@@ -314,24 +314,15 @@ function checkStructural(
     queryPropagations: indexQueryPropagations(queryPropagations),
     priorDiagnostics,
   };
-  // RET-3 at depth 0 judges statement pairs only: the top-level tail is not
-  // judged against a preceding `return`, so `walkStatements`' result is unused.
-  walkStatements(
-    body.statements,
+  // Walk the theta body as a value block so RET-3 covers its tail as well.
+  walkBlock(
+    body,
+    "value",
     { inLoop: false, topLevel: true, voidReturn: false },
     refs,
     file,
     out,
   );
-  if (body.tail !== null) {
-    walkExpr(
-      body.tail,
-      { inLoop: false, topLevel: true, voidReturn: false },
-      refs,
-      file,
-      out,
-    );
-  }
   // The alias/union declaration-graph checks (bug 0033 §Fix): scoped to
   // TOP-LEVEL declarations only, mirroring `collectBodyTypes` (the lowering
   // and `NamedType`-resolution set is top-level-only; a block-nested schema

@@ -392,7 +392,8 @@ export function checkBareReturn(
 
 /**
  * A block position after a `return`. `hasCodeAfterReturn` is whether a further
- * statement appears after a `return` in the same block (RET-3).
+ * statement or the block's tail expression appears after a `return` in the same
+ * block (RET-3).
  */
 export interface UnreachableCode {
   readonly hasCodeAfterReturn: boolean;
@@ -400,8 +401,9 @@ export interface UnreachableCode {
 
 /**
  * Check for code after a `return` in the same block (`parse` phase), returning
- * the `theta/parse/unreachable-code` warning when a statement follows a `return`
- * in the same block. Returns `undefined` otherwise (return.md RET-3).
+ * the `theta/parse/unreachable-code` warning when a statement or the block's
+ * tail expression follows a `return` in the same block. Returns `undefined`
+ * otherwise (return.md RET-3).
  */
 export function checkUnreachableCode(
   unreachable: UnreachableCode,
