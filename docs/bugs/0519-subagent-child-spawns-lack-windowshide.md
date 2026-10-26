@@ -1,8 +1,12 @@
 # Bug 0519 — on Windows every subagent child process pi-theta spawns opens its own console window: none of the three production `child_process.spawn` sites in `production-subagent-host.ts` passes `windowsHide: true`, so under a console-less parent (a pi itself spawned hidden, e.g. by a harness that sets `windowsHide`) each headless `pipe`-placement child `pi`, each `exec`-placement template command and each teardown `taskkill` gets a fresh visible conhost window
 
-- **Status:** open — filed 2026-10-03 from the LPS tooling build (model-test
-  runs with `subagentPlacement: "pipe"` on Windows 11; observation under
-  "Observed", repro under "Repro" below)
+- **Status:** fixed (unreleased - commit/push only). No new package release is
+  published; the existing package version does not contain this fix. The
+  shipment commit will supply the resolving SHA; none is assigned here.
+- **Filed:** 2026-10-03 from the LPS tooling build (model-test runs with
+  `subagentPlacement: "pipe"` on Windows 11; observation under "Observed",
+  repro under "Repro" below). The original report below is historical;
+  the verified fix and its evidence limits are recorded under "Resolution".
 - **Owning repo:** pi-theta
 - **Sev/Diff estimate:** S3/D1 — S3: no wrong value, no refusal, no lost
   result — the child's stdio is fully piped/ignored and its contract is
@@ -161,3 +165,128 @@ Windows, no model turn needed beyond a query-less subagent callee:
    no windows — the children attach to the inherited console.
 4. With the three `windowsHide: true` additions applied to the installed
    `production-subagent-host.ts`, step 2 opens no windows.
+
+## Resolution — fixed, unreleased
+
+The three production spawn boundaries omitted Node's `windowsHide` option.
+Piped stdio and `shell: false` did not supply that policy. The fix adds literal,
+unconditional `windowsHide: true` to `createProductionSpawnFn`,
+`createProductionExecCommandRunner`, and the win32 `taskkill` call in
+`killChildTree` (`src/extension/production-subagent-host.ts`). A header comment
+records the policy; POSIX ignores the option.
+
+No argv, cwd, env identity/copy behavior, shell/stdio, result protocol, placement
+capability, cancellation budget, pipe cleanup or error handling changes. The
+exec runner hides its incidental launcher console, not an intentional pane
+created by an operator template. Third-party placement backends and processes
+created by external commands retain responsibility for their own spawns.
+No normative spec change is needed or made.
+
+Three additive regression files cover the fix:
+
+- `tests/b0519-real-spawn-windows-hide.test.ts` observes actual Node spawns
+  without replacing execution. The real pi child must return its exact value
+  and exit naturally with code 0/null signal, without a watchdog kill, before
+  checking the option. The real exec command must preserve cwd/env/argv,
+  receive stdin EOF, and return exact stdout/stderr and exit status first.
+- `tests/b0519-spawn-windows-hide-unit.test.ts` isolates child/exec options on
+  simulated win32 and Linux and the defined-pid win32 taskkill branch. Controls
+  preserve tree-kill argv, direct SIGKILL paths, pipe destruction, synchronous
+  spawn-throw fallback, async error containment and exec-abort rejection.
+- `tests/b0519-spawn-windows-hide-source.test.ts` scans production TypeScript
+  for every `nodeSpawn` call, requires at least the three established sites,
+  and rejects missing/false/nonliteral options and later unknown overrides.
+  Acceptance/rejection controls cover decoys, duplicate and escaped keys,
+  spreads, computed keys and neighboring calls. This is a `nodeSpawn`
+  convention guard, not an audit of arbitrary aliases or dynamic imports.
+
+### Preserved red / verified green evidence
+
+Pre-fix verification targets HEAD
+`9bd9f080b8875e71a3b0c2488e4f6a468657d010`, not only the filing's older HEAD.
+Each frozen command below exits **1** before the fix and **0** after it.
+The failures specifically report `expected undefined to be true` for the named
+`windowsHide=true` assertion after the functional controls pass; no provider
+error, timeout or missing executable is counted as a bug witness. Both original
+witness files, all argv/signatures, and accepted red captures remain unchanged.
+
+All artifact names below are relative to the durable run directory:
+
+```text
+/home/thomasa/Projects/pi-theta/.pi/tmp/fix-bug-0519-c62148ca-19b3-4ddf-9979-1b1efc1bebe2
+```
+
+| Exact command | Pre-fix capture (exit 1) | Post-fix capture (exit 0) |
+| --- | --- | --- |
+| `npx vitest run tests/b0519-real-spawn-windows-hide.test.ts -t 'real subagent child requires windowsHide'` | `red-0.json` | `green-1-0.json` |
+| `npx vitest run tests/b0519-real-spawn-windows-hide.test.ts -t 'exec template command requires windowsHide'` | `red-1.json` | `green-1-1.json` |
+| `npx vitest run tests/b0519-spawn-windows-hide-unit.test.ts -t 'SpawnFn requires windowsHide'` | `red-2.json` | `green-1-2.json` |
+| `npx vitest run tests/b0519-spawn-windows-hide-unit.test.ts -t 'exec runner requires windowsHide'` | `red-3.json` | `green-1-3.json` |
+| `npx vitest run tests/b0519-spawn-windows-hide-unit.test.ts -t 'taskkill requires windowsHide'` | `red-4.json` | `green-1-4.json` |
+
+The supplemental source guard also ran red before production edits, naming
+exactly the three omissions (`implement-01-source-red.log`, exit 1). Final
+combined regressions and healthy controls pass all 41 cells
+(`implement-01-all-regressions-final.log`, exit 0). Independent pre-fix review
+repeats the seven policy failures with eleven healthy controls; post-fix review
+passes all 83 regression and existing-control cells, with no skipped cells.
+
+### Gates and independent review
+
+These are captured completed commands, not proposed verification:
+
+| Exact command | Artifact | Exit / result |
+| --- | --- | --- |
+| `npm run typecheck` | `gate-1-initial-0.json`; `review-fix-independent-typecheck.log` | 0 each |
+| `npm test` | `gate-1-initial-1.json`; `implement-01-default-suite-final.log` | 0 each; 779 files / 13,318 tests pass |
+| `npm run lint` | `implement-01-lint-final.log`; `review-fix-independent-lint.log` | 0 each |
+| `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/live-production-acceptance.test.ts -t 'drives a subagent-mode theta'` | `gate-1-initial-2.json`; `review-fix-independent-live.log` | 0 each; real-provider/real-child selected test passes |
+| `npx vitest run tests/b0519-real-spawn-windows-hide.test.ts tests/b0519-spawn-windows-hide-unit.test.ts tests/b0519-spawn-windows-hide-source.test.ts` | `implement-01-all-regressions-final.log` | 0; 41 tests pass |
+
+The live test checks registration and the settled `theta-system-note` channel
+for fail-closed endings; its green is not inferred from `prompt()` resolving.
+Targeted `-t` commands leave unrelated cells unselected; full regression and
+default-suite runs have no skipped cells. External bootstrap-provided temporary
+directories keep transient fixtures outside repository/run ancestry.
+
+Independent evidence review (`evidence-review.md`) and fix review (`reviews.md`)
+are **CLEAN**, with no actionable in-scope must-fix findings. The fix reviewer
+also records a real production launch through the operator's pi 1.4.0 bundled
+CLI and this worktree's extension: exact result, natural code-0/null-signal exit
+and no watchdog (`review-fix-actual-host-final.log`). The ordinary real-child
+regressions use the repo-pinned pi 1.3.0. These host versions are verification
+inputs, not pi-theta release versions.
+
+### Limits and separate residual
+
+Verification runs on Linux. Native Windows console visibility, focus/title,
+native taskkill execution and nested Windows fan-out are **not measured**.
+The original report makes that Windows behavioral probe optional; the required
+real-process option assertions and isolated win32 branch coverage are green.
+No full live-suite pass is claimed.
+
+The existing asynchronous taskkill-error handler swallows the error and returns
+without the direct-kill fallback implied by its comment. The unit control proves
+containment and pipe cleanup, not successful OS reaping after that error. This
+pre-existing lifecycle residual is outside 0519 and remains unchanged; no new
+numbered residual report or lifecycle repair is included in this closure.
+
+No package/dependency version changes, staging, commit, push, tag or publication
+occur in this run. **No new package release is published.** This is an unreleased
+worktree fix; the existing package version is not credited with it.
+
+## Provenance
+
+- The filing's Observed/Mechanism/Repro sections preserve the original Windows
+  report and Node/libuv rationale; they are not new Windows observations.
+- `createProductionSpawnFn`, `createProductionExecCommandRunner` and
+  `killChildTree` (`src/extension/production-subagent-host.ts`) establish the
+  three-site fix and unchanged lifecycle behavior. The three tests named above
+  establish regression and healthy-control coverage.
+- `docs/spec_topics/pi-integration-contract/subagent.md`, Launch contract,
+  Placement, Child stdio, PIC-65 and PIC-66, supply the preserved env/cwd,
+  visible-placement, stdio and teardown/cancellation contracts.
+- Run-local `reproduce.md`, `diagnose.md`, `plan.md`, `spec-proposal.md`,
+  `implement.md`, `evidence-review.md`, `reviews.md`, `witnesses.json` and the
+  captures listed above supply the red/green, scope and review record.
+  `close.md` records the documentation-only closure and integrity checks.

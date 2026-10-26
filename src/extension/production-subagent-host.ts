@@ -11,6 +11,8 @@
 // the strict-JSONL, LF-only-split `SubagentChildProcess` surface, and
 // process-tree-kills it on teardown (`taskkill /PID <pid> /T /F` on win32,
 // `SIGKILL` elsewhere — no POSIX signal on Windows).
+// All Node spawns in this module pass `windowsHide: true` to suppress incidental
+// Windows consoles; the option is a no-op on POSIX.
 
 import { spawn as nodeSpawn } from "node:child_process";
 import {
@@ -452,6 +454,7 @@ function killChildTree(child: NodeChildLike): void {
     try {
       const killer = nodeSpawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
         shell: false,
+        windowsHide: true,
       });
       // An ASYNC spawn error (e.g. taskkill missing / EPERM) is emitted on
       // the child process's `error` event AFTER `spawn` returns; without a
@@ -547,6 +550,7 @@ export function createProductionExecCommandRunner(): ExecCommandRunner {
           env: { ...options.env },
           shell: false,
           stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
         });
         let stdout = "";
         let stderr = "";
@@ -602,6 +606,7 @@ export function createProductionSpawnFn(): SpawnFn {
       env: options.env,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
     return adaptChild(child as unknown as NodeChildLike);
   };
