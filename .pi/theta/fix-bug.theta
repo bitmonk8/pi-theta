@@ -55,6 +55,10 @@ fn error_reason(error: QueryError): string {
   if error.kind == "invoke_callee" { return error.inner.message }
   error.message
 }
+fn reviewer_error_reason(error: QueryError): string {
+  let message = error_reason(error)
+  message.trim() == "" ? "Reviewer returned Err without a diagnostic; cause unknown." : message
+}
 fn worker_failure(message: string): StageFailure {
   StageFailure { status: "blocked", summary: message,
     environment: "Unknown — worker execution failed; no stage verdict was returned.",
@@ -72,6 +76,25 @@ fn control(command: string): boolean {
     Err(_) => "CONTROL_ERROR",
   }
   output.trim() == "PASS"
+}
+// Allocate a generation/snapshot/attempt-bound ticket BEFORE launching a reviewer.
+// Failure text travels through a run-local file, never shell arguments. Persist
+// the primary failure before any fallible presentation; no review verdict exists.
+fn review_ticket(run: string, phase: string) {
+  let path = bash({ command: "node tools/bugfix/run.mjs review-start " + shell_path(run) + " " + phase })?.trim()
+  if !path.startsWith(run + "/review-invocation-") || !path.endsWith("/context.json") || path.includes("\n") { return "" }
+  path
+}
+fn review_invocation_failure(run: string, ticket: string, message: string): string {
+  let primary = "INVOCATION FAILURE — reviewer returned no typed verdict. " + message
+  let written = match write({ path: ticket + ".failure.txt", content: message.trim() == "" ? "Reviewer returned Err without a diagnostic; cause unknown." : message }) {
+    Ok(_) => true, Err(_) => false,
+  }
+  if !written { return primary + " Failure observation could not be written; preserve this diagnostic and reconcile controller evidence." }
+  if !control("node tools/bugfix/run.mjs review-failure " + shell_path(run) + " " + shell_path(ticket)) {
+    return primary + " Controller refused the failure observation (possibly stale); do not overwrite a newer invocation or infer a semantic verdict."
+  }
+  primary
 }
 // Spawn workers in the actual isolated checkout, not merely prompt them to cd.
 // Run artifacts remain in the original checkout and survive worktree cleanup.
@@ -423,17 +446,19 @@ if plan.status != "pass" && plan.status != "needs_spec" && plan.status != "needs
 }
 if !control(prefix + "snapshot " + quoted) { return checkpoint_stop(bug, "Evidence review snapshot", "Evidence snapshot failed.",
   "Check checkout drift and approval against state.json.", "Resolve the snapshot failure before independent review.", run) }
+let evidence_ticket = review_ticket(run, "evidence")?
+if evidence_ticket == "" { return checkpoint_stop(bug, "Evidence review invocation binding", "Could not register the saved snapshot before reviewer launch.",
+  "Inspect the controller failure; no reviewer launched.", "Preserve existing evidence and require an independently completed review.", run) }
 let evidence_result = bugfix_review(run, "evidence") with { cwd: tree }
-let evidence_error = match evidence_result { Ok(_) => "", Err(error) => error_reason(error) }
-if evidence_error != "" { return checkpoint_stop(bug, "Evidence/plan review — worker execution", evidence_error,
+let evidence_error = match evidence_result { Ok(_) => "", Err(error) => reviewer_error_reason(error) }
+if evidence_error != "" { return checkpoint_stop(bug, "Evidence/plan review — worker execution", review_invocation_failure(run, evidence_ticket, evidence_error),
   "Inspect the reviewer failure and preserve the existing evidence/plan.", "Resolve the reviewer failure before implementation; it is not a verdict on bug validity.", run) }
 let evidence = evidence_result?
 if !control(prefix + "review-check " + quoted) { return checkpoint_stop(bug, "Evidence review — read-only check", "Evidence reviewer changed files or checkpoint validation failed.",
   "Compare the checkout with the saved snapshot.", "Review unexpected changes; do not accept a compromised read-only review.", run) }
-write({ path: run + "/evidence-review.md", content: evidence.findings })?
-write({ path: run + "/evidence-review-result.json", content: "{\"ok\":" + (evidence.ok ? "true" : "false") + ",\"findings\":" + json_string(evidence.findings) + "}" })?
+write({ path: evidence_ticket + ".submission.json", content: "{\"ok\":" + (evidence.ok ? "true" : "false") + ",\"findings\":" + json_string(evidence.findings) + "}" })?
 if !evidence.ok {
-  if !control(prefix + "review-record " + quoted + " evidence") { return checkpoint_stop(bug, "Evidence review record", "Failed independent review could not be bound to its unchanged inputs.",
+  if !control(prefix + "review-record " + quoted + " evidence " + shell_path(evidence_ticket)) { return checkpoint_stop(bug, "Evidence review record", "Failed independent review could not be bound to its unchanged inputs.",
     "Inspect the review snapshot and structured result.", "Preserve the rejected reports; no implementation authority exists.", run) }
   let decision = resolve_decision(run, "evidence")?
   let revise = bash({ command: prefix + "scope-revision-status " + quoted })?.trim()
@@ -454,7 +479,7 @@ if !evidence.ok {
   return checkpoint_stop(bug, "Evidence/plan review (before implementation)", "Independent evidence/plan review did not pass.",
     "Address the blocking findings in evidence-review.md.", "Repair the evidence or plan before implementation; do not treat this review failure as proof the bug is invalid.", run)
 }
-if !control(prefix + "evidence-review-record " + quoted) {
+if !control(prefix + "evidence-review-record " + quoted + " " + shell_path(evidence_ticket)) {
   return checkpoint_stop(bug, "Evidence review — durable verification", "Could not bind clean evidence review to the current plan and checkout.",
     "Inspect evidence-review-result.json and checkpoint drift.", "Do not infer authorization from a stale review report.", run)
 }
@@ -506,19 +531,21 @@ while round < review_rounds {
   round += 1
   if !control(prefix + "snapshot " + quoted) { return checkpoint_stop(bug, "Independent fix review — snapshot", "Review snapshot failed.",
     "Check checkout drift and approval against state.json.", "Resolve the snapshot failure before review.", run) }
+  let fix_ticket = review_ticket(run, "fix")?
+  if fix_ticket == "" { return checkpoint_stop(bug, "Fix review invocation binding", "Could not register the saved snapshot before reviewer launch.",
+    "Inspect the controller failure; no reviewer launched.", "Retain the fix and require independent review.", run) }
   let review_result = bugfix_review(run, "fix") with { cwd: tree }
-  let review_error = match review_result { Ok(_) => "", Err(error) => error_reason(error) }
-  if review_error != "" { return checkpoint_stop(bug, "Independent fix review — worker execution", review_error,
+  let review_error = match review_result { Ok(_) => "", Err(error) => reviewer_error_reason(error) }
+  if review_error != "" { return checkpoint_stop(bug, "Independent fix review — worker execution", review_invocation_failure(run, fix_ticket, review_error),
     "Inspect the reviewer failure; retain the current fix and prior review evidence.", "Resolve the reviewer failure before proceeding; do not repair code based on a missing review.", run) }
   let review = review_result?
   if !control(prefix + "review-check " + quoted) { return checkpoint_stop(bug, "Independent fix review — read-only check", "Reviewer changed files or checkpoint validation failed.",
     "Compare the checkout with the saved snapshot.", "Review unexpected changes; do not accept a compromised read-only review.", run) }
   reviews = reviews.concat([review.findings])
-  write({ path: run + "/reviews.md", content: reviews.join("\n\n--- next review ---\n\n") })?
-  write({ path: run + "/fix-review.md", content: review.findings })?
-  write({ path: run + "/fix-review-result.json", content: "{\"ok\":" + (review.ok ? "true" : "false") + ",\"findings\":" + json_string(review.findings) + "}" })?
-  if !control(prefix + "review-record " + quoted + " fix") { return checkpoint_stop(bug, "Fix review record", "Could not bind independent fix review to its unchanged checkout.",
+  write({ path: fix_ticket + ".submission.json", content: "{\"ok\":" + (review.ok ? "true" : "false") + ",\"findings\":" + json_string(review.findings) + "}" })?
+  if !control(prefix + "review-record " + quoted + " fix " + shell_path(fix_ticket)) { return checkpoint_stop(bug, "Fix review record", "Could not bind independent fix review to its unchanged checkout.",
     "Inspect the structured result and snapshot.", "Do not advance on unbound review evidence.", run) }
+  write({ path: run + "/reviews.md", content: reviews.join("\n\n--- next review ---\n\n") })?
   if review.ok {
     clean = true
     break
@@ -552,17 +579,19 @@ if !control(prefix + "gate " + quoted + " final") { return checkpoint_stop(bug, 
   "Find the failed command in green-*.json or gate-*-final-*.json and resolve its cause.", "Do not ship until the final diff passes verification.", run) }
 if !control(prefix + "snapshot " + quoted) { return checkpoint_stop(bug, "Final review snapshot", "Final snapshot failed.",
   "Check checkout drift and approval against state.json.", "Resolve the snapshot failure before final review.", run) }
+let final_ticket = review_ticket(run, "final")?
+if final_ticket == "" { return checkpoint_stop(bug, "Final review invocation binding", "Could not register the saved snapshot before reviewer launch.",
+  "Inspect the controller failure; no reviewer launched.", "Do not ship without a completed final review.", run) }
 let final_result = bugfix_review(run, "final") with { cwd: tree }
-let final_error = match final_result { Ok(_) => "", Err(error) => error_reason(error) }
-if final_error != "" { return checkpoint_stop(bug, "Final verification review — worker execution", final_error,
+let final_error = match final_result { Ok(_) => "", Err(error) => reviewer_error_reason(error) }
+if final_error != "" { return checkpoint_stop(bug, "Final verification review — worker execution", review_invocation_failure(run, final_ticket, final_error),
   "Inspect the reviewer failure; do not assume final approval.", "Obtain a completed final review before shipment.", run) }
 let final_review = final_result?
 if !control(prefix + "review-check " + quoted) { return checkpoint_stop(bug, "Final review — read-only check", "Final reviewer changed files or checkpoint validation failed.",
   "Compare the checkout with the saved snapshot.", "Review unexpected changes before shipment.", run) }
-write({ path: run + "/final-review.md", content: final_review.findings })?
-write({ path: run + "/final-review-result.json", content: "{\"ok\":" + (final_review.ok ? "true" : "false") + ",\"findings\":" + json_string(final_review.findings) + "}" })?
+write({ path: final_ticket + ".submission.json", content: "{\"ok\":" + (final_review.ok ? "true" : "false") + ",\"findings\":" + json_string(final_review.findings) + "}" })?
 if !final_review.ok {
-  if !control(prefix + "review-record " + quoted + " final") { return checkpoint_stop(bug, "Final review record", "Could not bind failed independent final review to its unchanged checkout.",
+  if !control(prefix + "review-record " + quoted + " final " + shell_path(final_ticket)) { return checkpoint_stop(bug, "Final review record", "Could not bind failed independent final review to its unchanged checkout.",
     "Inspect the structured result and snapshot.", "Retain the local fix; failed review is not authorization.", run) }
   let decision = resolve_decision(run, "final")?
   if decision.proceed {
@@ -574,7 +603,7 @@ if !final_review.ok {
   return checkpoint_stop(bug, "Final verification review", "Final independent review did not pass.",
     "Address the blocking findings in final-review.md and reverify the changed diff.", "Keep the fix local until the final review is clean.", run)
 }
-if !control(prefix + "final-review-record " + quoted) {
+if !control(prefix + "final-review-record " + quoted + " " + shell_path(final_ticket)) {
   return checkpoint_stop(bug, "Final review — durable verification", "Could not bind clean final review to the verified checkout.",
     "Inspect final-review-result.json and post-gate drift before continuing.", "Do not ship or waive final review integrity.", run)
 }

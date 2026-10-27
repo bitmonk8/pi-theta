@@ -261,7 +261,7 @@ function attemptPath(folder, name, extension = '.json') {
   while (existsSync(path)) path = join(folder, name + '-' + (++n) + extension);
   return path;
 }
-const transitionKinds = new Set(['stage', 'review', 'decision', 'gate', 'scope-revision']);
+const transitionKinds = new Set(['stage', 'review', 'invocation', 'decision', 'gate', 'scope-revision']);
 const stopped = status => ['blocked', 'BLOCKED', 'failed', 'needs_decision', 'needs_replan', 'needs_spec', 'not_reproduced'].includes(status);
 const reportName = phase => ({ evidence: 'evidence-review', fix: 'reviews', final: 'final-review', scope: 'plan' })[phase] ?? phase;
 function optionalJson(path) {
@@ -346,10 +346,17 @@ export function projectJobProgress(job, source) {
   const value = { ...job };
   const latest = latestSourceTransition(job.sourceRun, source);
   const complete = currentSourceCompletion(source, latest);
+  const t = latest.transition;
+  const activeInvocation = source.reviewInvocations?.[source.currentReviewInvocation];
+  const fencedInvocation = t?.kind === 'invocation' && t.status === 'running'
+    && (t.generation !== (source.generation ?? 0)
+      || t.contextPath !== join(job.sourceRun, source.currentReviewInvocation ?? '')
+      || source.currentReviewInvocations?.[t.phase] !== source.currentReviewInvocation
+      || activeInvocation?.status !== 'running' || activeInvocation.snapshotId !== source.reviewSnapshotId);
   const exported = Boolean(job.exportPath && job.exportDigest) && ['verified', 'integrating', 'integration-blocked', 'integrated'].includes(job.status);
   const approvals = Array.isArray(source.decisions) ? pendingApprovals(source) : (job.approvals ?? []);
   Object.assign(value, { sourceProgress: latest, sourceHistory: { statePath: join(job.sourceRun, 'state.json'), checkpoints: source.checkpoints ?? {} },
-    execution: complete || exported ? 'completed' : latest.transition?.status === 'running' ? 'running' : stopped(latest.transition?.status) ? 'blocked' : 'incomplete',
+    execution: complete || exported ? 'completed' : fencedInvocation ? 'blocked' : latest.transition?.status === 'running' ? 'running' : stopped(latest.transition?.status) ? 'blocked' : 'incomplete',
     verification: exported ? 'passed' : complete ? 'awaiting-export' : 'incomplete', approvals,
     authority: job.authority === 'integrity-blocked' ? job.authority : approvals.length ? 'pending' : 'clear',
     integrationState: job.status === 'integrated' ? 'integrated' : job.status === 'integration-blocked' ? 'blocked' : job.status === 'integrating' ? 'in-progress' : 'not-started',
@@ -357,7 +364,6 @@ export function projectJobProgress(job, source) {
     shipmentState: job.shipment ? job.shipment.pushed ? (job.shipment.cleaned ? 'pushed' : 'pushed-cleanup-incomplete') : 'attempted-unconfirmed' : job.status === 'integrated' ? 'recorded-integrated' : job.shipmentState ?? 'not-attempted' });
   delete value.checkpoint;
   if (!complete && !exported && latest.transition) value.checkpoint = { phase: latest.transition.phase, status: latest.transition.status, report: latest.transition.reportPath ?? null };
-  const t = latest.transition;
   if (job.shipment?.pushed && !job.shipment.cleaned) {
     value.reason = 'Verified source pushed; integration/consumer update/cleanup is incomplete.';
     value.immediateBlocker = 'Consumer update/cleanup incomplete; do not rerun shipment.';
@@ -381,11 +387,15 @@ export function projectJobProgress(job, source) {
     value.immediateBlocker = job.authority === 'integrity-blocked' ? 'Source authority/integrity audit failed.' : approvals.length ? 'Exact owner confirmation pending for shipment.' : 'Verified export has not passed.';
     value.nextAction = approvals.length ? 'Record the exact pending owner confirmation, then re-collect/export the original source; do not waive any verification prerequisite.' : 'Inspect the export attempt and re-collect the original source after its prerequisite is satisfied.';
   } else {
-    value.reason = t?.kind === 'decision' && t.status === 'CONTINUE'
+    value.reason = fencedInvocation ? 'Reviewer invocation is fenced and unsettled; no verdict was recorded for its saved ticket.' : t?.kind === 'decision' && t.status === 'CONTINUE'
       ? 'Source verification is incomplete; the recorded scoped decision allows continuation, not shipment.'
       : t?.summary ? t.summary : latest.limitation ?? (t ? `Latest source transition ${t.phase}/${t.status}; source verification remains incomplete.` : job.reason ?? 'Source verification is incomplete.');
-    value.immediateBlocker = job.authority === 'integrity-blocked' ? 'Source authority/integrity audit failed.' : stopped(t?.status) ? `${t.phase}/${t.status}: ${t.summary || 'inspect the linked report'}` : 'Source verification is incomplete; ' + (latest.limitation ?? 'no completed source verification is recorded.');
-    value.nextAction = t?.status === 'not_reproduced' || job.status === 'not-reproduced' ? 'Retain the non-reproduction evidence; do not implement or ship an unverified fix.'
+    value.immediateBlocker = job.authority === 'integrity-blocked' ? 'Source authority/integrity audit failed.' : fencedInvocation ? value.reason : stopped(t?.status) ? `${t.phase}/${t.status}: ${t.summary || 'inspect the linked report'}` : 'Source verification is incomplete; ' + (latest.limitation ?? 'no completed source verification is recorded.');
+    value.nextAction = fencedInvocation ? 'Reconcile the fenced invocation and its retained evidence; establish process quiescence before supported continuation. Do not await an unrecordable ticket, launch a concurrent reviewer, or infer a verdict.'
+      : t?.kind === 'invocation' ? t.status === 'running'
+      ? 'Await the existing reviewer invocation; no typed verdict is recorded yet. Do not launch a concurrent reviewer or infer completion.'
+      : 'Resolve the reviewer invocation failure (launch/transport or worker execution), establish process quiescence, then obtain a fresh typed review through the original source; no scope/code verdict was returned. Preserve evidence and require all mandatory gates/reviews before shipment.'
+      : t?.status === 'not_reproduced' || job.status === 'not-reproduced' ? 'Retain the non-reproduction evidence; do not implement or ship an unverified fix.'
       : ['plan', 'evidence', 'scope'].includes(t?.phase) && stopped(t?.status) && unresolvedScope(source) ? 'Resolve the rejected plan/request through supported report-only scope revision, then fresh PLAN, independent evidence review and exact scoped authorization before implementation.'
       : 'Continue only the original source through its supported checkpoint/revision path, resolve the engineering prerequisite, and obtain fresh gates/review; pending shipment approval alone cannot complete this work.';
   }

@@ -2638,8 +2638,11 @@ describe("bug 0124 (x) — the committed corpus declares no annotation in this c
     // helper parameters/four returns; no annotation acquires a new disposition.
     // Deterministic integration gating adds integration_gate (one param/return),
     // save_verdict (three params/one return), and the fresh BatchReview sink/file.
+    // Reviewer invocation telemetry adds reviewer_error_reason (one QueryError
+    // parameter/string return), review_ticket (two string parameters), and
+    // review_invocation_failure (three string parameters/string return).
     // Existing fixtures and refusal expectations are unchanged.
-    ).toEqual([52, 68, 28]);
+    ).toEqual([52, 74, 30]);
     expect(
       offenders,
       `x1: ZERO offenders — no committed fixture changes disposition when the refusal lands, so ` +

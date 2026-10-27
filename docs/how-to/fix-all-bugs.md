@@ -85,6 +85,12 @@ The report records execution/checkpoint, verification, authorization and shipmen
 separately. In particular **implementation blocked + owner choice pending** is
 not a verified fix awaiting only a signature. A final-verified provisional fix
 is retained without committing/promoting it until its owner decisions are cleared.
+A reviewer invocation failure is shown separately from a semantic rejection and
+from earlier passing gates. It calls for diagnosis and a fresh required review,
+not automatic scope/code repair. A pending invocation fenced by pause or a newer
+snapshot is unsettled: reconcile its evidence and process quiescence before
+continuation, rather than await an unrecordable ticket or start a concurrent
+reviewer. See [reviewer invocation evidence](fix-a-numbered-bug.md#reviewer-invocation-evidence).
 
 For a verified eligible source, the controller creates a separate integration
 branch at recorded current main. Astra prepares the committed merge, preserving

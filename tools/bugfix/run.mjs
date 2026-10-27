@@ -8,6 +8,7 @@ import { resolve, join, isAbsolute, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { updatePiConfig } from './update-pi-config.mjs';
 import { prepareWorktreeEnvironment } from './worktree-env.mjs';
+import { atomicImmutableJson } from './atomic-record.mjs';
 
 export function command(argv, cwd, timeout = 30 * 60 * 1000, env = process.env) {
   if (!Array.isArray(argv) || !argv.length || argv.some(x => typeof x !== 'string')) throw new Error('Command must be a nonempty argv array');
@@ -268,7 +269,7 @@ function assertOwner(state) {
   if (git(state.ownerRoot, 'rev-parse', 'HEAD') !== expected || git(state.ownerRoot, 'branch', '--show-current') !== state.ownerBranch) throw new Error('Owner HEAD/branch changed during workflow; stop and inspect');
 }
 function controlPaths(root) {
-  return ['tools/bugfix/run.mjs', 'tools/bugfix/worktree-env.mjs', 'tools/bugfix/update-pi-config.mjs', '.pi/theta/fix-bug.theta', '.pi/theta/workers/bugfix-stage.theta', '.pi/theta/workers/bugfix-review.theta', '.pi/theta/workers/bugfix-rank.theta', '.pi/theta/workers/bugfix-decide.theta'].filter(p => existsSync(join(root, p)));
+  return ['tools/bugfix/run.mjs', 'tools/bugfix/atomic-record.mjs', 'tools/bugfix/worktree-env.mjs', 'tools/bugfix/update-pi-config.mjs', '.pi/theta/fix-bug.theta', '.pi/theta/workers/bugfix-stage.theta', '.pi/theta/workers/bugfix-review.theta', '.pi/theta/workers/bugfix-rank.theta', '.pi/theta/workers/bugfix-decide.theta'].filter(p => existsSync(join(root, p)));
 }
 export function executionControlPaths(root) {
   return [...new Set([...controlPaths(root), 'tools/bugfix/batch.mjs', 'tools/bugfix/gate-runner.mjs', 'tools/bugfix/controller-recovery.mjs', 'tools/bugfix/atomic-record.mjs', '.pi/theta/fix-all-bugs.theta', '.pi/theta/workers/bugfix-batch-plan.theta', '.pi/theta/workers/bugfix-batch-lane.theta', '.pi/theta/workers/bugfix-batch-merge.theta', '.pi/theta/workers/bugfix-batch-review.theta'])].filter(path => existsSync(join(root, path))).sort();
@@ -700,7 +701,11 @@ function rejectedScope(run, state) {
   const request = pending?.exactRequest ?? plan?.decisionRequest;
   if (!request?.trim() || !plan || !['blocked', 'pass', 'needs_spec', 'needs_decision'].includes(plan.status)) return null;
   const failedReview = localText(run, 'evidence-review-result.json');
-  const failed = failedReview !== null && JSON.parse(failedReview)?.ok === false;
+  const invocation = state.reviewInvocations?.[state.currentReviewInvocations?.evidence];
+  // Reports from an older attempt remain history, not the verdict of a newer
+  // reviewer that never returned. Invocation failure is not scope rejection.
+  const failed = (!invocation || (invocation.status === 'returned' && invocation.resultDigest === hash(failedReview ?? '')))
+    && failedReview !== null && JSON.parse(failedReview)?.ok === false;
   // A later owner confirmation can settle an OLD provisional choice without
   // changing the rejected engineering request. Order applicable Astra contexts,
   // not the last unrelated historical human confirmation in the global list.
@@ -998,6 +1003,52 @@ export function verifiedSourceEvidence(run, state) {
   if (digest(state.root, state.controlPaths) !== state.controlDigest) throw new Error('Original source control bytes changed');
   return { witness: state.witnessDigest, red: state.redDigest ?? null, gates: state.verifiedGateDigest, review: state.finalReviewDigest, controls: state.controlDigest };
 }
+function reviewPrefix(phase) { return ({ evidence: 'evidence-review', fix: 'fix-review', final: 'final-review' })[phase]; }
+function reviewSnapshot(state) {
+  return { id: state.reviewSnapshotId, generation: state.reviewGeneration, checkoutDigest: state.reviewCheckoutDigest,
+    planDigest: state.reviewPlanDigest, paths: state.reviewPaths, digest: state.reviewDigest };
+}
+// The opaque, controller-allocated ticket is captured BEFORE the child launch.
+// Match it against saved authority, never reconstruct a ticket after an Err.
+function reviewInvocation(run, state, path) {
+  if (typeof path !== 'string' || !path.startsWith(run + '/') || resolve(path) !== path) throw new Error('Invalid review invocation ticket path');
+  const relative = path.slice(run.length + 1);
+  if (!/^review-invocation-[0-9a-f-]{36}\/context\.json$/.test(relative)) throw new Error('Invalid review invocation ticket path');
+  const entry = state.reviewInvocations?.[relative];
+  const raw = localText(run, relative);
+  if (!entry || !raw || hash(raw) !== entry.digest) throw new Error('Missing or changed review invocation ticket');
+  const context = JSON.parse(raw);
+  if (context.version !== 1 || context.run !== run || !reviewPrefix(context.phase) || entry.phase !== context.phase || entry.attempt !== context.attempt
+      || state.currentReviewInvocations?.[context.phase] !== relative || state.currentReviewInvocation !== relative || entry.status !== 'running'
+      || context.generation !== (state.generation ?? 0) || context.revision > state.revision
+      || JSON.stringify(context.snapshot) !== JSON.stringify(reviewSnapshot(state))) throw new Error('Stale or settled review invocation ticket');
+  return { full: path, relative, entry, context };
+}
+function reviewSubmission(run, state, phase, path) {
+  const tracked = ['reviewInvocations', 'currentReviewInvocations', 'currentReviewInvocation'].some(key => Object.hasOwn(state, key));
+  if (!tracked && path) throw new Error('No registered review invocation');
+  const selected = tracked ? reviewInvocation(run, state, path) : null;
+  if (selected && selected.context.phase !== phase) throw new Error('Review invocation phase mismatch');
+  const prefix = reviewPrefix(phase);
+  // Once a run adopts tickets, canonical files are history, never submissions.
+  // Late callers can write only their own ticket input, not a newer verdict.
+  const result = localText(run, selected ? selected.relative + '.submission.json' : prefix + '-result.json');
+  const review = result === null ? null : JSON.parse(result);
+  const report = selected ? review?.findings : localText(run, prefix + '.md');
+  if (typeof review?.ok !== 'boolean' || typeof review.findings !== 'string' || !review.findings.trim() || report !== review.findings) throw new Error('Missing matching structured review submission/report');
+  return { review, publish() {
+    if (!selected) return; // genuinely legacy run, with no invocation tracking
+    // Called only inside persistState's generation/revision write guard. A stale
+    // controller must not publish canonical bytes before its CAS is checked.
+    atomicImmutableJson(selected.full + '.result.json', { version: 1, contextPath: selected.full, contextDigest: selected.entry.digest, result, report });
+    for (const [name, bytes] of [[prefix + '-result.json', result], [prefix + '.md', report]]) {
+      const temporary = join(run, name + '.' + randomUUID() + '.tmp');
+      writeFileSync(temporary, bytes, { flag: 'wx', mode: 0o600 });
+      renameSync(temporary, join(run, name));
+    }
+    selected.entry.status = 'returned'; selected.entry.resultDigest = hash(result);
+  } };
+}
 export function main(args, cwd = process.cwd()) {
   let [op, arg, phase, extra] = args;
   let startOptions; let batch;
@@ -1094,7 +1145,37 @@ export function main(args, cwd = process.cwd()) {
   const paths = committedExport ? committedPaths(run, state) : changes(root);
   const specTouched = paths.some(p => p === 'docs/spec.md' || p.startsWith('docs/spec_topics/') || p.startsWith('docs/reference/'));
   if (!state.specApproved && (specTouched || digest(root, specFiles(root)) !== state.spec)) throw new Error('Specification changed without owner approval');
-  if (op === 'verify-integrity') {
+  if (op === 'review-start') {
+    if (!['evidence', 'fix', 'final'].includes(phase)) throw new Error('Unknown review phase');
+    if (!state.reviewSnapshotId || state.reviewGeneration !== (state.generation ?? 0) || state.reviewCheckoutDigest !== hash(JSON.stringify(checkoutIdentity(root))) || JSON.stringify(paths) !== JSON.stringify(state.reviewPaths) || digest(root, paths) !== state.reviewDigest) throw new Error('Review invocation requires a current unchanged saved snapshot');
+    const folder = join(run, 'review-invocation-' + randomUUID()); mkdirSync(folder);
+    const contextPath = join(folder, 'context.json');
+    const relative = contextPath.slice(run.length + 1);
+    const attempt = (state.reviewAttempts?.[phase] ?? 0) + 1;
+    const prefix = reviewPrefix(phase);
+    const context = { version: 1, run, phase, attempt, generation: state.generation ?? 0, revision: expected.revision + 1,
+      snapshot: reviewSnapshot(state), priorArtifacts: { report: localText(run, prefix + '.md'), result: localText(run, prefix + '-result.json') } };
+    atomicImmutableJson(contextPath, context);
+    state.reviewAttempts = { ...(state.reviewAttempts ?? {}), [phase]: attempt };
+    state.reviewInvocations = { ...(state.reviewInvocations ?? {}), [relative]: { digest: hash(readFileSync(contextPath)), phase, attempt, snapshotId: state.reviewSnapshotId, status: 'running' } };
+    state.currentReviewInvocations = { ...(state.currentReviewInvocations ?? {}), [phase]: relative };
+    state.currentReviewInvocation = relative;
+    // Retain the old report and gate evidence, but never revive its authority.
+    delete state.finalReviewDigest; delete state.finalReviewCheckoutDigest;
+    if (phase === 'evidence') delete state.evidenceReviewBinding;
+    transition(state, expected.revision + 1, 'invocation', phase, 'running', { contextPath, summary: 'Independent review invocation pending; no semantic verdict returned.' });
+    persist(); console.log(contextPath); return;
+  } else if (op === 'review-failure') {
+    const selected = reviewInvocation(run, state, phase);
+    const message = localText(run, selected.relative + '.failure.txt');
+    if (typeof message !== 'string' || !message.trim() || message.length > 128000 || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(message)) throw new Error('Missing or malformed invocation failure text');
+    const reportPath = selected.full + '.failure.json';
+    const summary = 'INVOCATION FAILURE — independent ' + selected.context.phase + ' review returned no typed verdict. Cause not classified: ' + message;
+    atomicImmutableJson(reportPath, { version: 1, contextPath: selected.full, contextDigest: selected.entry.digest, generation: selected.context.generation, snapshot: selected.context.snapshot, attempt: selected.context.attempt, message });
+    selected.entry.status = 'failed'; selected.entry.failurePath = reportPath; selected.entry.failureDigest = hash(readFileSync(reportPath));
+    transition(state, expected.revision + 1, 'invocation', selected.context.phase, 'blocked', { contextPath: selected.full, reportPath, summary });
+    persist(); console.log('PASS'); return;
+  } else if (op === 'verify-integrity') {
     if (state.stages.includes('red')) redEvidence(run, state);
     for (const [name, checkpoint] of Object.entries(state.checkpoints ?? {})) {
       if (['pass', 'needs_spec', 'needs_decision', 'needs_replan'].includes(checkpoint.status) && digest(run, stagePaths(name)) !== checkpoint.reportDigest) throw new Error('Completed stage report/result changed: ' + name);
@@ -1108,6 +1189,8 @@ export function main(args, cwd = process.cwd()) {
     else if (entry.status !== 'human') throw new Error('Decision is no longer pending a disposition/answer');
     console.log(isSpecDecision(context) ? 'SPEC' : 'SCOPED'); return;
   } else if (op === 'decision-start') {
+    const invocation = state.reviewInvocations?.[state.currentReviewInvocations?.[phase]];
+    if (invocation && invocation.status !== 'returned') throw new Error('Review invocation has no semantic verdict; resolve launch/transport before requesting a scope/code decision');
     if (!DECISION_PHASES.has(phase)) throw new Error('Unknown decision phase');
     const decisionId = randomUUID();
     const folder = join(run, 'decision-' + decisionId);
@@ -1329,6 +1412,7 @@ export function main(args, cwd = process.cwd()) {
       throw error;
     }
   } else if (op === 'snapshot') {
+    state.reviewSnapshotId = randomUUID();
     state.reviewDigest = digest(root, paths); state.reviewPaths = paths;
     state.reviewCheckoutDigest = hash(JSON.stringify(checkoutIdentity(root)));
     state.reviewPlanDigest = state.checkpoints?.plan?.reportDigest ?? null;
@@ -1338,29 +1422,42 @@ export function main(args, cwd = process.cwd()) {
   } else if (op === 'review-record') {
     if (!['evidence', 'fix', 'final'].includes(phase)) throw new Error('Unknown review phase');
     const prefix = ({ evidence: 'evidence-review', fix: 'fix-review', final: 'final-review' })[phase];
-    const review = JSON.parse(localText(run, prefix + '-result.json') ?? 'null');
-    if (typeof review?.ok !== 'boolean' || typeof review.findings !== 'string' || !review.findings.trim() || localText(run, prefix + '.md') !== review.findings) throw new Error('Missing matching structured review result/report');
+    const submission = reviewSubmission(run, state, phase, extra);
+    const review = submission.review;
     if (state.reviewGeneration !== (state.generation ?? 0) || state.reviewCheckoutDigest !== hash(JSON.stringify(checkoutIdentity(root))) || JSON.stringify(paths) !== JSON.stringify(state.reviewPaths) || digest(root, paths) !== state.reviewDigest) throw new Error('Missing unchanged independent review snapshot');
     if (phase === 'evidence' && state.reviewPlanDigest !== currentPlan(run, state).reportDigest) throw new Error('Independent evidence review plan changed');
-    transition(state, expected.revision + 1, 'review', phase, review.ok ? 'pass' : 'blocked', { reportPath: join(run, prefix + '.md'), summary: review.findings });
+    persist(() => {
+      submission.publish();
+      transition(state, expected.revision + 1, 'review', phase, review.ok ? 'pass' : 'blocked', { reportPath: join(run, prefix + '.md'), summary: review.findings });
+    });
+    console.log('PASS'); return;
   } else if (op === 'evidence-review-record') {
     const plan = currentPlan(run, state);
-    const review = evidenceReviewResult(run, true);
+    const submission = reviewSubmission(run, state, 'evidence', phase);
+    if (!submission.review.ok) throw new Error('Missing clean independent evidence review');
     const checkoutDigest = hash(JSON.stringify(checkoutIdentity(root)));
     if (state.reviewGeneration !== (state.generation ?? 0) || state.reviewPlanDigest !== plan.reportDigest || state.reviewCheckoutDigest !== checkoutDigest || JSON.stringify(paths) !== JSON.stringify(state.reviewPaths) || digest(root, paths) !== state.reviewDigest) throw new Error('Missing unchanged evidence review snapshot for the current completed plan');
-    const stamp = transition(state, expected.revision + 1, 'review', 'evidence', 'pass', { reportPath: join(run, 'evidence-review.md'), summary: review.report });
-    state.evidenceReviewBinding = { ...stamp, planDigest: plan.reportDigest, reportDigest: review.reportDigest, checkoutDigest };
-    persist(() => requireCleanEvidenceReview(run, state));
+    persist(() => {
+      submission.publish();
+      const review = evidenceReviewResult(run, true);
+      const stamp = transition(state, expected.revision + 1, 'review', 'evidence', 'pass', { reportPath: join(run, 'evidence-review.md'), summary: review.report });
+      state.evidenceReviewBinding = { ...stamp, planDigest: plan.reportDigest, reportDigest: review.reportDigest, checkoutDigest };
+      requireCleanEvidenceReview(run, state);
+    });
     console.log('PASS'); return;
   } else if (op === 'final-review-record') {
     if (!state.stages.includes('gate-final')) throw new Error('Missing final verification');
     if (JSON.stringify(paths) !== JSON.stringify(state.verifiedPaths) || digest(root, paths) !== state.verifiedDigest) throw new Error('Files changed after final verification');
     if (JSON.stringify(paths) !== JSON.stringify(state.reviewPaths) || digest(root, paths) !== state.reviewDigest || state.reviewCheckoutDigest !== hash(JSON.stringify(checkoutIdentity(root))) || state.verifiedCheckoutIdentity !== checkoutIdentity(root).digest) throw new Error('Missing unchanged final review snapshot or post-gate file mode/type drift');
-    const review = json(join(run, 'final-review-result.json'));
-    if (review.ok !== true || typeof review.findings !== 'string' || !review.findings.trim() || readFileSync(join(run, 'final-review.md'), 'utf8') !== review.findings) throw new Error('Missing clean final independent review');
-    state.finalReviewDigest = digest(run, ['final-review-result.json', 'final-review.md']);
-    state.finalReviewCheckoutDigest = state.verifiedCheckoutIdentity;
-    transition(state, expected.revision + 1, 'review', 'final', 'pass', { reportPath: join(run, 'final-review.md'), summary: review.findings });
+    const submission = reviewSubmission(run, state, 'final', phase);
+    if (!submission.review.ok) throw new Error('Missing clean final independent review');
+    persist(() => {
+      submission.publish();
+      state.finalReviewDigest = digest(run, ['final-review-result.json', 'final-review.md']);
+      state.finalReviewCheckoutDigest = state.verifiedCheckoutIdentity;
+      transition(state, expected.revision + 1, 'review', 'final', 'pass', { reportPath: join(run, 'final-review.md'), summary: submission.review.findings });
+    });
+    console.log('PASS'); return;
   } else if (op === 'export-verified') {
     requireVerified(run, state, paths, Boolean(committedExport));
     verifyShippingIndex(root, committedExport ? [] : paths, Boolean(committedExport));

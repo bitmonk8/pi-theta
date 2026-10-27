@@ -8,10 +8,12 @@ import { spawnSync } from "node:child_process";
 import { topLevelThetaHostEnv } from "./helpers/top-level-theta-env";
 import { parseThetaDocument } from "../src/parser/theta-document";
 import { parseDeps } from "./helpers/e2e-s1";
+// @ts-expect-error plain ESM controller
+import { projectJobProgress } from "../tools/bugfix/batch.mjs";
 
 const root = process.cwd();
 const cli = process.env.PI_THETA_TEST_PI_CLI ?? join(root, "node_modules/@earendil-works/pi-coding-agent/dist/cli.js");
-type Scenario = "environment" | "implementation" | "not-reproduced" | "gate" | "worker-error" | "reviewer-error" | "resume" | "replan-refusal" | "autonomous" | "spec-auto" | "plan-scope" | "plan-repair" | "scope-loop" | "scope-supersession";
+type Scenario = "final-reviewer-error" | "fix-reviewer-error" | "closure-error" | "reviewer-retry" | "environment" | "implementation" | "not-reproduced" | "gate" | "worker-error" | "reviewer-error" | "resume" | "replan-refusal" | "autonomous" | "spec-auto" | "plan-scope" | "plan-repair" | "scope-loop" | "scope-supersession";
 const verdicts = {
   environment: {
     status: "blocked", summary: "Test SDK cannot use stored OAuth.",
@@ -47,7 +49,8 @@ function worker(scenario: Scenario, rejectFirstCandidate = false) {
   if (!schema) throw new Error("Missing production stage schema");
   const asTheta = (value: Record<string, string>) => "BugStage { " + Object.entries(value)
     .map(([key, text]) => `${key}: ${JSON.stringify(text)}`).join(", ") + " }";
-  const witness = ["resume", "replan-refusal", "autonomous", "spec-auto", "plan-scope", "plan-repair", "scope-loop", "scope-supersession"].includes(scenario)
+  const invocationFixture = ["final-reviewer-error", "fix-reviewer-error", "closure-error", "reviewer-retry"].includes(scenario);
+  const witness = invocationFixture || ["resume", "replan-refusal", "autonomous", "spec-auto", "plan-scope", "plan-repair", "scope-loop", "scope-supersession"].includes(scenario)
     ? "if(!require('fs').existsSync('src/fixed.txt')){console.error('AssertionError: fixture expected 2 got 1');process.exit(1)}"
     : "console.error('AssertionError: fixture expected 2 got 1');process.exit(1)";
   const manifest = JSON.stringify({
@@ -69,10 +72,12 @@ function worker(scenario: Scenario, rejectFirstCandidate = false) {
     ...(scenario === "scope-supersession" ? ['  if request != "NO_SCOPE_REQUEST" && !request.startsWith("Complete replacement:") { return ' + asTheta({ ...pass, status: "blocked", summary: "Parallel-only request omits four nonparallel diagnostic cases." }) + ' }'] : []),
     '}',
     ...(scenario === "worker-error" ? ['let missing = read({ path: "missing-worker-input.txt" })?'] : []),
-    ...(scenario === "implementation" || scenario === "gate" || scenario === "reviewer-error" || scenario === "resume" || scenario === "replan-refusal" || scenario === "autonomous" || scenario === "spec-auto" || scenario === "plan-scope" || scenario === "plan-repair" || scenario === "scope-loop" || scenario === "scope-supersession" ? [
+    ...(invocationFixture || scenario === "implementation" || scenario === "gate" || scenario === "reviewer-error" || scenario === "resume" || scenario === "replan-refusal" || scenario === "autonomous" || scenario === "spec-auto" || scenario === "plan-scope" || scenario === "plan-repair" || scenario === "scope-loop" || scenario === "scope-supersession" ? [
       'if phase == "reproduce" {',
       `  write({ path: run_dir + "/witnesses.json", content: ${JSON.stringify(manifest)} })?`,
       "}",
+      ...(invocationFixture ? ['if phase == "implement" { write({ path: checkout + "/src/fixed.txt", content: "partial fix" })? }'] : []),
+      ...(scenario === "closure-error" ? ['if phase == "close" { read({ path: "missing-closure-input.txt" })? }'] : []),
       ...(scenario === "implementation" ? ['if phase == "implement" { return ' + asTheta(verdicts.implementation) + " }"] : []),
       ...(scenario === "plan-scope" ? [
         'if phase == "plan" {',
@@ -204,7 +209,7 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
   if (["two", "missing", "duplicate", "backwards", "cycle"].includes(options.ranking ?? "one")) {
     writeFileSync(join(cwd, "docs/bugs/0002-higher-impact.md"), "# More impact\n- **Status:** open\n");
   }
-  if (["resume", "replan-refusal", "autonomous", "spec-auto", "plan-scope", "plan-repair", "scope-loop", "scope-supersession"].includes(options.scenario ?? "")) {
+  if (["final-reviewer-error", "fix-reviewer-error", "closure-error", "reviewer-retry", "resume", "replan-refusal", "autonomous", "spec-auto", "plan-scope", "plan-repair", "scope-loop", "scope-supersession"].includes(options.scenario ?? "")) {
     mkdirSync(join(cwd, "src"));
     mkdirSync(join(cwd, "tests"));
     writeFileSync(join(cwd, "tests/legacy.test.js"), "const env = new Map(); // same assertion");
@@ -217,13 +222,14 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
     expect(workflow).not.toContain("let presentation = @`");
   }
   writeFileSync(join(theta, "fix-bug.theta"), workflow);
-  for (const file of ["run.mjs", "worktree-env.mjs", "update-pi-config.mjs"]) {
+  for (const file of ["run.mjs", "atomic-record.mjs", "worktree-env.mjs", "update-pi-config.mjs"]) {
     copyFileSync(join(root, "tools/bugfix", file), join(cwd, "tools/bugfix", file));
   }
   writeFileSync(join(theta, "workers/bugfix-stage.theta"), worker(options.scenario ?? "environment", options.rejectFirstCandidate));
   writeFileSync(join(theta, "workers/bugfix-rank.theta"), rankingWorker(options.ranking ?? "one"));
   writeFileSync(join(theta, "workers/bugfix-review.theta"), '---\nmode: subagent\ntools: read\nparams:\n  run_dir: string\n  focus: string\n---\nschema Review { ok: boolean, findings: string }\n'
     + (options.scenario === "reviewer-error" ? 'let missing = read({ path: "missing-reviewer-input.txt" })?\n' : "")
+    + (["final-reviewer-error", "fix-reviewer-error", "reviewer-retry"].includes(options.scenario ?? "") ? 'if focus == "' + (options.scenario === "fix-reviewer-error" ? 'fix' : 'final') + '" {\n let allowed = match read({ path: run_dir + "/review-retry-allow.txt" }) { Ok(text) => text, Err(_) => "no" }\n if allowed != "yes" { read({ path: "missing-reviewer-return.txt" })? }\n}\n' : "")
     + (options.scenario === "plan-repair" ? 'if focus == "evidence" {\n let plan = read({ path: run_dir + "/plan.md" })?\n if !plan.startsWith("Repaired plan:") { return Review { ok: false, findings: "MUST FIX: correct the fixture description in the reports-only plan; preserve all original evidence and test assertions." } }\n}\n' : "")
     + 'Review { ok: true, findings: "CLEAN — reporting fixture" }\n');
   const decisionSchemas = readFileSync(join(root, ".pi", "theta", "workers", "bugfix-decide.theta"), "utf8")
@@ -234,6 +240,9 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
   writeFileSync(join(theta, "workers/bugfix-decide.theta"), [
     "---", "mode: subagent", "tools: read, bash", "params:", "  context_path: string", "---", decisionSchemas,
     'read({ path: context_path })?',
+    // Like the retained closure incident, a missing decision return must not
+    // replace the already recorded stage execution failure with a verdict.
+    ...(options.scenario === "closure-error" ? ['read({ path: "missing-closure-decision-input.txt" })?'] : []),
     ...(options.scenario === "scope-supersession" ? [
       String.raw`fn shell_path(path: string): string { "'" + path.replace("'", "'\\''") + "'" }`,
       String.raw`let status = bash({ command: "node -e \"process.stdout.write(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).status ?? 'none')\" " + shell_path(context_path) })?.trim()`,
@@ -272,6 +281,17 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
     let redPreserved = false;
     let leaseReleased = false;
     let partialWorkPreserved = false;
+    let firstFailedState = "";
+    if (options.scenario === "reviewer-retry") {
+      firstStop = result.stdout;
+      const run = JSON.parse(readFileSync(join(cwd, ".pi/tmp/fix-bug.lock/owner.json"), "utf8")).run as string;
+      firstFailedState = readFileSync(join(run, "state.json"), "utf8");
+      const before = JSON.parse(firstFailedState);
+      const proofs = before.verifiedGateFiles.map((name: string) => readFileSync(join(run, name)));
+      writeFileSync(join(run, "review-retry-allow.txt"), "yes");
+      result = launch("resume");
+      redPreserved = proofs.every((bytes: Buffer, index: number) => bytes.equals(readFileSync(join(run, before.verifiedGateFiles[index]))));
+    }
     if (options.scenario === "resume") {
       expect(result.status, result.stderr + result.stdout).toBe(0);
       expect(result.stdout).toContain("Typecheck rejects Map");
@@ -315,6 +335,8 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
     const runPath = completedRun ? join(cwd, ".pi/tmp", completedRun) : "";
     const artifact = (name: string) => runPath && existsSync(join(runPath, name)) ? readFileSync(join(runPath, name), "utf8") : "";
     const finalReview = artifact("final-review-result.json");
+    const evidenceReview = artifact("evidence-review-result.json");
+    const fixReview = artifact("fix-review-result.json");
     const finalGates = runPath ? readdirSync(runPath).filter(name => /^gate-\d+-final-\d+\.json$/.test(name)).map(name => JSON.parse(artifact(name))) : [];
     const mainSha = spawnSync("git", ["rev-parse", "refs/heads/main"], { cwd, encoding: "utf8" }).stdout.trim();
     const branchRetained = state ? spawnSync("git", ["show-ref", "--verify", "--quiet", "refs/heads/" + state.branch], { cwd, encoding: "utf8" }).status === 0 : false;
@@ -325,8 +347,8 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
     const mainStatus = spawnSync("git", ["status", "--porcelain"], { cwd, encoding: "utf8" }).stdout;
     const leaseRetained = existsSync(join(cwd, ".pi/tmp/fix-bug.lock"));
     const runArtifactsRetained = !!runPath && existsSync(join(runPath, "state.json")) && existsSync(join(runPath, "red-0.json"));
-    return { ...result, firstStop, resumedState, redPreserved, leaseReleased, partialWorkPreserved, completedState, shipment, pushedSha,
-      runPath, finalReview, finalGates, mainSha, branchRetained, worktreeRetained, worktrees, questionCalls, mainFixed, mainStatus, leaseRetained, runArtifactsRetained };
+    return { ...result, firstStop, firstFailedState, resumedState, redPreserved, leaseReleased, partialWorkPreserved, completedState, shipment, pushedSha,
+      runPath, finalReview, evidenceReview, fixReview, finalGates, mainSha, branchRetained, worktreeRetained, worktrees, questionCalls, mainFixed, mainStatus, leaseRetained, runArtifactsRetained };
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 }
 function cleanHost(result: ReturnType<typeof probe>) {
@@ -372,6 +394,62 @@ function card(text: string, stage: string) {
 }
 
 describe("fix-bug completion reporting through the real host", () => {
+  it.each(["final-reviewer-error", "fix-reviewer-error", "reviewer-error"] as Scenario[])("durably reports %s without a semantic verdict or gate-success blocker", scenario => {
+    const result = probe("1 ship false", { scenario });
+    cleanHost(result);
+    const phase = scenario === "reviewer-error" ? "evidence" : scenario === "fix-reviewer-error" ? "fix" : "final";
+    const source = JSON.parse(result.completedState);
+    expect(result.stdout).toContain("missing-reviewer-");
+    expect(result.stdout).not.toContain("VERIFIED, NOT SHIPPED");
+    expect(source.lastTransition).toMatchObject({ kind: "invocation", phase, status: "blocked", summary: expect.stringContaining("INVOCATION FAILURE") });
+    expect(source.finalReviewDigest).toBeUndefined();
+    expect(result.finalReview).toBe("");
+    expect(phase === "evidence" ? result.evidenceReview : phase === "fix" ? result.fixReview : result.finalReview).toBe("");
+    if (phase === "final") {
+      expect(result.finalGates).toHaveLength(2);
+      expect(result.finalGates.every(gate => gate.code === 0)).toBe(true);
+      expect(source.verifiedGateDigest).toBeTruthy();
+    }
+    const value = projectJobProgress({ sourceRun: result.runPath, status: "blocked" }, source);
+    expect(value.execution).toBe("blocked"); expect(value.verification).toBe("incomplete");
+    expect(value.immediateBlocker).toContain("INVOCATION FAILURE");
+    expect(value.nextAction).toContain("launch/transport");
+    expect(result.leaseRetained).toBe(true); expect(result.shipment).toBeNull();
+  }, 120000);
+
+  it("records the primary reviewer failure before a failing final display tool", () => {
+    const workflow = readFileSync(join(root, ".pi", "theta", "fix-bug.theta"), "utf8")
+      .replace('theta_print({ text: summary })?', 'read({ path: "FINAL_DISPLAY_FAILURE" })?');
+    const result = probe("1 ship false", { scenario: "final-reviewer-error", workflow });
+    const source = JSON.parse(result.completedState);
+    expect(source.lastTransition).toMatchObject({ kind: "invocation", phase: "final", status: "blocked", summary: expect.stringContaining("missing-reviewer-return.txt") });
+    expect(source.finalReviewDigest).toBeUndefined(); expect(result.finalReview).toBe("");
+    expect(result.finalGates.every(gate => gate.code === 0)).toBe(true);
+    expect(result.shipment).toBeNull(); expect(result.leaseRetained).toBe(true);
+  }, 120000);
+
+  it("keeps closure worker execution failure as the durable primary stop", () => {
+    const result = probe("1 ship false", { scenario: "closure-error" });
+    cleanHost(result); card(result.stdout, "Closure record (before final verification)");
+    const source = JSON.parse(result.completedState);
+    expect(source.lastTransition).toMatchObject({ kind: "stage", phase: "close", status: "blocked", summary: expect.stringContaining("missing-closure-input.txt") });
+    expect(result.finalGates).toEqual([]); expect(result.finalReview).toBe("");
+    expect(projectJobProgress({ sourceRun: result.runPath, status: "blocked" }, source).immediateBlocker).toContain("missing-closure-input.txt");
+  }, 120000);
+
+  it("a successful retry obtains fresh mandatory gates/review without erasing the failed invocation", () => {
+    const result = probe("1 ship false", { scenario: "reviewer-retry" });
+    cleanHost(result);
+    expect(result.firstStop).toContain("missing-reviewer-return.txt");
+    expect(result.stdout).toContain("VERIFIED, NOT SHIPPED");
+    expect(result.redPreserved).toBe(true);
+    const before = JSON.parse(result.firstFailedState); const after = JSON.parse(result.completedState);
+    expect(after.gateCount).toBeGreaterThan(before.gateCount);
+    for (const [key, value] of Object.entries(before.reviewInvocations)) expect(after.reviewInvocations[key]).toEqual(value);
+    expect(after.lastTransition).toMatchObject({ kind: "review", phase: "final", status: "pass" });
+    expect(after.finalReviewDigest).toBeTruthy(); expect(result.shipment).toBeNull();
+  }, 120000);
+
   it("distinguishes an environment-blocked reproduction from an invalid or unfixable bug", () => {
     const result = probe("1");
     cleanHost(result);

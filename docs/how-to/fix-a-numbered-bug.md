@@ -389,6 +389,37 @@ base, approve decisions or adopt arbitrary owner changes. Ordinary single-bug
 runs have no upgrade exception. Parent orchestration and recovery are documented
 separately in [Fix all bugs](fix-all-bugs.md).
 
+### Reviewer invocation evidence
+
+Evidence, fix and final reviews allocate a controller ticket **before** launching
+any child: `review-invocation-UUID/context.json`, bound to the source generation,
+saved snapshot and per-phase attempt. Starting a review retires previous final
+approval without deleting prior gate proofs or review history.
+
+An invocation `Err` is not a negative semantic review. The workflow writes the
+actual diagnostic to `context.json.failure.txt`; `review-failure` validates the
+ticket and publishes immutable `context.json.failure.json` before stop display.
+The latest stop is **INVOCATION FAILURE**, not the preceding passing gate. This
+creates no semantic review result, scope/code-repair decision or shipment
+permission, and does not release execution ownership or prove child quiescence.
+A heartbeat-silence diagnostic alone does not establish an observed OS exit or
+its cause.
+
+A typed return goes instead to the ticket-specific `context.json.submission.json`.
+Only a current matching ticket can publish its immutable `context.json.result.json`
+and canonical review files, under the controller's generation/revision write
+guard. Retained canonical reports cannot supply a new invocation's verdict.
+Ticketless recording remains supported only for entirely legacy runs with no
+invocation tracking. A complete journal left by an interrupted publication is
+uncertain evidence, not permission to overwrite it or infer settlement.
+
+A pending ticket fenced by pause, a newer snapshot or another invocation is
+reported as unsettled work requiring reconciliation, not an active reviewer to
+await indefinitely. Establish process quiescence before supported continuation;
+do not launch a concurrent reviewer just because no verdict was received. A
+supported resume retains the failure history and requires fresh gates/reviews.
+These observations do not retroactively manufacture tickets for older failures.
+
 ## Trust boundary
 
 Commands, Git guards, recorded explicit owner confirmations, snapshots, decision
