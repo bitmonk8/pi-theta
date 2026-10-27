@@ -1,6 +1,8 @@
 # Bug 0498 — five spec files and the b0416 witness describe cancellation forwarding from five persistent `pi.on` turn-lifecycle handlers that are never registered: the shipped forwarding is driver-local, and the five-handler subscription helper is production-dead code exercised only by its own unit test
 
-- **Status:** open
+- **Status:** fixed (unreleased - commit/push only). No new package release is
+  published; the existing published package version does not contain this fix.
+  No resolving commit SHA is assigned by this record.
 - **Owning repo:** pi-theta (spec + tests + one dead runtime export; no
   behaviour change)
 - **Sev/Diff estimate:** S4/D2 — S4: no runtime defect. The end-to-end
@@ -204,3 +206,192 @@ correction with or after it, against the recorder wording):
 - **0319 / 0288 (fixed)** — the one-shot `forwardSlashCommandCancel`
   consolidation and the settle-poll rework that made the driver-local
   forward the real mechanism.
+
+## Fix record (unreleased)
+
+The sections above preserve the original report and its historical offsets.
+At the verification base `61d4faecde2a63a0f473d08e0b7471775e3edeb4`, bug
+0483 is already fixed: its deferred recorder is present. This correction
+changes the architectural contract and removes unused machinery; it does
+not repair a demonstrated user-visible cancellation failure or install new
+handlers. The base SHA identifies the pre-fix checkout, not a resolving commit.
+
+### Cause and actual correction
+
+The five-event subscription helper was authored but never composed into a
+production extension. Its two self-tests proved manual subscription, not
+production installation. PIC-18 and four dependent documents continued to
+describe that uninstalled architecture; b0416's comments repeated it even
+though its real-registration assertion measured only the two governor events.
+
+The applied patch is:
+
+- `docs/spec_topics/pi-integration-contract/conversation-drive.md`: PIC-18
+  describes dispatch/binding signal forwarding, the driver's per-attempt
+  deferred recorder, re-arming across run signals, listener disposal and the
+  separate post-settle aborted-signal check. PIC-78 retains classification,
+  recovery rides and cancellation disposition; CNCL-4 retains reason identity
+  and the exact `"theta cancelled by agent_end"` synthesis. The historical
+  trigger name does not imply an `agent_end` subscription. Only the approved
+  cancellation-forwarder example changes in the Hang-handling paragraph.
+- `docs/spec_topics/cancellation.md` and
+  `docs/spec_topics/pi-integration-contract/host-interfaces-core.md`: forwarding
+  summaries delegate to PIC-18/PIC-78 instead of nonexistent callbacks.
+- `docs/spec_topics/pi-integration-contract/host-prerequisites.md`:
+  presupposition (v) names active-run signal identity, notification and abort
+  state at the driver's actual observation points. Other presuppositions,
+  the six-item count and best-effort posture remain unchanged.
+- `docs/spec_topics/pi-integration-contract/version-bump-step2.md`: item (v)
+  audits those signal dependencies; item (ah)'s rationale describes actual
+  governor cross-fire rather than harmless phantom handlers. Stable anchors,
+  joint process-global/no-origin audits and governor item (at) are retained.
+  These two checklist/prerequisite files also receive the separately approved
+  uniform CRLF-to-LF conversion; no additional wording changes accompany it.
+- `src/runtime/conversation-drive.ts`: remove only
+  `PromptModeLifecycleEvent`, `PROMPT_MODE_LIFECYCLE_EVENTS`,
+  `PromptModeEventApi`, `ActiveInvocationSignals`,
+  `subscribePromptModeCancelForwarding` and their exclusive scaffolding.
+  Active-set computation and trailing-turn extraction are unchanged.
+- `tests/conversation-drive.test.ts`: retire exactly the two authorized
+  helper self-tests and exclusive scaffolding; all retained test groups are
+  unchanged. `tests/b0416-pic18-governor-event-enumeration.test.ts` changes
+  comments only; executable assertions, names and order remain unchanged.
+- Add the frozen clause witness
+  `tests/b0498-cancellation-forwarding-clauses.test.ts`, real SDK/provider
+  witness `tests/live/b0498-cancellation-forwarding-contract.test.ts` and
+  separate positive mechanism/audit coverage
+  `tests/b0498-forwarding-mechanism-positive.test.ts`. The positive tests reject
+  each omitted requirement and missing anchor independently.
+
+The production basis is `DeferredHostAbort` and
+`LivePromptQueryModel.#driveUserVisibleTurn`
+(`src/extension/live-prompt-query-driver.ts`),
+`forwardSlashCommandCancel` / `abortForAgentEnd`
+(`src/runtime/cancellation-core.ts`), the dispatch/binding forwards in
+`src/extension/theta-composition-producer.ts` and
+`src/extension/production-theta-producer.ts`, and `PromptToolLoopGovernor`
+(`src/extension/prompt-tool-loop-governor.ts`). Those production mechanisms
+are unchanged. Installing the old immediate-abort helper would conflict
+with the existing settle-classified recovery contract and is not the fix.
+
+### Red-to-green evidence, controls and review
+
+Durable run directory (all artifact names below are relative to it):
+
+```text
+/home/thomasa/Projects/pi-theta/.pi/tmp/fix-bug-0498-0516fbbd-16b9-461a-84d1-3bdcdf36030b
+```
+
+Exact witness commands, run from the dedicated worktree:
+
+```bash
+npx vitest run --config config/vitest/vitest.live.config.ts tests/live/b0498-cancellation-forwarding-contract.test.ts
+npx vitest run tests/b0498-cancellation-forwarding-clauses.test.ts
+```
+
+- **Pre-fix live red, exit 1:**
+  `reproduce-attempt-1-live-witness-corrected.log` and controller `red-0.json`
+  fail on `B0498_SPEC_RUNTIME_MISMATCH`: five offending document paths,
+  expected `[]`. Before that assertion, the shipped extension completes the
+  real arithmetic query, yields nonempty assistant text, settles idle, emits
+  no fail-closed system notes and registers exactly
+  `["before_provider_request", "tool_call"]`. Both oracle controls pass.
+  The earlier test-author TypeError is preserved and rejected as bug evidence.
+- **Pre-fix unit red, exit 1:** `diagnose-attempt-1-unit-red.log` and
+  `red-1.json` contain five named clause mismatches, including
+  `B0498_PIC18_PHANTOM_FORWARDING`, with three healthy/original-clause
+  rejection/missing-paragraph controls passing.
+- **Post-fix witnesses, exit 0:** latest controller captures `green-3-0.json`
+  record all three live cells passing; `green-3-1.json` records all eight clause
+  cells passing. Earlier `green-1-0.json` / `green-1-1.json` remain preserved.
+  Both frozen witness sources, commands, signatures, manifest and original
+  reds are preserved, not rebaselined.
+- **Required gates, exit 0:** latest controller `gate-3-initial-0.json`
+  records `npm run typecheck`; `gate-3-initial-1.json` records `npm test`
+  (767 files / 13,176 tests); `gate-3-initial-2.json` records the exact live
+  command above. `implement-attempt-4-lint.log` / `.exit` record
+  `npm run lint`, exit 0. The fresh retained-root implementation full suite
+  also passes in `implement-attempt-4-default.log` / `.exit`: the formerly
+  timed-out workflow completes in 213,936 ms under its unchanged 240-second
+  deadline. The default suite includes the committed-fixture parse gate and
+  provider-free real-child tests; it excludes live tests.
+- **Independent controls, exit 0:** `audit-fix-g9-controls.log` records 123
+  focused tests, including the clause/positive witnesses, retained
+  conversation-drive tests, b0416, b0319 reverse-bridge, b0483 recorder/recovery,
+  cancellation-core, production wiring and governor controls.
+  `audit-fix-g9-live.log` records five live cells: the frozen witness and both
+  retry-off/on arms of `tests/live/b0483-host-recovery-live.test.ts`.
+  The latter require one continuation/ride note, the first query's value 777
+  and no cancelled/Err/panic ending, not merely a resolved prompt.
+- **Independent verdict:** `fix-review.md` is **CLEAN — no actionable
+  in-scope must-fix finding**. Its latest generation-9 checks are captured in
+  `audit-fix-g9-integrity.log` and `audit-fix-g9-integrity-followup.log`:
+  exact authorized document bytes, two-cell retirement, unchanged b0416
+  executable text, frozen evidence and passing plain `git diff --check`.
+  The follow-up resolves an overbroad reviewer whole-host-file equality
+  assumption by inspecting the host differences; no source repair occurs.
+  Earlier evidence-review failures remain historical; latest
+  `evidence-review.md` is CLEAN and accepts subsequent retained-root results.
+
+The first closure's nine-file focused control set passes in
+`close-attempt-1-controls.log`, exit 0, 123 tests. Resumed closure refreshes this
+record against the latest green gates and clean independent review; it does
+not reapply the implementation. The run's `close.md` records fresh closure
+checks and exact commands/exits. Independent review captures remain separate.
+The run's `implement.md`, `plan.md`, `close.md` and immutable history provide
+the command/exit/provenance ledger.
+
+### Authority, preserved failures and limits
+
+The exact normative correction and bounded helper/test retirement are recorded
+in `decision-9eb3e886-7633-485e-96f8-b492c65605a5/record.json`; the subsequent
+`human-record.json` records the owner-selected removal despite possible
+external deep-import breakage. The two-file LF exception is separately
+recorded in `decision-407fd44e-6019-490a-afa5-992f893697fc/record.json` and
+retained by `decision-bea2760a-5fde-4637-aa45-5eb1de707065/record.json` after
+fresh replan/review. None of these decisions grants shipment authority.
+
+The original whitespace failure remains in `implement-attempt-1-integrity.log`
+(git exit 2 / wrapper exit 1); only the authorized LF conversion resolves it.
+`implement-attempt-2-default.log` preserves a complete-workflow
+`spawnSync ETIMEDOUT` (exit 1) before workflow assertions, under the unchanged
+240-second deadline. Its cause remains unknown. Later authorized retained-root
+full-default runs and controller verification pass without timeout, assertion
+or scheduling-policy changes; a copied-source diagnostic green is not used
+as this run's gate. No historical failure is relabeled a pass or waived.
+
+Live verification uses repository-pinned Pi 1.3.0 and `gpt-6.1-sol`. Independent
+source comparison finds the relevant extension runner/types and run-signal
+lifecycle identical in operator Pi 1.4.0; this is not a separate 1.4.0 live run.
+The witness does not inject physical TUI Esc, prove spawned-child cancellation
+timing, close no-signal observation gaps or establish concurrent-embedding
+safety. Governor blocking/armed-window/process-global limitations,
+PIC-78/PIC-79 precedence and CNCL-4 reason semantics remain intact. External
+deep-import consumers of the removed exports are unmeasured, not proven absent.
+
+Bug [0500](./0500-post-reply-threshold-compaction-misread-as-unanswered.md)
+remains open; its post-reply compaction predicate is unchanged. No new residual
+bug is filed from this closure: the historical timeout is unexplained, not a
+newly diagnosed defect, and existing observation/embedding limitations are
+preserved rather than claimed repaired.
+
+This record marks the correction fixed **unreleased - commit/push only**.
+No staging, commit, push, tag, version/dependency bump or package publication
+is performed. No new package release is published, and the existing published
+version is not credited with this fix. A later shipment commit must supply
+its own resolving SHA.
+
+## Provenance
+
+- Original report: release-review observation dated 2026-09-28, preserved above;
+  its older source positions and “0483 in flight” status remain historical.
+- Corrected contract: PIC-18/PIC-78/PIC-79 in
+  `docs/spec_topics/pi-integration-contract/conversation-drive.md`, CNCL-4 in
+  `docs/spec_topics/cancellation.md`, cancellation source in
+  `docs/spec_topics/pi-integration-contract/host-interfaces-core.md`,
+  presupposition (v) in `host-prerequisites.md`, audit items (v)/(ah)/(at) in
+  `version-bump-step2.md` in the same directory.
+- Implementation, original-red/green/controls, authorization and review claims:
+  the named source symbols, frozen witness files, controller records and
+  captured artifacts above; full ledger and closure-only integrity results
+  are in the run directory's `close.md`.
