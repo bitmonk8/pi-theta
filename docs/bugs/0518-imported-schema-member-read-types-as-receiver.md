@@ -1,8 +1,13 @@
 # Bug 0518 — a member read off an IMPORTED `.thetalib` schema value is statically typed as the receiver's OWN schema type: `#memberType`'s unresolved-receiver arm answers a confident nominal with no withheld provenance, so `for x in r.xs` over an imported `schema R6 { xs: array<string>, … }` draws a false `theta/parse/non-array-iterand` ("got R6") and the theta refuses to load, while every soft position consumes the same fabricated type as an unresolvable and defers — by accident, not by the withheld rule
 
-- **Status:** open — filed 2026-10-03 from the LPS tooling build
+- **Status:** fixed (unreleased - commit/push only). No new package release is
+  published; this fix is not in the existing published package version. The
+  shipment commit will supply the resolving SHA; none is assigned here.
+- **Historical filing:** 2026-10-03 from the LPS tooling build
   (morning-ritual increment 12b import-side probes; repro under "Repro"
-  below, probe matrix under "Observed")
+  below, probe matrix under "Observed"). The original observations and proposed
+  directions below are retained as historical evidence; the implemented route
+  is recorded under "Fix and closure record".
 - **Owning repo:** pi-theta
 - **Sev/Diff estimate:** S2/D2 — S2: a loud false refusal of the documented
   library pattern (imports.md:3/:30 — every top-level `.thetalib` schema is
@@ -283,6 +288,128 @@ and the theta is dropped. Move the `schema R6 {…}` line into `p7.theta` in
 place of the import: loads clean. Parse-cell form (no host): see the
 Observed table's script.
 
+## Fix and closure record
+
+### Cause and actual repair
+
+The synchronous parser recognises imported names without loading their field
+lists. `collectTypeEnv` (`src/parser/type-layer-checks.ts`) supplies local
+schemas, while imported-name collection is separate. The old
+`StaticTypeInferencePass.#memberType` missing-declaration arm
+(`src/parser/static-type-inference.ts`) returned the receiver's nominal type.
+That unmarked `R6` reached the deliberately strict `checkForIterand`
+(`src/parser/control-flow.ts`); `checkIterand`
+(`src/parser/type-layer-iterand.ts`) had no provenance permitting deferral.
+Production discovery then refused registration because of the parse error.
+
+The repaired arm returns
+`{ type: withheldBinderType("unavailable-member"), declared: false }`.
+`withheldBinderType` (`src/parser/type-compat.ts`) now accepts a closed
+`"binder" | "unavailable-member"` origin argument. The member mode mints
+`{ kind: "named", name: "unknown", withheld: true }`; its default binder mode
+retains the historical marked `<withheld>` value. Deferral still depends on
+provenance, never spelling. The existing lowercase-name resolution guard keeps
+`unknown` unresolvable even if a synthetic environment contains that key.
+
+Choosing the safe member spelling at the producer also repairs the initial
+patch's diagnostic regression: parallel Result construction and nonparallel
+array condition/operator/method diagnostics otherwise embedded `<withheld>`.
+Both rendering paths now receive `unknown`, preserving known composite shape,
+valid outer-kind errors and precise local fields. No renderer, Result
+construction, runtime, import loader, scheduler, cancellation or host API changed.
+The early local-enum/binding gate and separate known-schema absent-field fallback
+remain intact; unmarked unknown nominals remain strict.
+
+The owner selected parse-time withholding rather than imported-field
+materialisation. Exact recorded authority covers seven original normative
+replacements across expressions, control flow, schemas, the parse registry and
+grammar, followed by three member-origin rendering qualifications in
+`docs/spec_topics/diagnostics/placeholder-rendering-a.md`. The resulting contract
+is in `docs/spec_topics/expressions.md` (Member access),
+`docs/spec_topics/control-flow.md` (iterands and CTRL-3),
+`docs/spec_topics/schemas.md` (Variant access), and the placeholder table.
+The later authorization also covers only the exact unit helper replacement and
+two nested-read equalities; it adds literal-shape and marker assertions. Original
+sources, accepted reds and frozen witness commands/signatures are preserved.
+The rejected parallel-only projection remains rejected and was not implemented.
+
+### Retained verification and independent review
+
+Durable evidence is under
+`/home/thomasa/Projects/pi-theta/.pi/tmp/fix-bug-0518-168ed8e4-370b-4f74-a356-07c89979aaed/`
+(`RUN` below). `reproduce.md`, `diagnose.md`, `implement.md` and
+`implement-attempt3-commands.jsonl` retain full command/environment/exit ledgers;
+`close.md` records the docs-only closure and preservation checks. Commands below
+ran from the dedicated bugfix worktree, not the original checkout. These are
+retained executions, not tests rerun during closure.
+
+| Exact command | Pre-fix red | Post-fix green |
+| --- | --- | --- |
+| `npx vitest run tests/b0518-imported-schema-member-iterand-e2e.test.ts` | `red-0.json`, exit 1: both loop forms falsely report `got R6`; eight controls pass | `green-3-0.json`, exit 0: 10 tests |
+| `npx vitest run tests/b0518-member-type-provenance.test.ts` | `red-2.json`, exit 1: unmarked receiver nominal and missing iterand deferral; eight controls pass | `green-3-2.json`, exit 0: 12 tests, with the exact authorized stronger representation oracle |
+| `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/b0518live-imported-schema-member-registration.test.ts` | `red-1.json`, exit 1: imported sequential/parallel commands absent while local/workaround controls register; provider completes successfully | `green-3-1.json` and `gate-3-initial-2.json`, exit 0: four tests |
+| `npx vitest run tests/b0518-par-result-marker-diagnostics.test.ts tests/b0518-nonparallel-member-marker-diagnostics.test.ts` | `implement-attempt3-marker-red.log`, exit 1: 13 complete-diagnostic marker mismatches; 15 controls pass | `implement-attempt3-marker-green.log`, exit 0: 36 tests including construction/provenance controls |
+| `npx vitest run tests/b0518-member-deferral-boundaries.test.ts tests/b0518-imported-member-runtime.test.ts` | Additional boundary/runtime controls, not substitutes for the original reds | `implement-attempt3-boundary-runtime.log`, exit 0: 20 tests |
+| `npx vitest run tests/committed-fixture-parse-gate.test.ts` | Existing corpus control | `implement-attempt3-corpus.log`, exit 0: 67 cases |
+| `npm run typecheck` | Earlier corrected test-only type error retained, not a bug witness | `implement-attempt3-typecheck-final.log` and `gate-3-initial-0.json`, exit 0 |
+| `npm run lint` | Existing static gate | `implement-attempt3-lint.log` and `review-fix-generation9-lint.log`, exit 0 |
+| `npm test` | Earlier unfinished/timeout runs retained, not counted as green | `implement-attempt3-offline.log` and `gate-3-initial-1.json`, exit 0: 771 files / 13,236 tests |
+| `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/b0518live-imported-member-runtime.test.ts` | Additional execution controls | `implement-attempt3-live-runtime.log`, exit 0: eight tests |
+
+Original source archives remain under `reproduce-attempt1-original-witnesses/`
+and `diagnose-attempt1-original-witnesses/`. The distinct carrier-red capture
+(`implement-attempt3-unit-carrier-red.log`, exit 1) proves the stronger marked
+`unknown` oracle rejects the initial patch's marked `<withheld>` value; it does
+not replace the original unmarked-R6 red.
+
+The generation-9 evidence and fix reviews are **CLEAN**, with `ok: true` in
+`evidence-review-result.json` and `fix-review-result.json`. The fix reviewer
+independently ran 15 focused offline files / 506 tests, typecheck, lint and both
+relevant repo-pinned pi 1.3.0 live files / 12 tests. Logs are
+`review-fix-generation9-focused.log`, `review-fix-generation9-typecheck.log`,
+`review-fix-generation9-lint.log` and `review-fix-generation9-live.log`.
+Seven additional operator-pi 1.4.0 runs are recorded in
+`review-fix-generation9-operator.log`; pinned and operator results/session
+transcripts are archived in the corresponding generation-9 artifact directories.
+
+Actual host observables include imported command registration and sequential and
+parallel theta-computed `out=ab; count=2`. Imported string/enum loops register,
+complete a real pre-loop provider turn, then produce settled
+`theta/runtime/internal-error` abort notes without body/post-loop output;
+those host exits are expected 1, not provider errors or successful executions.
+Unknown imported variants and local string/enum iterands remain refused.
+Complete streams and persisted notes were checked for member-marker leakage and
+foreign result envelopes; resolving a prompt alone was not treated as success.
+
+Protected controls retain local member/alias precision, enum precedence,
+independent unknown-identifier/written-type errors, strict unmarked twins,
+historical binder rendering, conservative subagent call types and import/load
+validation. Their exact 12-file command and 452 passing tests are retained in
+`implement.md` and `implement-attempt3-protected-controls.log`. No existing
+baseline test or shared helper was weakened. Earlier failures, blocked reviews
+and rejected requests remain historical evidence, not retroactive passes.
+
+### Limits and remaining work
+
+- This fixes false refusal by withholding unavailable information; it does not
+  materialise imported field types. Imported Q1 typed-let mismatches still defer
+  without a new runtime validator; local Q2 mismatches remain static errors.
+- Deferred non-array iteration can abort after preceding effects. Existing
+  sequential/parallel runtime belts prevent body execution/worker scheduling,
+  not earlier effects.
+- Known-schema absent-field behavior (0191 f4), historical direct-binder
+  rendering, conservative subagent call typing and separately owned 0515/0516
+  semantics remain unchanged. The older Related entry's description of 0513 as
+  open is historical; that report now records a separate unreleased fix.
+- FS-free parser tests do not prove library loading; real filesystem/host
+  companions cover that boundary. Prompt-mode live fixtures do not newly prove
+  every parameterised subagent child or re-export path. No universal live-suite
+  or whole-release equivalence claim is made.
+- Closure updates only this report and the bug index. No staging, commit, push,
+  tag, dependency/version bump or publication occurred. No new package release
+  is published. The resolving commit belongs to the later shipment workflow;
+  clean review and this record do not grant shipment authority.
+
 ## Related
 
 - [0136](./0136-member-access-types-as-field-name-not-field-type.md) (fixed
@@ -314,3 +441,14 @@ Observed table's script.
   (increment 12b) — `for fnd in jr.findings` over a `JobReport` imported
   from `workers/lps.thetalib` refused the load with `got JobReport`; the
   shipped theta carries the P8 two-step workaround.
+
+## Provenance
+
+The original LPS filing, observations and historical citations above are
+preserved. Closure draws on the current `StaticTypeInferencePass.#memberType`,
+`withheldBinderType`, `checkIterand` and `checkForIterand` implementations; the
+approved member/iterand/placeholder clauses; and RUN's original red captures,
+immutable source archives, exact owner/delegated decisions, implementation
+ledger, repeated green gates and generation-9 independent evidence/fix reviews.
+The closure record distinguishes tested behavior from the residual limits and
+makes no release or resolving-commit claim.

@@ -94,7 +94,7 @@ Variants are comma-separated; trailing comma optional. `enum` is **top-level onl
 
 ### Variant access
 
-A specific variant is referenced as `Enum.Variant` (e.g., `Severity.High`). The expression evaluates to the variant's underlying string value (the explicit RHS, or the variant name verbatim when no RHS is given) but is statically typed as `Enum`. `Enum.Variant` is the recommended form whenever the value is named in code — type-aware and refactor-safe — over comparing against the bare string literal. Unknown-variant references (`Severity.Critical` when no such variant exists) are `theta/parse/unknown-variant`.
+A specific variant is referenced as `Enum.Variant` (e.g., `Severity.High`). The expression evaluates to the variant's underlying string value (the explicit RHS, or the variant name verbatim when no RHS is given), and its declared type is `Enum`. A variant access recognised from a same-file enum declaration is statically typed as `Enum`; when only an imported name is available and its declaration lies outside the parser's static view, the parse-time member type is withheld under [Expressions — Member access](./expressions.md#supported-forms). This does not relax the load-time check of imported variant names or change runtime enum identity or values. `Enum.Variant` is the recommended form whenever the value is named in code — type-aware and refactor-safe — over comparing against the bare string literal. Unknown-variant references (`Severity.Critical` when no such variant exists) are `theta/parse/unknown-variant`.
 
 ## Discriminated unions
 

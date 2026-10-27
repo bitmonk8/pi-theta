@@ -524,7 +524,8 @@ export function displayType(type: CompatType): string {
  * an author's `<withheld>` annotation. The withhold decision therefore no
  * longer rests on this string at all — it rests on the `withheld` marker on
  * `CompatType`'s `named` arm (above), which only `withheldBinderType()` sets.
- * The string survives only as the RENDERED spelling (`displayType`).
+ * The string survives only as the binder mode's RENDERED spelling
+ * (`displayType`); unavailable-member mode instead carries `unknown`.
  *
  * A casing rule would not do this job: lexical.md §"Identifiers" scopes
  * lowercase-first to `let` / `let mut` bindings, function parameters, function
@@ -542,16 +543,27 @@ export const WITHHELD_BINDER_TYPE_NAME = "<withheld>";
 
 /**
  * Mint the engine's withheld-binder `CompatType` — the ONLY admitted mint of a
- * withheld binder entry (bug 0143 §Fix (b) route 1). Both mint sites
- * (`recordWithheldBinders`, ./type-layer-checks.ts, and `#matchArmScope`,
- * ./static-type-inference.ts) route through this factory rather than
- * constructing the object literal themselves, so the `withheld: true` marker
- * cannot be forgotten at one of them while `containsWithheldBinderType`
- * (./type-layer-checks.ts) tests it at both. No other call site may construct
+ * withheld entry (bug 0143 §Fix (b) route 1). Binder recording, inferred
+ * value deferral and unavailable member declarations (bug 0518) all route
+ * through this factory rather than constructing the object literal themselves,
+ * so the `withheld: true` marker cannot be forgotten while
+ * `containsWithheldBinderType` tests provenance. No other call site may construct
  * a `named` `CompatType` with `withheld: true` set.
+ *
+ * The closed origin mode preserves the default binder spelling; unavailable
+ * member information carries `unknown`, including inside known composites.
+ * Unlike the grammar-unspeakable binder key, `unknown` is unresolvable because
+ * `resolveNamed` rejects non-PascalCase names, even with an ill-cased own env
+ * entry. Both modes defer by marker alone, never by their display spelling.
  */
-export function withheldBinderType(): CompatType {
-  return { kind: "named", name: WITHHELD_BINDER_TYPE_NAME, withheld: true };
+export function withheldBinderType(
+  origin: "binder" | "unavailable-member" = "binder",
+): CompatType {
+  return {
+    kind: "named",
+    name: origin === "unavailable-member" ? "unknown" : WITHHELD_BINDER_TYPE_NAME,
+    withheld: true,
+  };
 }
 
 /**
