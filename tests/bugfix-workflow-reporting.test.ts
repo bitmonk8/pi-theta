@@ -11,7 +11,7 @@ import { parseDeps } from "./helpers/e2e-s1";
 
 const root = process.cwd();
 const cli = process.env.PI_THETA_TEST_PI_CLI ?? join(root, "node_modules/@earendil-works/pi-coding-agent/dist/cli.js");
-type Scenario = "environment" | "implementation" | "not-reproduced" | "gate" | "worker-error" | "reviewer-error" | "resume" | "replan-refusal" | "autonomous" | "spec-auto" | "plan-scope" | "plan-repair" | "scope-loop";
+type Scenario = "environment" | "implementation" | "not-reproduced" | "gate" | "worker-error" | "reviewer-error" | "resume" | "replan-refusal" | "autonomous" | "spec-auto" | "plan-scope" | "plan-repair" | "scope-loop" | "scope-supersession";
 const verdicts = {
   environment: {
     status: "blocked", summary: "Test SDK cannot use stored OAuth.",
@@ -41,13 +41,13 @@ const verdicts = {
     recommendation: "Keep the report open until its disposition is supported by evidence.",
   },
 };
-function worker(scenario: Scenario) {
+function worker(scenario: Scenario, rejectFirstCandidate = false) {
   const schema = readFileSync(join(root, ".pi", "theta", "workers", "bugfix-stage.theta"), "utf8")
     .match(/schema BugStage \{[^}]+\}/)?.[0];
   if (!schema) throw new Error("Missing production stage schema");
   const asTheta = (value: Record<string, string>) => "BugStage { " + Object.entries(value)
     .map(([key, text]) => `${key}: ${JSON.stringify(text)}`).join(", ") + " }";
-  const witness = ["resume", "replan-refusal", "autonomous", "spec-auto", "plan-scope", "plan-repair", "scope-loop"].includes(scenario)
+  const witness = ["resume", "replan-refusal", "autonomous", "spec-auto", "plan-scope", "plan-repair", "scope-loop", "scope-supersession"].includes(scenario)
     ? "if(!require('fs').existsSync('src/fixed.txt')){console.error('AssertionError: fixture expected 2 got 1');process.exit(1)}"
     : "console.error('AssertionError: fixture expected 2 got 1');process.exit(1)";
   const manifest = JSON.stringify({
@@ -66,9 +66,10 @@ function worker(scenario: Scenario) {
     '  let request = bash({ command: "node -e \\"process.stdout.write(JSON.parse(require(\'fs\').readFileSync(process.argv[1],\'utf8\')).pendingScopeReplan?.exactRequest ?? \'NO_SCOPE_REQUEST\')\\" " + shell_path(run_dir + "/state.json") })?.trim()',
     '  if request != "NO_SCOPE_REQUEST" { write({ path: run_dir + "/decision-request.md", content: request })? }',
     ...(scenario === "scope-loop" ? ['  if request != "NO_SCOPE_REQUEST" { return ' + asTheta({ ...pass, status: "needs_decision" }) + ' }'] : []),
+    ...(scenario === "scope-supersession" ? ['  if request != "NO_SCOPE_REQUEST" && !request.startsWith("Complete replacement:") { return ' + asTheta({ ...pass, status: "blocked", summary: "Parallel-only request omits four nonparallel diagnostic cases." }) + ' }'] : []),
     '}',
     ...(scenario === "worker-error" ? ['let missing = read({ path: "missing-worker-input.txt" })?'] : []),
-    ...(scenario === "implementation" || scenario === "gate" || scenario === "reviewer-error" || scenario === "resume" || scenario === "replan-refusal" || scenario === "autonomous" || scenario === "spec-auto" || scenario === "plan-scope" || scenario === "plan-repair" || scenario === "scope-loop" ? [
+    ...(scenario === "implementation" || scenario === "gate" || scenario === "reviewer-error" || scenario === "resume" || scenario === "replan-refusal" || scenario === "autonomous" || scenario === "spec-auto" || scenario === "plan-scope" || scenario === "plan-repair" || scenario === "scope-loop" || scenario === "scope-supersession" ? [
       'if phase == "reproduce" {',
       `  write({ path: run_dir + "/witnesses.json", content: ${JSON.stringify(manifest)} })?`,
       "}",
@@ -96,6 +97,26 @@ function worker(scenario: Scenario) {
         '  return ' + asTheta(revision),
         '}',
         'if phase == "implement" { write({ path: checkout + "/src/fixed.txt", content: "partial fix" })? }',
+      ] : []),
+      ...(scenario === "scope-supersession" ? [
+        'if phase == "scope-revision" {',
+        ...(rejectFirstCandidate ? [
+          String.raw`  let attempt_number = bash({ command: "node -e \"process.stdout.write(String(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).scopeRevision.number))\" " + shell_path(run_dir + "/state.json") })?.trim()`,
+          '  if attempt_number == "1" {',
+          '    write({ path: run_dir + "/decision-request.md", content: "First replacement still incomplete: only parallel and condition; remaining findings require another exact candidate." })?',
+          '    return ' + asTheta(pass),
+          '  }',
+        ] : []),
+        '  write({ path: run_dir + "/decision-request.md", content: "Complete replacement: parallel Result plus condition, addition, ordering and unknown method; retain outer-kind, historical binder, local enum/schema, unmarked unknown and subagent controls. Withholding remains binding; no materialisation/global erasure." })?',
+        '}',
+        'if phase == "implement" {',
+        '  let authority = match read({ path: run_dir + "/decision-authorizations.md" }) { Ok(text) => text, Err(_) => "" }',
+        '  if authority == "" {',
+        '    write({ path: run_dir + "/decision-request.md", content: "Parallel-only marker repair; original witnesses remain frozen." })?',
+        '    return ' + asTheta({ ...pass, status: "needs_replan" }),
+        '  }',
+        '  write({ path: checkout + "/src/fixed.txt", content: "partial fix" })?',
+        '}',
       ] : []),
       ...(scenario === "autonomous" || scenario === "scope-loop" ? [
         'if phase == "implement" {',
@@ -158,7 +179,7 @@ function rankingWorker(kind: RankingCase) {
     `BugRanking { bugs: [${items.join(", ")}], ordering: [${edges.join(", ")}], guidance: ["Severity is not fix order; inspect actual prerequisites before implementation."] }`, "",
   ].join("\n");
 }
-function probe(args: string, options: { workflow?: string; scenario?: Scenario; ranking?: RankingCase; decision?: "human" } = {}) {
+function probe(args: string, options: { workflow?: string; scenario?: Scenario; ranking?: RankingCase; decision?: "human"; rejectFirstCandidate?: boolean } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), options.scenario === "resume" ? "bugfix-report-'quoted-" : "bugfix-report-"));
   const theta = join(cwd, ".pi/theta");
   const agent = join(cwd, "agent");
@@ -183,7 +204,7 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
   if (["two", "missing", "duplicate", "backwards", "cycle"].includes(options.ranking ?? "one")) {
     writeFileSync(join(cwd, "docs/bugs/0002-higher-impact.md"), "# More impact\n- **Status:** open\n");
   }
-  if (["resume", "replan-refusal", "autonomous", "spec-auto", "plan-scope", "plan-repair", "scope-loop"].includes(options.scenario ?? "")) {
+  if (["resume", "replan-refusal", "autonomous", "spec-auto", "plan-scope", "plan-repair", "scope-loop", "scope-supersession"].includes(options.scenario ?? "")) {
     mkdirSync(join(cwd, "src"));
     mkdirSync(join(cwd, "tests"));
     writeFileSync(join(cwd, "tests/legacy.test.js"), "const env = new Map(); // same assertion");
@@ -199,7 +220,7 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
   for (const file of ["run.mjs", "worktree-env.mjs", "update-pi-config.mjs"]) {
     copyFileSync(join(root, "tools/bugfix", file), join(cwd, "tools/bugfix", file));
   }
-  writeFileSync(join(theta, "workers/bugfix-stage.theta"), worker(options.scenario ?? "environment"));
+  writeFileSync(join(theta, "workers/bugfix-stage.theta"), worker(options.scenario ?? "environment", options.rejectFirstCandidate));
   writeFileSync(join(theta, "workers/bugfix-rank.theta"), rankingWorker(options.ranking ?? "one"));
   writeFileSync(join(theta, "workers/bugfix-review.theta"), '---\nmode: subagent\ntools: read\nparams:\n  run_dir: string\n  focus: string\n---\nschema Review { ok: boolean, findings: string }\n'
     + (options.scenario === "reviewer-error" ? 'let missing = read({ path: "missing-reviewer-input.txt" })?\n' : "")
@@ -209,11 +230,16 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
     .match(/schema BugDecision[\s\S]*?(?=\nlet result:)/)?.[0];
   if (!decisionSchemas) throw new Error("Missing decision schema");
   const human = options.scenario === "replan-refusal" || options.decision === "human";
-  const automatic = ["autonomous", "spec-auto", "plan-scope", "plan-repair", "scope-loop"].includes(options.scenario ?? "");
+  const automatic = ["autonomous", "spec-auto", "plan-scope", "plan-repair", "scope-loop", "scope-supersession"].includes(options.scenario ?? "");
   writeFileSync(join(theta, "workers/bugfix-decide.theta"), [
-    "---", "mode: subagent", "tools: read", "params:", "  context_path: string", "---", decisionSchemas,
+    "---", "mode: subagent", "tools: read, bash", "params:", "  context_path: string", "---", decisionSchemas,
     'read({ path: context_path })?',
-    `BugDecision { disposition: "${human ? "human" : automatic ? "continue" : "blocked"}", clear_preference: ${automatic && !human}, has_tradeoff: ${human}, evidence_sufficient: true,`,
+    ...(options.scenario === "scope-supersession" ? [
+      String.raw`fn shell_path(path: string): string { "'" + path.replace("'", "'\\''") + "'" }`,
+      String.raw`let status = bash({ command: "node -e \"process.stdout.write(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).status ?? 'none')\" " + shell_path(context_path) })?.trim()`,
+
+      'BugDecision { disposition: status == "blocked" ? "blocked" : "continue", clear_preference: status != "blocked", has_tradeoff: false, evidence_sufficient: status != "blocked",',
+    ] : [`BugDecision { disposition: "${human ? "human" : automatic ? "continue" : "blocked"}", clear_preference: ${automatic && !human}, has_tradeoff: ${human}, evidence_sufficient: true,`]),
     'summary: "Decision fixture inspected the exact context.", recommendation: "Preserve assertions and follow the recorded scope.",',
     'rationale: "Existing principles prefer fixture-only correction; unresolved contract choices remain with the owner.",',
     'basis: ["AGENTS.md: preserve assertions and original evidence"], alternatives: ["Apply the exact scoped correction.", "Retain the obsolete fixture and remain blocked."] }', "",
@@ -259,6 +285,19 @@ function probe(args: string, options: { workflow?: string; scenario?: Scenario; 
       redPreserved = red.equals(readFileSync(join(run, "red-0.json")));
       leaseReleased = !existsSync(join(cwd, ".pi/tmp/fix-bug.lock"));
       partialWorkPreserved = readFileSync(join(JSON.parse(resumedState).root, "src/fixed.txt"), "utf8") === "partial fix";
+    }
+    if (options.rejectFirstCandidate) {
+      expect(result.status, result.stderr + result.stdout).toBe(0);
+      expect(result.stdout).not.toContain("VERIFIED, NOT SHIPPED");
+      firstStop = result.stdout;
+      const run = JSON.parse(readFileSync(join(cwd, ".pi/tmp/fix-bug.lock/owner.json"), "utf8")).run as string;
+      const first = JSON.parse(readFileSync(join(run, "state.json"), "utf8"));
+      expect(first.scopeRevisionCount).toBe(1);
+      expect(first.checkpoints.plan.status).toBe("blocked");
+      const red = readFileSync(join(run, "red-0.json"));
+      result = launch("resume");
+      resumedState = readFileSync(join(run, "state.json"), "utf8");
+      redPreserved = red.equals(readFileSync(join(run, "red-0.json")));
     }
     if (options.scenario === "replan-refusal") {
       const run = JSON.parse(readFileSync(join(cwd, ".pi/tmp/fix-bug.lock/owner.json"), "utf8")).run as string;
@@ -385,6 +424,9 @@ describe("fix-bug completion reporting through the real host", () => {
     expect(result.stdout).toContain("Unknown — this checkpoint does not classify the cause.");
     expect(result.stdout).toContain("gate-*-initial-*.json");
     expect(result.stdout).toContain("require green gates before review");
+    const state = JSON.parse(result.completedState);
+    expect(state.lastTransition).toMatchObject({ kind: "gate", phase: "initial", status: "blocked" });
+    expect(state.lastTransition.revision).toBe(state.revision - 1); // pause must not overwrite the gate stop
   }, 120000);
 
   it("resumes a blocked implementation in the same run through fresh gates/reviews and local handoff", () => {
@@ -405,6 +447,8 @@ describe("fix-bug completion reporting through the real host", () => {
     expect(state.stages).toEqual(["red", "gate-initial", "gate-final"]);
     expect(result.redPreserved).toBe(true);
     expect(result.leaseReleased).toBe(true);
+    expect(state.lastTransition).toMatchObject({ kind: "review", phase: "final", status: "pass", generation: 3 });
+    expect(state.lastTransition.sequence).toBeGreaterThan(state.checkpoints.implement.sequence);
   }, 120000);
 
   it("provisionally continues a revised-spec tradeoff after partial implementation and defers owner approval until final verification", () => {
@@ -450,6 +494,57 @@ describe("fix-bug completion reporting through the real host", () => {
     expect(result.finalReview && JSON.parse(result.finalReview).ok).toBe(true);
     expect(result.stdout).not.toContain("OWNER APPROVAL REQUIRED");
     expect(result.stdout).not.toContain("STOP —");
+  }, 120000);
+
+  it("real-host rejected scope revision cannot remain a parallel-only repair or reuse BLOCKED authority", () => {
+    const result = probe("1 ship false", { scenario: "scope-supersession" });
+    cleanHost(result);
+    expect(result.stdout).toContain("ASTRA — BLOCKED at plan");
+    expect(result.stdout).toContain("VERIFIED, NOT SHIPPED");
+    const state = JSON.parse(result.completedState);
+    expect(state.scopeRevisionCount).toBe(1);
+    expect(state.pendingScopeReplan.exactRequest).toContain("condition, addition, ordering and unknown method");
+    expect(state.pendingScopeReplan.supersedes).toBe(state.scopeRevision.archive);
+    expect(state.decisions.map((item: { outcome: string }) => item.outcome)).toEqual(["BLOCKED", "CONTINUE"]);
+    expect(state.decisions[0].authority).toBeNull();
+    expect(state.decisions[1]).toMatchObject({ phase: "scope", authority: { exactRequest: state.pendingScopeReplan.exactRequest } });
+    expect(state.checkpoints.plan.attempt).toBe(3);
+    expect(state.checkpoints.implement).toMatchObject({ status: "pass", attempt: 2 });
+    expect(state.lastTransition).toMatchObject({ kind: "review", phase: "final", status: "pass", generation: 1 });
+    expect(state.lastTransition.revision).toBeLessThan(state.revision); // pause is housekeeping, not a new source stop
+    expect(result.shipment).toBeNull();
+  }, 120000);
+
+  it("runs another revision worker after a successful candidate is rejected, including across resume", () => {
+    const result = probe("1 ship false", { scenario: "scope-supersession", rejectFirstCandidate: true });
+    cleanHost(result);
+    expect(result.stdout).toContain("VERIFIED, NOT SHIPPED");
+    const state = JSON.parse(result.completedState);
+    expect(state.scopeRevisionCount).toBe(2);
+    expect(state.checkpoints['scope-revision'].attempt).toBe(2);
+    expect(state.planArchives.filter((a: { reason: string }) => a.reason === 'scope-revision-candidate')).toHaveLength(2);
+    expect(state.decisions.filter((d: { outcome: string }) => d.outcome === 'BLOCKED')).toHaveLength(2);
+    expect(result.redPreserved).toBe(true);
+    expect(result.shipment).toBeNull();
+  }, 180000);
+
+  it("red-direction control: disabling report-only supersession cannot claim a complete real-host repair", () => {
+    const source = readFileSync(join(root, ".pi", "theta", "fix-bug.theta"), "utf8");
+    const admission = 'if revision == "REQUIRED" {';
+    expect(source).toContain(admission);
+    const start = source.indexOf(admission);
+    const end = source.indexOf('\nif revision != "NONE"', start);
+    expect(end).toBeGreaterThan(start);
+    const workflow = source.slice(0, start) + admission + '\n  return checkpoint_stop(bug, "Disabled scope-revision negative control", "Report-only supersession deliberately disabled.", "Restore the tested transition.", "No incomplete parallel-only repair is authorized.", run)\n}' + source.slice(end);
+    const result = probe("1 ship false", { workflow, scenario: "scope-supersession" });
+    cleanHost(result);
+    expect(result.stdout).toContain("Report-only supersession deliberately disabled.");
+    expect(result.stdout).not.toContain("VERIFIED, NOT SHIPPED");
+    const state = JSON.parse(result.completedState);
+    expect(state.checkpoints.plan.status).toBe("blocked");
+    expect(state.decisions[0]).toMatchObject({ outcome: "BLOCKED", authority: null });
+    expect(state.scopeRevisionCount).toBeUndefined();
+    expect(result.finalGates).toEqual([]);
   }, 120000);
 
   it("bounds repeated typed non-spec replans without granting shipment or waiving fresh review", () => {

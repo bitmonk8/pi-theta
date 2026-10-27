@@ -2,7 +2,8 @@
  * Controller-independent gate execution. No batch state, attempt reservation or
  * controller lock is read or changed here. A prefix is single-use evidence.
  *
- * All JSON records are exclusive-create + fsync, never rewritten:
+ * All JSON records are fully written/fsynced before no-clobber publication,
+ * followed by directory fsync, and never rewritten:
  *   .intent.json   launch INTENT, committed BEFORE spawn (not proof of launch)
  *   .started.json  actual child PID/start/session ownership, if spawn succeeded
  *   .finished.json outcome, including whether owned execution really settled
@@ -13,10 +14,11 @@
  */
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync, fstatSync, writeFileSync } from 'node:fs';
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync, fstatSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { atomicImmutableJson as immutableRecord } from './atomic-record.mjs';
 
 export const GATE_TOTAL_TIMEOUT_MS = 3_600_000;
 export const GATE_COMMAND_TIMEOUT_MS = 1_800_000;
@@ -248,12 +250,6 @@ function syncDirectory(path) {
   try { fsyncSync(fd); }
   catch (error) { if (!['EINVAL', 'ENOTSUP'].includes(error?.code)) throw error; }
   finally { closeSync(fd); }
-}
-function immutableRecord(path, record) {
-  const fd = openSync(path, 'wx', 0o600);
-  try { writeFileSync(fd, JSON.stringify(record, null, 2) + '\n'); fsyncSync(fd); }
-  finally { closeSync(fd); }
-  syncDirectory(dirname(path));
 }
 function openLog(path) {
   const fd = openSync(path, 'wx+', 0o600);

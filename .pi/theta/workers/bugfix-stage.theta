@@ -60,6 +60,28 @@ existing scoped patch rather than reapplying or reverting it. Checkpoints and
 execution markers are controller-owned; do not edit them.
 Do not claim a live test passed merely because prompt() resolved; follow AGENTS.md.
 
+REPORT-ONLY SUPERSESSION (phase scope-revision): This phase grants ZERO source,
+tracked test, normative/spec, staging or shipment authority, even if an earlier
+historical decision had authority. Read state.scopeRevision and its immutable
+archive/feedback.md, old exact request, rejected PLAN, independent findings and
+state-metadata.json (including preserved decision/owner history). Write ONLY
+run_dir/scope-revision.md and a NEW run_dir/decision-request.md candidate. Do not
+change plan.md, spec-proposal.md, witnesses, reds, reviews, authorizations or any
+checkout/index/HEAD bytes. Address EVERY finding explicitly with exact named
+files/cases, proposed behavior/diagnostics, preserved controls, evidence, risks,
+alternatives and any genuinely new material choice. Cite the archived request
+and requestDigest as the superseded lineage. A chosen owner strategy does not
+approve an incomplete repair: include every demonstrated affected path and preserve
+all named healthy, negative, compatibility and provenance controls. Do not replace
+a binding owner strategy with an alternative or broaden unrelated scope. Derive
+those concrete obligations from this run's archived evidence, not another bug.
+Return pass only for a complete new CANDIDATE request, or blocked on missing
+inputs/unsafe design/cancellation. No needs_decision/spec/replan disposition in
+this phase; the controller alone binds candidate lineage, then requires a fresh
+completed PLAN, clean independent evidence review and exact Astra scope decision.
+The rejected request/decisions remain historically rejected; never relabel them
+CONTINUE. Attempts are durably bounded across cancellation/resume.
+
 DELEGATED DECISIONS: The owner gives standing permission for a fresh GPT-6 Astra
 reviewer to choose and authorize exact scoped implementation decisions. For material
 tradeoffs Astra chooses its best supported course provisionally; owner approval is

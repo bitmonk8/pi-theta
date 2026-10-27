@@ -200,7 +200,42 @@ read-only planning permission, not expanded implementation authority:
    A normative change additionally requires the exact PLAN specification approval.
 
 Original requests, decision records, witness manifests and accepted red captures
-remain immutable; a different request requires another explicit replan. The same
+remain immutable; a different request requires another explicit replan.
+
+#### Supersede a rejected exact request without granting edit authority
+
+A pending exact request can itself be incomplete or unsafe. In that case, forcing
+PLAN to repeat it forever is not recovery. A structurally rejected PLAN, failed
+independent evidence review or rejected scoped decision can enter the bounded
+**`scope-revision` report-only phase**, including a retained legacy rejection whose
+immutable decision context proves the unchanged inputs. Admission is based on
+checkpoint/review/decision identity, never keywords or report modification time.
+An already authorized/consumed scope is not reopened merely because a later gate
+failed; that remains an engineering verification prerequisite. Resume recognizes
+consumed stage requests by their exact immutable checkpoint archive, not by phase
+name or a missing request file. A genuinely new stage request still enters the
+ordinary authority-free replan path.
+
+The controller archives the rejected request, plan, reports, reviews and authority
+history with digest-checked lineage. The worker may write only a replacement
+candidate and its report, addressing every finding and preserving the run's owner
+choices and protected controls. It cannot edit checkout/index/HEAD, normative text,
+witnesses, accepted reds, previous plans/reviews or approval records. The candidate
+is **not** authorization: it must pass a fresh PLAN, clean independent evidence
+review and exact scoped decision before IMPLEMENT/REPAIR can begin. The historical
+BLOCKED decision is retained, not relabeled CONTINUE. Prior verification bindings
+and final-review files are archived with the superseded plan, and their active
+verification authority is revoked without deleting evidence or resetting attempt
+numbers. Approving the replacement scope cannot revive old final gates/review;
+new verification and final review are required.
+
+There are at most **three durable report-only revision attempts per run**, including
+cancelled attempts across resumes. Exhaustion stops with a specific follow-up
+request; do not erase the counter or repeatedly resume hoping to bypass it. New
+scope generation and ordinary bounded replan/review cycles are separate limits.
+An older owner confirmation settles authorization only and does not overwrite a
+newer engineering stop in the source progress history.
+ The same
 three-cycle invocation ceiling bounds these transitions. Ordinary blocked stages
 without an exact scope-revision request receive a fresh Astra assessment.
 An ordinary blocked report without an exact request can receive only existing-scope

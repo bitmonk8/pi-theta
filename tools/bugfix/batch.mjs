@@ -17,6 +17,7 @@ import { updatePiConfig } from './update-pi-config.mjs';
 import { prepareWorktreeEnvironment, prepareWorktreeEnvironmentAsync } from './worktree-env.mjs';
 import { runGateCommand, GATE_TOTAL_TIMEOUT_MS, GATE_COMMAND_TIMEOUT_MS, GATE_SHELL_TIMEOUT_SECONDS } from './gate-runner.mjs';
 import { acquireController, releaseController, controllerObservation, recoveryPlan, recoverController } from './controller-recovery.mjs';
+import { atomicImmutableJson as immutable } from './atomic-record.mjs';
 
 const standalone = fileURLToPath(new URL('./run.mjs', import.meta.url));
 const hash = text => createHash('sha256').update(text).digest('hex');
@@ -26,11 +27,6 @@ function syncDirectory(path) {
   if (process.platform === 'win32') return;
   const fd = openSync(dirname(path), 'r');
   try { fsyncSync(fd); } catch (error) { if (!['EINVAL', 'ENOTSUP'].includes(error.code)) throw error; } finally { closeSync(fd); }
-}
-function immutable(path, value) {
-  const fd = openSync(path, 'wx', 0o600);
-  try { writeFileSync(fd, encode(value)); fsyncSync(fd); } finally { closeSync(fd); }
-  syncDirectory(path);
 }
 function save(path, value) {
   const temp = path + '.' + randomUUID() + '.tmp';
@@ -265,22 +261,152 @@ function attemptPath(folder, name, extension = '.json') {
   while (existsSync(path)) path = join(folder, name + '-' + (++n) + extension);
   return path;
 }
+const transitionKinds = new Set(['stage', 'review', 'decision', 'gate', 'scope-revision']);
+const stopped = status => ['blocked', 'BLOCKED', 'failed', 'needs_decision', 'needs_replan', 'needs_spec', 'not_reproduced'].includes(status);
+const reportName = phase => ({ evidence: 'evidence-review', fix: 'reviews', final: 'final-review', scope: 'plan' })[phase] ?? phase;
+function optionalJson(path) {
+  try { return read(path); } catch { return null; }
+}
+function stageSummary(run, phase) {
+  const path = join(run, `stage-${phase}-result.txt`);
+  return existsSync(path) ? readFileSync(path, 'utf8').split('\n').slice(1).join('\n').trim() : '';
+}
+// A projection only: it grants no authority and never rewrites the source or
+// invents chronology from phase priority, directory order or filesystem mtimes.
+export function latestSourceTransition(sourceRun, source) {
+  const t = source.lastTransition;
+  const valid = t && Number.isSafeInteger(t.sequence) && t.sequence > 0
+    && Number.isSafeInteger(t.revision) && t.revision >= 0 && t.revision <= (source.revision ?? 0)
+    && Number.isSafeInteger(t.generation) && t.generation >= 0 && t.generation <= (source.generation ?? 0)
+    && transitionKinds.has(t.kind) && typeof t.phase === 'string' && Boolean(t.phase.trim())
+    && typeof t.status === 'string' && Boolean(t.status.trim())
+    && ['reportPath', 'contextPath'].every(key => t[key] === undefined || (typeof t[key] === 'string' && isAbsolute(t[key])))
+    && (t.summary === undefined || typeof t.summary === 'string');
+  if (valid) return { transition: { ...t }, basis: 'recorded-transition', limitation: null };
+  const limitations = t ? ['Invalid or future-bound lastTransition was not used.'] : [];
+  // Human confirmations settle authorization, not engineering prerequisites.
+  const last = (source.decisions ?? []).filter(d => d.source !== 'human').at(-1);
+  const lastDecision = last ? { phase: last.phase, status: last.outcome, recordPath: last.path, contextPath: last.contextPath } : null;
+  if (source.stages?.includes('gate-final') && source.finalReviewDigest && !source.replanRequired && !unresolvedScope(source)) {
+    limitations.push('Legacy final gates/review record source completion, but do not establish an exact latest transition sequence. Prior checkpoints are history, not the current stop.');
+    return { transition: null, basis: 'legacy-completion-evidence', limitation: limitations.join(' '), lastDecision };
+  }
+  const context = last?.contextPath ? optionalJson(last.contextPath) : null;
+  const checkpoints = Object.entries(source.checkpoints ?? {});
+  const fromStage = ([phase, checkpoint]) => ({ kind: 'stage', phase, status: checkpoint.status,
+    reportPath: join(sourceRun, phase + '.md'), summary: stageSummary(sourceRun, phase) });
+  if (last && context?.authority?.checkpoints) {
+    const snapshot = context.authority.checkpoints;
+    const changed = checkpoints.filter(([phase, checkpoint]) => JSON.stringify(checkpoint) !== JSON.stringify(snapshot[phase]));
+    const removed = Object.keys(snapshot).filter(phase => !Object.hasOwn(source.checkpoints ?? {}, phase));
+    // Exactly one changed checkpoint with a greater per-phase attempt is a
+    // supported successor of the snapshot. Multiple changes remain unordered.
+    if (changed.length === 1 && Number.isSafeInteger(changed[0][1].attempt)
+      && changed[0][1].attempt > (snapshot[changed[0][0]]?.attempt ?? 0)) {
+      return { transition: fromStage(changed[0]), basis: 'legacy-checkpoint-successor', limitation: limitations.join(' ') || null, lastDecision };
+    }
+    if (!changed.length && !removed.length) {
+      return { transition: { kind: 'decision', phase: last.phase, status: last.outcome, contextPath: last.contextPath,
+        reportPath: join(sourceRun, reportName(last.phase) + '.md'), summary: last.rationale ?? '' },
+      basis: 'legacy-ordered-decision', limitation: limitations.join(' ') || null, lastDecision };
+    }
+  }
+  if (!last && checkpoints.length === 1) return { transition: fromStage(checkpoints[0]), basis: 'legacy-only-checkpoint', limitation: limitations.join(' ') || null, lastDecision };
+  if (!last && !checkpoints.length) return { transition: null, basis: 'unrecorded', limitation: limitations.join(' ') || null, lastDecision };
+  limitations.push('Legacy source has no unambiguous latest transition; inspect checkpoint history and the linked last engineering decision.');
+  return { transition: null, basis: 'legacy-ambiguous', limitation: limitations.join(' '), lastDecision };
+}
+function pendingApprovals(source) {
+  return (source.decisions ?? []).filter(d => d.authority?.provisional && !(source.decisions ?? []).some(a => a.contextPath === d.contextPath && a.source === 'human')).map(d => {
+    const record = optionalJson(d.path);
+    return { phase: d.phase, contextPath: d.contextPath, recordPath: d.path, summary: d.rationale ?? 'Exact owner confirmation pending', alternatives: [], ...(record?.verdict ?? {}) };
+  });
+}
+function unresolvedScope(source) {
+  if (source.scopeRevision && source.scopeRevision.status !== 'pass') return true;
+  const pending = source.pendingScopeReplan;
+  if (!pending?.exactRequest) return false;
+  const approved = source.scopeReplanAuthorization;
+  const grant = source.decisions?.find(d => d.path === approved?.decisionPath);
+  return !(approved?.planDigest === source.checkpoints?.plan?.reportDigest
+    && approved?.requestDigest === hash(pending.exactRequest) && grant?.phase === 'scope'
+    && grant.outcome === 'CONTINUE' && grant.authority?.exactRequest === pending.exactRequest);
+}
+function currentSourceCompletion(source, latest) {
+  if (!source.stages?.includes('gate-final') || !source.finalReviewDigest || source.replanRequired || unresolvedScope(source)) return false;
+  const t = latest.transition;
+  // A passing proposal/PLAN is not final review. Once monotonic telemetry is
+  // available, stale final-gate fields cannot outvote newer engineering work.
+  if (latest.basis === 'recorded-transition') return t.kind === 'review' && t.phase === 'final' && t.status === 'pass';
+  return !stopped(t?.status);
+}
+// Exported for deterministic fixtures. Job status is a controller classification;
+// source completion is not a claim that export, integration or shipment passed.
+export function projectJobProgress(job, source) {
+  const value = { ...job };
+  const latest = latestSourceTransition(job.sourceRun, source);
+  const complete = currentSourceCompletion(source, latest);
+  const exported = Boolean(job.exportPath && job.exportDigest) && ['verified', 'integrating', 'integration-blocked', 'integrated'].includes(job.status);
+  const approvals = Array.isArray(source.decisions) ? pendingApprovals(source) : (job.approvals ?? []);
+  Object.assign(value, { sourceProgress: latest, sourceHistory: { statePath: join(job.sourceRun, 'state.json'), checkpoints: source.checkpoints ?? {} },
+    execution: complete || exported ? 'completed' : latest.transition?.status === 'running' ? 'running' : stopped(latest.transition?.status) ? 'blocked' : 'incomplete',
+    verification: exported ? 'passed' : complete ? 'awaiting-export' : 'incomplete', approvals,
+    authority: job.authority === 'integrity-blocked' ? job.authority : approvals.length ? 'pending' : 'clear',
+    integrationState: job.status === 'integrated' ? 'integrated' : job.status === 'integration-blocked' ? 'blocked' : job.status === 'integrating' ? 'in-progress' : 'not-started',
+    integrationVerification: job.status === 'integration-blocked' ? 'failed' : job.status === 'integrated' ? 'passed' : 'not-established',
+    shipmentState: job.shipment ? job.shipment.pushed ? (job.shipment.cleaned ? 'pushed' : 'pushed-cleanup-incomplete') : 'attempted-unconfirmed' : job.status === 'integrated' ? 'recorded-integrated' : job.shipmentState ?? 'not-attempted' });
+  delete value.checkpoint;
+  if (!complete && !exported && latest.transition) value.checkpoint = { phase: latest.transition.phase, status: latest.transition.status, report: latest.transition.reportPath ?? null };
+  const t = latest.transition;
+  if (job.shipment?.pushed && !job.shipment.cleaned) {
+    value.reason = 'Verified source pushed; integration/consumer update/cleanup is incomplete.';
+    value.immediateBlocker = 'Consumer update/cleanup incomplete; do not rerun shipment.';
+    value.nextAction = 'Reconcile the recorded integration, consumer update and cleanup without replaying push.';
+  } else if (job.shipment && !job.shipment.pushed) {
+    value.immediateBlocker = 'Shipment was attempted but no successful push is recorded; remote outcome must be reconciled.';
+    value.nextAction = 'Reconcile the retained push intent, remote and consumer identity before any retry; do not replay shipment.';
+  } else if (job.status === 'integrated') {
+    value.reason = 'Source integrated; no unresolved source checkpoint.';
+    value.immediateBlocker = null;
+    value.nextAction = 'No further implementation or shipment is scheduled.';
+  } else if (job.status === 'integration-blocked') {
+    value.immediateBlocker = 'Integration prerequisite failed: ' + (job.reason ?? 'inspect the retained integration evidence');
+    value.nextAction = 'Resolve the retained integration failure, then use the supported integration retry with fresh gates and review; source verification is separate.';
+  } else if (exported) {
+    value.reason = 'Source witnesses, final gates and independent review verified.';
+    value.immediateBlocker = job.status === 'integrating' ? 'Integration has not settled.' : null;
+    value.nextAction = job.status === 'integrating' ? 'Settle the existing integration transaction; do not start a second shipment.' : 'Use the existing verified-source integration path; no new source job is needed.';
+  } else if (complete) {
+    value.reason = 'Source execution complete; ' + (approvals.length ? 'exact owner confirmation is pending before shipment.' : 'verified export has not passed.');
+    value.immediateBlocker = job.authority === 'integrity-blocked' ? 'Source authority/integrity audit failed.' : approvals.length ? 'Exact owner confirmation pending for shipment.' : 'Verified export has not passed.';
+    value.nextAction = approvals.length ? 'Record the exact pending owner confirmation, then re-collect/export the original source; do not waive any verification prerequisite.' : 'Inspect the export attempt and re-collect the original source after its prerequisite is satisfied.';
+  } else {
+    value.reason = t?.kind === 'decision' && t.status === 'CONTINUE'
+      ? 'Source verification is incomplete; the recorded scoped decision allows continuation, not shipment.'
+      : t?.summary ? t.summary : latest.limitation ?? (t ? `Latest source transition ${t.phase}/${t.status}; source verification remains incomplete.` : job.reason ?? 'Source verification is incomplete.');
+    value.immediateBlocker = job.authority === 'integrity-blocked' ? 'Source authority/integrity audit failed.' : stopped(t?.status) ? `${t.phase}/${t.status}: ${t.summary || 'inspect the linked report'}` : 'Source verification is incomplete; ' + (latest.limitation ?? 'no completed source verification is recorded.');
+    value.nextAction = t?.status === 'not_reproduced' || job.status === 'not-reproduced' ? 'Retain the non-reproduction evidence; do not implement or ship an unverified fix.'
+      : ['plan', 'evidence', 'scope'].includes(t?.phase) && stopped(t?.status) && unresolvedScope(source) ? 'Resolve the rejected plan/request through supported report-only scope revision, then fresh PLAN, independent evidence review and exact scoped authorization before implementation.'
+      : 'Continue only the original source through its supported checkpoint/revision path, resolve the engineering prerequisite, and obtain fresh gates/review; pending shipment approval alone cannot complete this work.';
+  }
+  return value;
+}
 function laneState(sourceRun, source, approval) {
   const pending = approval.code === 0 && approval.output.startsWith('PENDING OWNER APPROVAL — shipment blocked');
   const approvals = pending ? (source.decisions ?? []).filter(d => d.authority?.provisional && !(source.decisions ?? []).some(a => a.contextPath === d.contextPath && a.source === 'human')).map(d => {
     const record = read(d.path);
     return { phase: d.phase, contextPath: d.contextPath, recordPath: d.path, ...record.verdict };
   }) : [];
-  const last = ['repair', 'close', 'implement', 'plan', 'diagnose', 'reproduce'].find(p => source.checkpoints?.[p]);
-  const checkpoint = source.checkpoints?.[last];
-  const resultPath = last && join(sourceRun, `stage-${last}-result.txt`);
-  const summary = resultPath && existsSync(resultPath) ? readFileSync(resultPath, 'utf8').split('\n').slice(1).join('\n').trim() : '';
-  const complete = source.stages?.includes('gate-final') && Boolean(source.finalReviewDigest);
+  const latest = latestSourceTransition(sourceRun, source);
+  const checkpoint = latest.transition;
+  const summary = checkpoint?.summary ?? '';
+  const complete = currentSourceCompletion(source, latest);
   return { authority: approval.code !== 0 ? 'integrity-blocked' : pending ? 'pending' : 'clear', approvals,
     execution: complete ? 'completed' : 'blocked', verification: complete ? 'awaiting-export' : 'incomplete',
-    checkpoint: { phase: last ?? 'initialization', status: checkpoint?.status ?? 'unknown', report: last ? join(sourceRun, last + '.md') : null },
-    status: checkpoint?.status === 'not_reproduced' ? 'not-reproduced' : pending && complete ? 'pending-approval' : 'blocked',
-    reason: checkpoint && !['pass', 'needs_spec'].includes(checkpoint.status) && summary ? summary : '', approvalReport: null };
+    ...(checkpoint && !complete ? { checkpoint: { phase: checkpoint.phase, status: checkpoint.status, report: checkpoint.reportPath ?? null } } : {}),
+    sourceProgress: latest,
+    status: checkpoint?.status === 'not_reproduced' || (checkpoint?.phase === 'reproduce' && source.checkpoints?.reproduce?.status === 'not_reproduced') ? 'not-reproduced' : pending && complete ? 'pending-approval' : 'blocked',
+    reason: stopped(checkpoint?.status) && summary ? summary : '', approvalReport: null };
 }
 function collect(run, state, id) {
   const job = state.jobs[id]; if (!job || job.status !== 'scheduled') throw new Error('Only a scheduled job can be collected');
@@ -299,11 +425,15 @@ function collect(run, state, id) {
   if (result.code === 0 && result.output.trim() === 'PASS') {
     const exported = { version: 1, run: job.sourceRun, stateDigest: hash(regular(join(job.sourceRun, 'state.json'))), result };
     job.exportPath = attemptPath(join(run, 'jobs'), id + '-verified'); immutable(job.exportPath, exported);
-    job.exportDigest = hash(regular(job.exportPath)); Object.assign(job, { status: 'verified', execution: 'completed', verification: 'passed', authority: 'clear', approvals: [], reason: 'Source witnesses, final gates and independent review verified.' });
+    job.exportDigest = hash(regular(job.exportPath));
+    delete job.checkpoint; delete job.reason;
+    Object.assign(job, { status: 'verified', execution: 'completed', verification: 'passed', authority: 'clear', approvals: [], reason: 'Source witnesses, final gates and independent review verified.' });
+    Object.assign(job, projectJobProgress(job, sourceState(run, state, id)));
     delete job.resumeRequested; return;
   }
   const approval = standaloneCall(state, 'approval-report', job.sourceRun);
   const approvalPath = attemptPath(join(run, 'jobs'), id + '-approval-report'); immutable(approvalPath, approval);
+  delete job.checkpoint;
   Object.assign(job, laneState(job.sourceRun, sourceState(run, state, id), approval));
   job.approvalReport = approvalPath;
   if (!job.reason) {
@@ -314,6 +444,7 @@ function collect(run, state, id) {
     job.reason = preparation?.status === 'failed' ? 'Worktree bootstrap failed: ' + preparation.error + '; ' + join(job.sourceRun, bootstrap)
       : failed ? 'Verification failed; inspect ' + join(job.sourceRun, failed) : result.output.trim();
   }
+  Object.assign(job, projectJobProgress(job, sourceState(run, state, id)));
   delete job.resumeRequested;
 }
 function integrationStart(run, state, id) {
@@ -478,12 +609,20 @@ function integrateRecord(run, state, id) {
   clean(source.root); clean(ctx.root);
   git(state.root, 'worktree', 'remove', source.root); git(state.root, 'branch', '-d', ctx.sourceBranch);
   git(state.root, 'worktree', 'remove', ctx.root); git(state.root, 'branch', '-d', ctx.branch);
-  job.shipment.cleaned = true; job.status = 'integrated'; save(join(dirname(job.integration), 'shipment.json'), job.shipment);
+  job.shipment.cleaned = true; job.status = 'integrated'; job.shipmentState = 'pushed';
+  delete job.checkpoint;
+  Object.assign(job, projectJobProgress(job, source));
+  save(join(dirname(job.integration), 'shipment.json'), job.shipment);
   rmSync(join(run, 'integration.lock'), { recursive: true });
 }
 function report(run, state) {
   const inventory = state.planDigest ? checkedPlan(run, state).bugs : existsSync(join(run, 'catalog.json')) ? read(join(run, 'catalog.json')).open : reports(state.root).filter(b => b.open);
-  const bugs = inventory.map(b => ({ id: b.id, status: state.planDigest ? 'pending' : 'not-assessed', reason: b.reason ?? 'Readiness not assessed; no fix attempted.', ...(state.outcomes[b.id] ?? {}), ...(state.jobs[b.id] ?? {}) }));
+  const bugs = inventory.map(b => {
+    const job = { id: b.id, status: state.planDigest ? 'pending' : 'not-assessed', reason: b.reason ?? 'Readiness not assessed; no fix attempted.', ...(state.outcomes[b.id] ?? {}), ...(state.jobs[b.id] ?? {}) };
+    if (!job.sourceRun) return job;
+    const source = optionalJson(join(job.sourceRun, 'state.json'));
+    return source ? projectJobProgress(job, source) : { ...job, sourceProgress: { transition: null, basis: 'unavailable', limitation: 'Source state is unavailable; recorded job classification only.' }, immediateBlocker: 'Source state unavailable; do not infer completion.', nextAction: 'Inspect the retained source identity and restore readable evidence before continuing.' };
+  });
   return { version: 1, run, root: state.root, base: state.base, stateRevision: state.revision, generatedAt: new Date().toISOString(), finished: state.finished ?? false, schedulingComplete: state.schedulingComplete ?? false,
     catalog: join(run, 'catalog.json'), plan: join(run, 'plan.json'), detailPath: join(run, 'report.txt'), integrationLock: existsSync(join(run, 'integration.lock')) ? join(run, 'integration.lock') : null,
     lastError: state.lastError ?? null, finishError: state.finishError ?? null, errors: state.errors ?? [],
@@ -499,11 +638,16 @@ function renderReport(value) {
   const details = [heading, totals, 'Main: ' + value.base, 'Reports: ' + value.run];
   for (const failure of [value.lastError, value.finishError].filter(Boolean)) details.push(failure.op + ': ' + failure.message);
   for (const bug of value.bugs) {
-    details.push('', bug.id + ' — ' + bug.status + ': ' + (bug.reason ?? ''), `Verification: ${bug.verification ?? 'not established'}; authority: ${bug.authority ?? 'not established'}`);
+    details.push('', bug.id + ' — ' + bug.status + ': ' + (bug.reason ?? ''), `Source execution: ${bug.execution ?? 'not established'}; source verification: ${bug.verification ?? 'not established'}; owner authority: ${bug.authority ?? 'not established'}`,
+      `Integration: ${bug.integrationState ?? 'not started'}; integration verification: ${bug.integrationVerification ?? 'not established'}; shipment: ${bug.shipmentState ?? 'not attempted'}`,
+      'Immediate blocker: ' + (bug.immediateBlocker ?? 'none recorded'), 'Next supported action: ' + (bug.nextAction ?? bug.disposition ?? 'Resolve the stated prerequisite; no new work is scheduled by reporting.'));
+    if (bug.sourceProgress?.transition) details.push('Latest source transition (' + bug.sourceProgress.basis + '): ' + JSON.stringify(bug.sourceProgress.transition));
+    if (bug.sourceProgress?.limitation) details.push('Reporting limitation: ' + bug.sourceProgress.limitation);
+    if (bug.sourceProgress?.lastDecision) details.push('Last engineering decision: ' + JSON.stringify(bug.sourceProgress.lastDecision));
     if (bug.shipment) details.push(bug.shipment.pushed ? 'PUSHED ' + bug.shipment.sha + (bug.shipment.cleaned ? '; cleanup complete.' : '; consumer update/cleanup INCOMPLETE. Do not rerun shipment blindly.') : 'Shipment attempted; no successful push recorded. Reconcile before retry.');
     if (bug.sourceRun) {
-      const source = read(join(bug.sourceRun, 'state.json'));
-      details.push('Source run: ' + bug.sourceRun, 'Branch: ' + source.branch, 'Worktree: ' + source.root);
+      const source = optionalJson(join(bug.sourceRun, 'state.json'));
+      details.push('Source run: ' + bug.sourceRun, 'Branch: ' + (source?.branch ?? 'unavailable'), 'Worktree: ' + (source?.root ?? 'unavailable'), 'History: ' + join(bug.sourceRun, 'state.json'));
     }
     for (const decision of bug.approvals ?? []) details.push('PENDING OWNER APPROVAL — ' + decision.summary, 'Recommendation: ' + decision.recommendation, 'Rationale: ' + decision.rationale, 'Alternatives: ' + decision.alternatives.join('; '), 'Exact decision: ' + decision.recordPath);
     if (bug.approvalReport) details.push('Full approval audit: ' + bug.approvalReport);
@@ -520,6 +664,9 @@ function renderReport(value) {
     lines.push(bug.id + ' ' + bug.status + (value.bugs.length > 50 ? (flags.includes('owner') ? ' A?' : '') + (bug.shipment?.pushed ? ' P+' : '') : flags + ' — ' + short(bug.reason, 180)));
   }
   if (value.bugs.length <= 8) for (const bug of value.bugs) {
+    if (bug.immediateBlocker) lines.push(bug.id + ' immediate blocker: ' + short(bug.immediateBlocker, 220));
+    if (bug.nextAction) lines.push(bug.id + ' next: ' + short(bug.nextAction, 280));
+    if (bug.sourceProgress?.limitation) lines.push(bug.id + ' reporting limitation: ' + short(bug.sourceProgress.limitation, 240));
     if (bug.shipment?.pushed) lines.push(bug.id + ' PUSHED ' + bug.shipment.sha + (bug.shipment.cleaned ? '' : '; consumer update/cleanup INCOMPLETE. Do not rerun shipment blindly.'));
     for (const d of (bug.approvals ?? []).slice(0, 1)) lines.push(bug.id + ' decision: ' + short(d.summary, 140) + '\n  Exact scope/rationale: ' + d.recordPath);
   }
@@ -538,7 +685,7 @@ function parkIntegration(run, state, id) {
   const verdict = verdictPath && existsSync(verdictPath) ? read(verdictPath) : null;
   const reason = verdict?.ok === false && typeof verdict.findings === 'string' ? verdict.findings : state.lastError?.message ?? 'Integration setup did not complete; artifacts retained.';
   immutable(attemptPath(proof.folder, 'parked'), { version: 1, id, reason, remote: proof.remote, base: state.base, verdictPath, sourceRun: job.sourceRun });
-  Object.assign(job, { status: 'integration-blocked', reason, execution: 'settled', verification: 'integration-failed', shipmentState: 'not-attempted' });
+  Object.assign(job, { status: 'integration-blocked', reason, execution: 'completed', verification: 'passed', integrationState: 'blocked', integrationVerification: 'failed', shipmentState: 'not-attempted' });
   rmSync(join(run, 'integration.lock'), { recursive: true });
   return 'PARKED';
 }

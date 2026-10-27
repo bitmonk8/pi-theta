@@ -62,7 +62,8 @@ describe('durable bounded gate commands', () => {
     const { root, prefix } = fixture();
     const running = runGateCommand([process.execPath, '-e', `
       const fs = require('node:fs');
-      if (!fs.existsSync(process.env.PREFIX + '.intent.json')) process.exit(91);
+      const intent = JSON.parse(fs.readFileSync(process.env.PREFIX + '.intent.json', 'utf8'));
+      if (intent.kind !== 'gate-command-intent' || intent.phase !== 'launch-intent' || intent.pid !== null) process.exit(91);
       console.log('partial:' + process.cwd() + ':' + process.env.GATE_FIXTURE);
       console.log('token:' + process.env[${JSON.stringify(EXECUTION_TOKEN_ENV)}]);
       console.error('stderr:partial');
@@ -94,6 +95,50 @@ describe('durable bounded gate commands', () => {
     expect(result.finishedPath).toBe(prefix + '.finished.json');
     await expect(runGateCommand([process.execPath, '-e', 'process.exit(0)'], root, prefix)).rejects.toThrow(/exist|EEXIST/i);
     expect(readFileSync(prefix + '.started.json', 'utf8')).toBe(startBytes);
+  });
+
+  it('exposes each immutable journal name only after its entire JSON is written', () => {
+    const { root, prefix } = fixture();
+    const moduleUrl = pathToFileURL(resolve('tools/bugfix/gate-runner.mjs')).href;
+    // Interpose the real filesystem in an isolated process, not a reader retry.
+    // Split every journal write and inspect final names with an independent
+    // observer while the writer is synchronously stopped halfway through it.
+    const host = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      import { spawnSync } from 'node:child_process';
+      const write = fs.writeFileSync;
+      const observations = [];
+      fs.writeFileSync = function(fd, data, ...args) {
+        if (typeof fd !== 'number' || typeof data !== 'string' || !data.includes('"kind": "gate-command-')) return write(fd, data, ...args);
+        const record = JSON.parse(data);
+        const bytes = Buffer.from(data);
+        const split = Math.floor(bytes.length / 2);
+        write(fd, bytes.subarray(0, split));
+        const observed = spawnSync(process.execPath, ['-e', ${JSON.stringify(`
+          const fs = require('node:fs');
+          const paths = JSON.parse(process.argv[1]);
+          console.log(JSON.stringify(paths.map(path => {
+            try { return { path, value: JSON.parse(fs.readFileSync(path, 'utf8')) }; }
+            catch (error) { return { path, error: error.code === 'ENOENT' ? 'absent' : String(error) }; }
+          })));
+        `)}, JSON.stringify([record.intentPath, record.startedPath, record.finishedPath])], { encoding: 'utf8' });
+        if (observed.status !== 0) throw new Error(observed.stderr);
+        observations.push(...JSON.parse(observed.stdout));
+        write(fd, bytes.subarray(split));
+      };
+      syncBuiltinESMExports();
+      const { runGateCommand } = await import(${JSON.stringify(moduleUrl)});
+      await runGateCommand([process.execPath, '-e', 'process.exit(0)'], ${JSON.stringify(root)}, ${JSON.stringify(prefix)});
+      console.log(JSON.stringify(observations));
+    `], { encoding: 'utf8', timeout: 15000 });
+    expect(host.status, host.stderr).toBe(0);
+    const observations = JSON.parse(host.stdout);
+    expect(observations).toHaveLength(9); // intent, started, finished x 3 final names
+    expect(observations.filter((item: any) => item.error && item.error !== 'absent')).toEqual([]);
+    for (const suffix of ['intent', 'started', 'finished']) {
+      expect(json(`${prefix}.${suffix}.json`).kind).toBe(`gate-command-${suffix}`);
+    }
   });
 
   it.skipIf(!linux)('mints a token per command even when the operationId and supplied env are shared', async () => {
@@ -412,7 +457,9 @@ describe('durable bounded gate commands', () => {
       const originalSync = fs.fsyncSync;
       fs.fsyncSync = fd => {
         originalSync(fd);
-        if (fs.readlinkSync('/proc/self/fd/' + fd).endsWith('.intent.json')) {
+        // Freeze at the durable publication barrier, still BEFORE spawn.
+        // The file fsync now targets a private name, not the final journal.
+        if (fs.fstatSync(fd).isDirectory() && fs.existsSync(${JSON.stringify(prefix + '.intent.json')})) {
           fs.writeFileSync(${JSON.stringify(join(root, 'frozen-before-spawn'))}, 'ready');
           Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
         }

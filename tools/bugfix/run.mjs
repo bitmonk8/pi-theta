@@ -54,6 +54,16 @@ function persistState(run, state, expected, beforeWrite) {
     Object.assign(expected, stateRevision(state));
   } finally { rmSync(guard, { recursive: true }); }
 }
+// Only substantive outcomes call this. Admission, snapshots, pause and resume
+// retain the last stop, even when their own revision/generation advances.
+function transition(state, revision, kind, phase, status, detail = {}) {
+  const prior = [state.transitionSequence, state.lastTransition?.sequence].filter(value => Number.isSafeInteger(value) && value >= 0);
+  const sequence = Math.max(0, ...prior) + 1;
+  if (!Number.isSafeInteger(sequence)) throw new Error('Source transition sequence exhausted');
+  state.transitionSequence = sequence;
+  state.lastTransition = { sequence, revision, generation: state.generation ?? 0, kind, phase, status, ...detail };
+  return { sequence, revision, generation: state.generation ?? 0 };
+}
 function changes(root) {
   const tracked = git(root, 'diff', '--name-only', 'HEAD', '-z').split('\0');
   const extra = git(root, 'ls-files', '--others', '--exclude-standard', '-z').split('\0');
@@ -217,7 +227,7 @@ function renderRanking(root, catalogPath) {
   if (Buffer.byteLength(listing, 'utf8') > 60000) throw new Error('Ranked list exceeds the display budget; inspect the ranking artifacts instead');
   return listing;
 }
-const PHASES = new Set(['reproduce', 'diagnose', 'plan', 'implement', 'repair', 'close']);
+const PHASES = new Set(['reproduce', 'diagnose', 'plan', 'implement', 'repair', 'close', 'scope-revision']);
 function assertControls(state) {
   const original = root => root && JSON.stringify(controlPaths(root)) === JSON.stringify(state.controlPaths) && state.controlPaths.every(path => localText(root, path, null) !== null) && digest(root, state.controlPaths) === state.controlDigest;
   // A repair never alters the retained source's controls or original digest.
@@ -261,7 +271,7 @@ function controlPaths(root) {
   return ['tools/bugfix/run.mjs', 'tools/bugfix/worktree-env.mjs', 'tools/bugfix/update-pi-config.mjs', '.pi/theta/fix-bug.theta', '.pi/theta/workers/bugfix-stage.theta', '.pi/theta/workers/bugfix-review.theta', '.pi/theta/workers/bugfix-rank.theta', '.pi/theta/workers/bugfix-decide.theta'].filter(p => existsSync(join(root, p)));
 }
 export function executionControlPaths(root) {
-  return [...new Set([...controlPaths(root), 'tools/bugfix/batch.mjs', 'tools/bugfix/gate-runner.mjs', 'tools/bugfix/controller-recovery.mjs', '.pi/theta/fix-all-bugs.theta', '.pi/theta/workers/bugfix-batch-plan.theta', '.pi/theta/workers/bugfix-batch-lane.theta', '.pi/theta/workers/bugfix-batch-merge.theta', '.pi/theta/workers/bugfix-batch-review.theta'])].filter(path => existsSync(join(root, path))).sort();
+  return [...new Set([...controlPaths(root), 'tools/bugfix/batch.mjs', 'tools/bugfix/gate-runner.mjs', 'tools/bugfix/controller-recovery.mjs', 'tools/bugfix/atomic-record.mjs', '.pi/theta/fix-all-bugs.theta', '.pi/theta/workers/bugfix-batch-plan.theta', '.pi/theta/workers/bugfix-batch-lane.theta', '.pi/theta/workers/bugfix-batch-merge.theta', '.pi/theta/workers/bugfix-batch-review.theta'])].filter(path => existsSync(join(root, path))).sort();
 }
 function leasePath(run, state) { return state.batchRun ? join(run, 'lease') : join(state.ownerRoot, '.pi/tmp/fix-bug.lock'); }
 function batchManifest(cwd, manifestPath, requireCurrentBase = true) {
@@ -334,7 +344,7 @@ function assertLease(run, state, settledBatchExport = false) {
 function stagePaths(phase) { return [`stage-${phase}-result.txt`, `${phase}.md`, ...(phase === 'plan' ? ['spec-proposal.md'] : [])]; }
 // Decision snapshots are controller-owned, run-local authority, never Git or
 // release authority. Do not let supplied paths turn this into a general reader.
-const DECISION_PHASES = new Set([...PHASES, 'evidence', 'fix', 'final', 'scope']);
+const DECISION_PHASES = new Set([...PHASES].filter(phase => phase !== 'scope-revision').concat(['evidence', 'fix', 'final', 'scope']));
 const DECISION_LIMITS = [
   'Only the exact archived proposal/request is authorized; absent a request, retry within existing scope only.',
   'Specification edits require the exact approved plan/spec-proposal.md; stage requests cannot approve a new contract.',
@@ -463,6 +473,7 @@ function decisionCommitFence(run, priorState, selected, baseline, verdictRaw, hi
   const current = decisionMaterial(run, priorState, selected.context.phase, { authorizationText: baseline.artifacts['decision-authorizations.md'] });
   if (hash(JSON.stringify(current)) !== hash(JSON.stringify(baseline))) throw new Error('Decision context changed during recording');
 }
+function pathForReport(run, context) { return join(run, context.reportPath); }
 function decisionOutcome(verdict) { return verdict.disposition === 'blocked' ? 'BLOCKED' : 'CONTINUE'; }
 function decisionAuthority(context, verdict, source) {
   return { source, phase: context.phase, type: context.request.type, exactRequest: context.proposal, proposalPath: context.proposalPath, recommendation: verdict.recommendation, rationale: verdict.rationale, limits: DECISION_LIMITS, gitAuthority: false, provisional: source === 'astra' && verdict.disposition === 'human' };
@@ -479,6 +490,7 @@ function approvalReport(records) {
   })].join('\n');
 }
 function requireDecisionApproval(run, state, context) {
+  if (state.scopeRevision && state.scopeRevision.status !== 'pass') throw new Error('Active report-only scope revision grants no decision/implementation authority');
   if (!isSpecDecision(context) && context.phase !== 'scope' && !(context.phase === 'plan' && state.pendingScopeReplan)) return;
   requireCleanEvidenceReview(run, state);
   if (context.phase === 'scope' && (!state.pendingScopeReplan || context.proposal !== state.pendingScopeReplan.exactRequest)) throw new Error('Scope decision must authorize the exact independently reviewed replan request');
@@ -546,8 +558,9 @@ function validateDecisionIntegrity(run, state, options = {}) {
   if ((records.length || history !== null) && history !== authorizationText(records)) throw new Error('Worker-facing decision-authorizations.md changed or has no matching decision records');
   if (state.pendingScopeReplan) {
     const pending = state.pendingScopeReplan;
-    const archive = state.planArchives?.find(item => item.path === pending.archive && item.reason === 'stage-scope-replan');
-    if (!archive || !['implement', 'repair'].includes(pending.phase) || pending.requestDigest !== hash(pending.exactRequest) || hash(pending.exactRequest) !== archive.files['decision-request.md']) throw new Error('Pending replan request differs from its immutable original');
+    const archive = state.planArchives?.find(item => item.path === pending.archive && ['stage-scope-replan', 'scope-revision-candidate'].includes(item.reason));
+    if (!archive || !['implement', 'repair', 'plan'].includes(pending.phase) || pending.requestDigest !== hash(pending.exactRequest) || hash(pending.exactRequest) !== archive.files['decision-request.md']) throw new Error('Pending replan request differs from its immutable original');
+    if (pending.supersedes && (!state.planArchives.some(item => item.path === pending.supersedes && item.reason === 'rejected-scope-revision') || archive.files['lineage.json'] !== hash(JSON.stringify({ supersedes: pending.supersedes, requestDigest: pending.requestDigest }, null, 2) + '\n'))) throw new Error('Scope revision candidate lineage changed');
   }
   for (const archive of state.planArchives ?? []) {
     if (!archive.path?.startsWith(run + '/history/') || resolve(archive.path) !== archive.path) throw new Error('Invalid plan archive');
@@ -571,8 +584,9 @@ function evidenceReviewResult(run, ok) {
 }
 function requireCleanEvidenceReview(run, state) {
   const plan = currentPlan(run, state);
-  const review = evidenceReviewResult(run, true);
   const binding = state.evidenceReviewBinding;
+  if (!binding) throw new Error('Specification/scope approval requires a current clean evidence-review-record binding; rerun independent evidence review');
+  const review = evidenceReviewResult(run, true);
   if (!binding || binding.generation !== (state.generation ?? 0) || binding.planDigest !== plan.reportDigest || binding.reportDigest !== review.reportDigest || binding.checkoutDigest !== hash(JSON.stringify(checkoutIdentity(state.root)))) throw new Error('Specification approval requires a current clean evidence-review-record binding; rerun independent evidence review');
 }
 function requireReplanInputs(run, state) {
@@ -582,16 +596,42 @@ function requireReplanInputs(run, state) {
   if (feedback.checkoutDigest !== hash(JSON.stringify(checkoutIdentity(state.root)))) throw new Error('Replanning is read-only; checkout/index changed since the accepted evidence decision');
 }
 function archivePlan(run, state, reason, additional = {}) {
-  const checkpoint = currentPlan(run, state);
+  return archivePlanSnapshot(run, state, reason, currentPlan(run, state), additional);
+}
+// A rejected PLAN is evidence, not a completed currentPlan() capability.
+function archivePlanSnapshot(run, state, reason, checkpoint, additional = {}) {
   const path = join(run, 'history', 'plan-' + randomUUID());
   mkdirSync(path, { recursive: true });
   const files = {};
-  const artifacts = { ...Object.fromEntries([...stagePaths('plan'), 'decision-request.md', 'evidence-review.md', 'evidence-review-result.json'].map(name => [name, localText(run, name)])), ...additional, 'original-plan-decision-request.md': checkpoint.decisionRequest ?? null, 'checkpoint.json': JSON.stringify({ reason, checkpoint }, null, 2) + '\n' };
+  const verificationKeys = ['verifiedPaths', 'verifiedDigest', 'verifiedCheckoutIdentity', 'verifiedGateFiles', 'verifiedGateDigest', 'finalReviewDigest', 'finalReviewCheckoutDigest'];
+  const priorVerification = { stages: [...(state.stages ?? [])], gateCount: state.gateCount,
+    ...Object.fromEntries(verificationKeys.filter(key => Object.hasOwn(state, key)).map(key => [key, state[key]])) };
+  const artifacts = { ...Object.fromEntries([...stagePaths('plan'), 'decision-request.md', 'evidence-review.md', 'evidence-review-result.json', 'final-review.md', 'final-review-result.json'].map(name => [name, localText(run, name)])), ...additional,
+    'prior-verification.json': JSON.stringify(priorVerification, null, 2) + '\n',
+    'original-plan-decision-request.md': checkpoint.decisionRequest ?? null, 'checkpoint.json': JSON.stringify({ reason, checkpoint }, null, 2) + '\n' };
   for (const [name, text] of Object.entries(artifacts)) if (text !== null) {
     writeFileSync(join(path, name), text, { flag: 'wx' }); files[name] = hash(text);
   }
   state.planArchives = [...(state.planArchives ?? []), { path, reason, checkpoint, files }];
+  // Superseding a plan/request also retires its verification capability. Keep
+  // the original files/counter and archived binding, but a later scope approval
+  // must not revive old gates/final review without fresh verification.
+  state.stages = (state.stages ?? []).filter(stage => !['gate-initial', 'gate-final'].includes(stage));
+  for (const key of verificationKeys) delete state[key];
   return path;
+}
+function stageScopeConsumed(run, state, phase, checkpoint) {
+  // Retained IMPLEMENT/REPAIR stops are history after their exact request was
+  // admitted. Prove consumption from a validated immutable stage archive, not
+  // from phase priority, a missing request file or a later unrelated approval.
+  return (state.planArchives ?? []).some(archive => {
+    if (archive.reason !== 'stage-scope-replan' || !archive.files?.['stage-checkpoint.json']
+      || !archive.files[`stage-${phase}-result.txt`] || !archive.files[phase + '.md']) return false;
+    const raw = localText(run, archive.path.slice(run.length + 1) + '/stage-checkpoint.json');
+    if (raw === null || hash(raw) !== archive.files['stage-checkpoint.json']) throw new Error('Consumed scope checkpoint archive changed');
+    const recorded = JSON.parse(raw);
+    return ['attempt', 'status', 'reportDigest', 'checkoutDigest', 'decisionRequest'].every(key => recorded[key] === checkpoint[key]);
+  });
 }
 function stageReplan(run, state, phase) {
   if (!['implement', 'repair'].includes(phase)) throw new Error('Only implementation/repair may request a scope replan');
@@ -616,7 +656,136 @@ function stageReplan(run, state, phase) {
   delete state.evidenceReviewBinding;
   state.replanRequired = true;
 }
+const SCOPE_REVISION_LIMIT = 3;
+function scopeProtectedInputs(run) {
+  // Include absent artifacts: creating a new purported approval/review is also
+  // a mutation. Original immutable decision folders are checked separately.
+  const names = [...new Set([
+    ...[...PHASES].filter(name => name !== 'scope-revision').flatMap(stagePaths),
+    'witnesses.json', 'evidence-review.md', 'evidence-review-result.json', 'reviews.md',
+    'fix-review.md', 'fix-review-result.json', 'final-review.md', 'final-review-result.json',
+    'decision-authorizations.md', 'spec-answer.txt', 'spec-revision-proposal.md',
+    ...readdirSync(run).filter(name => /^(?:red-\d+\.json|owner.*\.md|plan-.*-addendum\.md)$/.test(name)),
+  ])].sort();
+  return Object.fromEntries(names.map(name => [name, localText(run, name) === null ? null : hash(localText(run, name))]));
+}
+function scopeAuthorityDigest(state) {
+  return hash(JSON.stringify({ root: state.root, base: state.base, branch: state.branch, id: state.id,
+    checkpoints: Object.fromEntries(Object.entries(state.checkpoints ?? {}).filter(([phase]) => phase !== 'scope-revision')),
+    pendingScopeReplan: state.pendingScopeReplan ?? null, decisions: state.decisions ?? [],
+    specApproved: state.specApproved ?? false, approvedProposal: state.approvedProposal ?? null,
+    controlPaths: state.controlPaths, controlDigest: state.controlDigest, witnessDigest: state.witnessDigest, redDigest: state.redDigest }));
+}
+function checkScopeRevisionInputs(run, state, revision = state.scopeRevision) {
+  if (!revision || revision.checkoutDigest !== hash(JSON.stringify(checkoutIdentity(state.root)))) throw new Error('Report-only scope revision checkout/index changed');
+  if (revision.authorityDigest !== scopeAuthorityDigest(state)) throw new Error('Report-only scope revision checkpoint/request/decision authority changed');
+  if (revision.head !== git(state.root, 'rev-parse', 'HEAD') || revision.branch !== git(state.root, 'branch', '--show-current')) throw new Error('Report-only scope revision HEAD/branch changed');
+  if (JSON.stringify(scopeProtectedInputs(run)) !== JSON.stringify(revision.protectedInputs)) throw new Error('Report-only scope revision protected plan/review/witness/owner inputs changed');
+  validateScopeFeedback(run, state);
+  assertControls(state);
+  validateDecisionIntegrity(run, state);
+  if (state.stages.includes('red')) redEvidence(run, state);
+}
+function validateScopeFeedback(run, state) {
+  const feedback = state.replanFeedback;
+  if (feedback && (!feedback.path?.startsWith(run + '/') || resolve(feedback.path) !== feedback.path || hash(localText(run, feedback.path.slice(run.length + 1)) ?? '') !== feedback.digest)) throw new Error('Rejected scope replan feedback changed');
+}
+function rejectedScope(run, state) {
+  if (state.scopeRevision && state.scopeRevision.status !== 'pass') {
+    checkScopeRevisionInputs(run, state);
+    return state.scopeRevision;
+  }
+  const plan = state.checkpoints?.plan;
+  const pending = state.pendingScopeReplan;
+  const request = pending?.exactRequest ?? plan?.decisionRequest;
+  if (!request?.trim() || !plan || !['blocked', 'pass', 'needs_spec', 'needs_decision'].includes(plan.status)) return null;
+  const failedReview = localText(run, 'evidence-review-result.json');
+  const failed = failedReview !== null && JSON.parse(failedReview)?.ok === false;
+  // A later owner confirmation can settle an OLD provisional choice without
+  // changing the rejected engineering request. Order applicable Astra contexts,
+  // not the last unrelated historical human confirmation in the global list.
+  const assessment = [...(state.decisions ?? [])].reverse().find(item => {
+    if (item.source !== 'astra' || !['plan', 'evidence', 'scope'].includes(item.phase)) return false;
+    const { context } = decisionContext(run, state, item.contextPath);
+    return context.artifacts['decision-request.md'] === request && context.authority.checkpoints?.plan?.reportDigest === plan.reportDigest;
+  });
+  const scopeRejected = assessment?.outcome === 'BLOCKED' && assessment.phase === 'scope';
+  const approval = state.scopeReplanAuthorization;
+  const grant = state.decisions?.find(item => item.path === approval?.decisionPath);
+  const alreadyAuthorized = pending && approval?.planDigest === plan.reportDigest && approval.requestDigest === hash(request)
+    && grant?.phase === 'scope' && grant.outcome === 'CONTINUE' && grant.authority?.exactRequest === request;
+  // pendingScopeReplan is retained as history even after authorization. A later
+  // verification failure (0498) is not rejection of that consumed request, and
+  // IMPLEMENT may correctly have removed its transient decision-request file.
+  if (alreadyAuthorized && !scopeRejected) return null;
+  if (plan.status !== 'blocked' && !failed && !scopeRejected) return null;
+  validateScopeFeedback(run, state);
+  if (localText(run, 'decision-request.md') !== request || plan.decisionRequest !== request || digest(run, stagePaths('plan')) !== plan.reportDigest) throw new Error('Rejected scope request/PLAN checkpoint changed');
+  const checkoutDigest = hash(JSON.stringify(checkoutIdentity(state.root)));
+  const selected = assessment ? decisionContext(run, state, assessment.contextPath) : null;
+  if (selected) {
+    const { context } = selected;
+    if (context.artifacts['decision-request.md'] !== request || JSON.stringify(context.authority.checkpoints?.plan) !== JSON.stringify(plan) || JSON.stringify(context.checkout) !== JSON.stringify(checkoutIdentity(state.root)) || context.head !== state.base || context.currentBranch !== state.branch) throw new Error('Rejected scope decision is stale for the exact request/plan/checkout');
+    for (const name of ['plan.md', 'stage-plan-result.txt', 'spec-proposal.md', 'evidence-review.md', 'evidence-review-result.json']) if (context.artifacts[name] !== localText(run, name)) throw new Error('Rejected scope decision report/review changed: ' + name);
+  } else if (plan.checkoutIdentityDigest !== checkoutDigest) {
+    // Legacy checkpoints did not bind the index. Only their authentic immutable
+    // BLOCKED context can supply that proof; never guess it from current bytes.
+    throw new Error('Rejected scope requires unchanged checkout/index proof or its exact legacy BLOCKED decision');
+  }
+  if (failed) {
+    evidenceReviewResult(run, false);
+    if (!selected && (state.reviewPlanDigest !== plan.reportDigest || state.reviewCheckoutDigest !== checkoutDigest || state.reviewGeneration !== (state.generation ?? 0))) throw new Error('Rejected scope review has no current independent snapshot binding');
+  }
+  if (state.stages.includes('red')) redEvidence(run, state);
+  return { exactRequest: request, requestDigest: hash(request), phase: pending?.phase ?? 'plan', checkoutDigest, head: state.base, branch: state.branch, authorityDigest: scopeAuthorityDigest(state), protectedInputs: scopeProtectedInputs(run) };
+}
+function beginScopeRevision(run, state) {
+  const rejected = rejectedScope(run, state);
+  if (!rejected) throw new Error('Scope revision requires a structurally rejected pending exact scope');
+  if ((state.scopeRevisionCount ?? 0) >= SCOPE_REVISION_LIMIT) throw new Error('Scope revision limit exhausted (3 report-only attempts); retain histories and request an exact reviewed manual follow-up');
+  const metadata = JSON.stringify({ ...state, scopeRevision: rejected }, null, 2) + '\n';
+  const feedback = ['# Rejected exact scope — reports only; zero edit authority', rejected.exactRequest,
+    localText(run, 'plan.md') ?? '', localText(run, 'evidence-review.md') ?? '',
+    localText(run, 'decision-authorizations.md') ?? '',
+    state.replanFeedback ? localText(run, state.replanFeedback.path.slice(run.length + 1)) ?? '' : '',
+    'Address every finding, retain binding owner choices and protected controls. A candidate is not an approval.'].join('\n\n');
+  const archive = archivePlanSnapshot(run, state, 'rejected-scope-revision', state.checkpoints.plan, {
+    'decision-request.md': rejected.exactRequest,
+    'state-metadata.json': metadata,
+    'decisions.json': JSON.stringify(validateDecisionIntegrity(run, state).map(item => ({ ...item, context: decisionContext(run, state, item.contextPath).context })), null, 2) + '\n',
+    'feedback.md': feedback,
+    ...Object.fromEntries(Object.keys(rejected.protectedInputs).map(name => [name, localText(run, name)])),
+  });
+  state.scopeRevisionCount = (state.scopeRevisionCount ?? 0) + 1;
+  state.scopeRevision = { ...rejected, archive, status: 'running', number: state.scopeRevisionCount, admissionGeneration: state.generation ?? 0 };
+  delete state.scopeReplanAuthorization;
+  delete state.evidenceReviewBinding;
+}
+function finishScopeRevision(run, state, status, request) {
+  const revision = state.scopeRevision;
+  checkScopeRevisionInputs(run, state);
+  if (revision.admissionGeneration !== (state.generation ?? 0)) throw new Error('Scope revision was cancelled/fenced; begin a fresh bounded report-only attempt');
+  if (status !== 'pass' && status !== 'blocked') throw new Error('Scope revision is report-only: return pass candidate or blocked, never an authorization disposition');
+  if (status === 'blocked') { revision.status = 'blocked'; return; }
+  if (!request?.trim() || request.length > 128000 || request === revision.exactRequest) throw new Error('Scope revision requires a new nonempty bounded replacement request, not the rejected request');
+  if (!localText(run, 'scope-revision.md')?.trim()) throw new Error('Scope revision requires a detailed candidate report');
+  const requestDigest = hash(request);
+  const lineage = JSON.stringify({ supersedes: revision.archive, requestDigest }, null, 2) + '\n';
+  const archive = archivePlanSnapshot(run, state, 'scope-revision-candidate', state.checkpoints['scope-revision'], {
+    'decision-request.md': request, 'scope-revision.md': localText(run, 'scope-revision.md'),
+    'stage-scope-revision-result.txt': localText(run, 'stage-scope-revision-result.txt'), 'lineage.json': lineage,
+  });
+  state.pendingScopeReplan = { phase: revision.phase, exactRequest: request, requestDigest, archive, supersedes: revision.archive };
+  const feedbackPath = join(revision.archive, 'feedback.md');
+  state.replanFeedback = { path: feedbackPath, digest: hash(localText(run, feedbackPath.slice(run.length + 1))), archive: revision.archive, checkoutDigest: revision.checkoutDigest };
+  revision.status = 'pass'; revision.candidateArchive = archive;
+  delete state.checkpoints.plan;
+  delete state.evidenceReviewBinding;
+  delete state.scopeReplanAuthorization;
+  state.replanRequired = true;
+}
 function requireScopeApproval(run, state) {
+  if (state.scopeRevision && state.scopeRevision.status !== 'pass') throw new Error('Active report-only scope revision grants no implementation authority');
   if (!state.pendingScopeReplan) return;
   const request = state.pendingScopeReplan;
   const approval = state.scopeReplanAuthorization;
@@ -737,9 +906,10 @@ function resumeRun(cwd, request, pidText, batchResume = false) {
   if (batch) { options.ship = false; options.review_rounds = 5; }
   // Legacy scope stops enter the same authority-free transition. Structural
   // checkpoint + exact request identity, never a keyword in reviewer prose.
+  const rejected = rejectedScope(run, state);
   for (const phase of ['implement', 'repair']) {
     const checkpoint = state.checkpoints[phase];
-    if (!state.replanRequired && state.checkpoints.plan && ['needs_replan', 'needs_decision', 'blocked'].includes(checkpoint?.status) && checkpoint.decisionRequest?.trim()) {
+    if (!rejected && !state.replanRequired && state.checkpoints.plan && ['needs_replan', 'needs_decision', 'blocked'].includes(checkpoint?.status) && checkpoint.decisionRequest?.trim() && !stageScopeConsumed(run, state, phase, checkpoint)) {
       stageReplan(run, state, phase);
       break;
     }
@@ -787,6 +957,8 @@ function witnessRuns(root, run, mode) {
   return w;
 }
 function requireVerified(run, state, paths, committed = false) {
+  if (state.replanRequired) throw new Error('Unresolved scope/spec replan invalidates earlier final verification authority');
+  requireScopeApproval(run, state);
   if (pendingApprovals(validateDecisionIntegrity(run, state)).length) throw new Error('Pending owner approvals block shipment; run approval-report after final review');
   if (!state.stages.includes('gate-final')) throw new Error('Missing final verification');
   redEvidence(run, state);
@@ -962,6 +1134,7 @@ export function main(args, cwd = process.cwd()) {
       const verdict = validateVerdict(JSON.parse(verdictRaw));
       const outcome = archiveDecision(run, state, selected, verdict, 'astra', verdictRaw);
       const history = localText(run, 'decision-authorizations.md');
+      transition(state, expected.revision + 1, 'decision', context.phase, outcome, { contextPath: selected.full, reportPath: pathForReport(run, context), summary: verdict.summary });
       persist(() => decisionCommitFence(run, priorState, selected, baseline, verdictRaw, history));
       console.log(outcome); return;
     }
@@ -977,10 +1150,21 @@ export function main(args, cwd = process.cwd()) {
     if (typeof answer !== 'string' || !approved(answer, label)) throw new Error('No exact explicit human approval; free text/default/cancel cannot approve');
     archiveDecision(run, state, selected, verdict, 'human', verdictRaw, answer);
     const history = localText(run, 'decision-authorizations.md');
+    // This confirms a historical provisional choice, not the current source
+    // prerequisite. Stamp authorization separately; never mask a newer rejected
+    // PLAN/evidence stop with CONTINUE for an older owner's context.
+    const sourceTransition = state.lastTransition;
+    transition(state, expected.revision + 1, 'decision', context.phase, 'CONTINUE', { contextPath: selected.full, reportPath: pathForReport(run, context), summary: verdict.summary });
+    state.lastAuthorizationTransition = state.lastTransition;
+    if (sourceTransition) state.lastTransition = sourceTransition;
+    else delete state.lastTransition;
     persist(() => decisionCommitFence(run, priorState, selected, baseline, verdictRaw, history, answer));
     console.log('PASS'); return;
   } else if (op === 'stage-replan') {
     stageReplan(run, state, phase);
+    transition(state, expected.revision + 1, 'scope-revision', phase, 'needs_replan', { reportPath: join(run, phase + '.md'), summary: 'Exact stage scope requires fresh PLAN, independent review and scope authorization.' });
+  } else if (op === 'scope-revision-status') {
+    console.log(rejectedScope(run, state) ? 'REQUIRED' : 'NONE'); return;
   } else if (op === 'scope-approved') {
     if (!state.pendingScopeReplan) throw new Error('No pending revised scope request');
     requireScopeApproval(run, state);
@@ -1007,12 +1191,13 @@ export function main(args, cwd = process.cwd()) {
     const checkpoint = state.checkpoints[phase];
     if (op === 'cached') {
       const reusable = checkpoint?.status === 'pass' || (phase === 'plan' && checkpoint?.status === 'needs_spec');
-      if (!reusable || ['repair', 'close'].includes(phase)) { console.log('RUN'); return; }
+      if (!reusable || ['repair', 'close', 'scope-revision'].includes(phase)) { console.log('RUN'); return; }
       if (digest(run, stagePaths(phase)) !== checkpoint.reportDigest) throw new Error('Completed stage report/result changed: ' + phase);
       if (phase === 'implement' && (digest(root, paths) !== checkpoint.checkoutDigest || checkpoint.planDigest !== state.checkpoints.plan?.reportDigest)) { console.log('RUN'); return; }
       console.log('PASS'); return;
     }
     if (op === 'begin') {
+      if (phase === 'scope-revision') beginScopeRevision(run, state);
       if (['implement', 'repair'].includes(phase)) requireScopeApproval(run, state);
       if (phase === 'plan') {
         if (['pass', 'needs_spec'].includes(checkpoint?.status)) {
@@ -1031,13 +1216,14 @@ export function main(args, cwd = process.cwd()) {
           archivePlan(run, state, 'accepted-scoped-plan-retry');
         }
         requireReplanInputs(run, state);
+        if (state.verifiedGateDigest || state.finalReviewDigest) archivePlanSnapshot(run, state, 'plan-begin-verification-retirement', checkpoint ?? {});
         delete state.evidenceReviewBinding;
       }
       const attempt = Math.max(checkpoint?.attempt ?? 0, state.phaseAttempts?.[phase] ?? 0) + 1;
       state.phaseAttempts = { ...(state.phaseAttempts ?? {}), [phase]: attempt };
       const history = join(run, 'history'); mkdirSync(history, { recursive: true });
       for (const file of [...stagePaths(phase), 'decision-request.md']) if (existsSync(join(run, file))) copyFileSync(join(run, file), join(history, `${phase}-${attempt}-before-${file}`));
-      rmSync(join(run, 'decision-request.md'), { force: true });
+      if (phase !== 'scope-revision') rmSync(join(run, 'decision-request.md'), { force: true });
       state.checkpoints[phase] = { attempt, status: 'running' };
     } else {
       if (!checkpoint || checkpoint.status !== 'running') throw new Error('Stage did not begin');
@@ -1052,7 +1238,9 @@ export function main(args, cwd = process.cwd()) {
       const decisionRequest = localText(run, 'decision-request.md');
       if (['needs_decision', 'needs_replan'].includes(status) && !decisionRequest?.trim()) throw new Error(status + ' requires a nonempty decision-request.md');
       if (phase === 'plan' && state.pendingScopeReplan && ['pass', 'needs_spec', 'needs_decision'].includes(status) && decisionRequest !== state.pendingScopeReplan.exactRequest) throw new Error('Revised PLAN must preserve the exact pending scope request for independent review/authorization');
-      state.checkpoints[phase] = { ...checkpoint, status, ...(decisionRequest?.trim() ? { decisionRequest } : {}), reportDigest: digest(run, stagePaths(phase)), checkoutDigest: digest(root, paths), ...(phase === 'implement' ? { planDigest: state.checkpoints.plan?.reportDigest } : {}) };
+      const stamp = transition(state, expected.revision + 1, phase === 'scope-revision' ? 'scope-revision' : 'stage', phase, status, { reportPath: join(run, phase + '.md'), summary: summary.join('\n').trim() });
+      state.checkpoints[phase] = { ...checkpoint, ...stamp, status, ...(decisionRequest?.trim() ? { decisionRequest } : {}), reportDigest: digest(run, stagePaths(phase)), checkoutDigest: digest(root, paths), checkoutIdentityDigest: hash(JSON.stringify(checkoutIdentity(root))), ...(phase === 'implement' ? { planDigest: state.checkpoints.plan?.reportDigest } : {}) };
+      if (phase === 'scope-revision') finishScopeRevision(run, state, status, decisionRequest);
       if (['implement', 'repair'].includes(phase) && status === 'needs_spec') {
         if (!existsSync(join(run, 'spec-revision-proposal.md'))) throw new Error('Revised specification proposal is missing');
         archivePlan(run, state, 'implementation-spec-revision', { 'spec-revision-proposal.md': localText(run, 'spec-revision-proposal.md') });
@@ -1088,6 +1276,7 @@ export function main(args, cwd = process.cwd()) {
     delete state.checkpoints.plan;
     delete state.evidenceReviewBinding;
     state.replanRequired = true;
+    transition(state, expected.revision + 1, 'scope-revision', 'plan', 'needs_replan', { reportPath: feedbackPath, contextPath: latest.contextPath, summary: 'Rejected evidence plan archived; fresh report-only PLAN and independent review required.' });
   } else if (op === 'approved') {
     if (!state.specApproved || state.approvedProposal !== readFileSync(join(run, 'spec-proposal.md'), 'utf8')) throw new Error('No exact saved specification approval');
   } else if (op === 'approval') {
@@ -1106,6 +1295,8 @@ export function main(args, cwd = process.cwd()) {
       state.redDigest = digest(run, [...witnesses.e2e, ...witnesses.unit].map((_, index) => `red-${index}.json`));
     }
   } else if (op === 'gate') {
+    let gateReport;
+    try {
     if (!state.stages.includes('red')) throw new Error('Missing pre-fix red evidence');
     if (digest(run, ['witnesses.json']) !== state.witnessDigest) throw new Error('Witness commands/signatures changed after baseline');
     state.gateCount = (state.gateCount ?? 0) + 1;
@@ -1121,7 +1312,8 @@ export function main(args, cwd = process.cwd()) {
     const prepared = prepareWorktreeEnvironment(root, run, command);
     for (let i = 0; i < commands.length; i++) {
       const r = command(commands[i], root, undefined, prepared.env);
-      save(join(run, `gate-${state.gateCount}-${phase}-${i}.json`), { argv: commands[i], ...r });
+      gateReport = join(run, `gate-${state.gateCount}-${phase}-${i}.json`);
+      save(gateReport, { argv: commands[i], ...r });
       if (r.code !== 0) throw new Error('Verification gate failed; inspect captured logs. No skip/waiver allowed.');
     }
     if (JSON.stringify(changes(root)) !== JSON.stringify(paths) || digest(root, paths) !== gateDigest || checkoutIdentity(root).digest !== gateIdentity) throw new Error('Checkout changed during verification; no green gate recorded');
@@ -1129,6 +1321,13 @@ export function main(args, cwd = process.cwd()) {
     state.verifiedPaths = paths; state.verifiedDigest = gateDigest; state.verifiedCheckoutIdentity = gateIdentity;
     state.verifiedGateFiles = [...[...w.e2e, ...w.unit].map((_, i) => `green-${state.gateCount}-${i}.json`), ...commands.map((_, i) => `gate-${state.gateCount}-${phase}-${i}.json`)];
     state.verifiedGateDigest = digest(run, state.verifiedGateFiles);
+    transition(state, expected.revision + 1, 'gate', phase, 'pass', { ...(gateReport ? { reportPath: gateReport } : {}), summary: 'Mandatory witness, typecheck, default and declared live gates passed on the unchanged checkout.' });
+    } catch (error) {
+      const green = readdirSync(run).filter(name => new RegExp(`^green-${state.gateCount}-\\d+\\.json$`).test(name)).sort((a, b) => Number(a.match(/-(\d+)\.json$/)[1]) - Number(b.match(/-(\d+)\.json$/)[1])).at(-1);
+      transition(state, expected.revision + 1, 'gate', phase, 'blocked', { ...(gateReport || green ? { reportPath: gateReport ?? join(run, green) } : {}), summary: error.message });
+      persist();
+      throw error;
+    }
   } else if (op === 'snapshot') {
     state.reviewDigest = digest(root, paths); state.reviewPaths = paths;
     state.reviewCheckoutDigest = hash(JSON.stringify(checkoutIdentity(root)));
@@ -1136,12 +1335,21 @@ export function main(args, cwd = process.cwd()) {
     state.reviewGeneration = state.generation ?? 0;
   } else if (op === 'review-check') {
     if (JSON.stringify(paths) !== JSON.stringify(state.reviewPaths) || digest(root, paths) !== state.reviewDigest || state.reviewCheckoutDigest !== hash(JSON.stringify(checkoutIdentity(root)))) throw new Error('Read-only reviewer changed files/index');
+  } else if (op === 'review-record') {
+    if (!['evidence', 'fix', 'final'].includes(phase)) throw new Error('Unknown review phase');
+    const prefix = ({ evidence: 'evidence-review', fix: 'fix-review', final: 'final-review' })[phase];
+    const review = JSON.parse(localText(run, prefix + '-result.json') ?? 'null');
+    if (typeof review?.ok !== 'boolean' || typeof review.findings !== 'string' || !review.findings.trim() || localText(run, prefix + '.md') !== review.findings) throw new Error('Missing matching structured review result/report');
+    if (state.reviewGeneration !== (state.generation ?? 0) || state.reviewCheckoutDigest !== hash(JSON.stringify(checkoutIdentity(root))) || JSON.stringify(paths) !== JSON.stringify(state.reviewPaths) || digest(root, paths) !== state.reviewDigest) throw new Error('Missing unchanged independent review snapshot');
+    if (phase === 'evidence' && state.reviewPlanDigest !== currentPlan(run, state).reportDigest) throw new Error('Independent evidence review plan changed');
+    transition(state, expected.revision + 1, 'review', phase, review.ok ? 'pass' : 'blocked', { reportPath: join(run, prefix + '.md'), summary: review.findings });
   } else if (op === 'evidence-review-record') {
     const plan = currentPlan(run, state);
     const review = evidenceReviewResult(run, true);
     const checkoutDigest = hash(JSON.stringify(checkoutIdentity(root)));
     if (state.reviewGeneration !== (state.generation ?? 0) || state.reviewPlanDigest !== plan.reportDigest || state.reviewCheckoutDigest !== checkoutDigest || JSON.stringify(paths) !== JSON.stringify(state.reviewPaths) || digest(root, paths) !== state.reviewDigest) throw new Error('Missing unchanged evidence review snapshot for the current completed plan');
-    state.evidenceReviewBinding = { generation: state.generation ?? 0, planDigest: plan.reportDigest, reportDigest: review.reportDigest, checkoutDigest };
+    const stamp = transition(state, expected.revision + 1, 'review', 'evidence', 'pass', { reportPath: join(run, 'evidence-review.md'), summary: review.report });
+    state.evidenceReviewBinding = { ...stamp, planDigest: plan.reportDigest, reportDigest: review.reportDigest, checkoutDigest };
     persist(() => requireCleanEvidenceReview(run, state));
     console.log('PASS'); return;
   } else if (op === 'final-review-record') {
@@ -1152,6 +1360,7 @@ export function main(args, cwd = process.cwd()) {
     if (review.ok !== true || typeof review.findings !== 'string' || !review.findings.trim() || readFileSync(join(run, 'final-review.md'), 'utf8') !== review.findings) throw new Error('Missing clean final independent review');
     state.finalReviewDigest = digest(run, ['final-review-result.json', 'final-review.md']);
     state.finalReviewCheckoutDigest = state.verifiedCheckoutIdentity;
+    transition(state, expected.revision + 1, 'review', 'final', 'pass', { reportPath: join(run, 'final-review.md'), summary: review.findings });
   } else if (op === 'export-verified') {
     requireVerified(run, state, paths, Boolean(committedExport));
     verifyShippingIndex(root, committedExport ? [] : paths, Boolean(committedExport));

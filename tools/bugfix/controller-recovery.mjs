@@ -1,20 +1,13 @@
 // Explicit interrupted-operation reconciliation. Inspection is read-only; no
 // timestamp/PID-only automatic takeover. Legacy ownership requires attestation.
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, writeFileSync, openSync, closeSync, fsyncSync } from 'node:fs';
-import { join, relative, dirname } from 'node:path';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import { atomicImmutableJson as immutable } from './atomic-record.mjs';
 import { processIdentity, processState, ownedExecutionState } from './gate-runner.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const read = path => JSON.parse(readFileSync(path, 'utf8'));
-function immutable(path, value) {
-  const fd = openSync(path, 'wx', 0o600);
-  try { writeFileSync(fd, JSON.stringify(value, null, 2) + '\n'); fsyncSync(fd); } finally { closeSync(fd); }
-  if (process.platform !== 'win32') {
-    const parent = openSync(dirname(path), 'r');
-    try { fsyncSync(parent); } catch (error) { if (!['EINVAL', 'ENOTSUP'].includes(error.code)) throw error; } finally { closeSync(parent); }
-  }
-}
 function evidence(path) {
   if (!existsSync(path)) return null;
   const result = {};

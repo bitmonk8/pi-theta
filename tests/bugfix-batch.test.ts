@@ -208,7 +208,13 @@ describe('deterministic four-lane bug batch controller', () => {
       f.plan(); f.ok('next', f.run); const source = f.verified('0001');
       const retained = f.startSource('0002'); f.one('pause', retained.run);
       expect(f.ok('collect', f.run, '0002')).toBe('BLOCKED');
+      // Model a retained failed implementation projection before successful re-collection.
+      const stale = f.state();
+      Object.assign(stale.jobs['0001'], { checkpoint: { phase: 'implement', status: 'blocked' }, reason: 'Old failed implementation', shipmentState: 'not-attempted' });
+      f.put(join(f.run, 'state.json'), stale);
       expect(f.ok('collect', f.run, '0001')).toBe('VERIFIED');
+      expect(f.state().jobs['0001'].checkpoint).toBeUndefined();
+      expect(f.state().jobs['0001'].reason).not.toContain('Old failed implementation');
       const ctx = f.context('0001'); expect(ctx.base).toBe(f.base); expect(ctx.root).not.toBe(source.root);
       expect(git(f.root, 'rev-parse', 'HEAD')).toBe(f.base); f.merge(ctx); f.verdict(ctx);
       expect(f.call('integrate-record', f.run, '0001').stderr).toContain('fresh integration gate');
@@ -228,7 +234,11 @@ describe('deterministic four-lane bug batch controller', () => {
       expect(git(f.root, 'branch', '--list', ctx.branch)).toBe('');
       expect(git(f.root, 'branch', '--list', retained.state().branch)).not.toBe('');
       expect(existsSync(join(ctx.reportDirectory, 'integration.json'))).toBe(true);
-      expect(f.state().jobs['0001']).toMatchObject({ status: 'integrated', shipment: { pushed: true, cleaned: true } });
+      expect(f.state().jobs['0001']).toMatchObject({ status: 'integrated', verification: 'passed', shipmentState: 'pushed', shipment: { pushed: true, cleaned: true } });
+      expect(f.state().jobs['0001'].checkpoint).toBeUndefined();
+      const integratedReport = JSON.parse(f.ok('inspect', f.run)).bugs.find((b: any) => b.id === '0001');
+      expect(integratedReport).toMatchObject({ execution: 'completed', verification: 'passed', integrationState: 'integrated', shipmentState: 'pushed' });
+      expect(integratedReport.immediateBlocker).toBeNull();
       expect(f.ok('next', f.run)).toBe('DONE'); f.ok('finish', f.run);
       expect(existsSync(join(f.run, 'report.json'))).toBe(true); expect(existsSync(join(f.root, '.pi/tmp/fix-bug.lock'))).toBe(false);
     } finally { f.cleanup(); }
@@ -302,11 +312,45 @@ describe('deterministic four-lane bug batch controller', () => {
         alternatives: ['Preserve legacy compatibility.', 'Use the new compatibility boundary.'] });
       f.one('decision-record', source.run, context); f.one('pause', source.run);
       expect(f.ok('collect', f.run, '0001')).toBe('BLOCKED');
-      expect(f.state().jobs['0001']).toMatchObject({ status: 'blocked', authority: 'pending', verification: 'incomplete', checkpoint: { phase: 'implement', status: 'needs_decision' } });
-      expect(f.state().jobs['0001'].reason).toBe('Exact scoped owner choice remains');
+      expect(f.state().jobs['0001']).toMatchObject({ status: 'blocked', authority: 'pending', execution: 'incomplete', verification: 'incomplete', checkpoint: { phase: 'implement', status: 'CONTINUE' } });
+      expect(f.state().jobs['0001'].sourceProgress).toMatchObject({ transition: { kind: 'decision', phase: 'implement', status: 'CONTINUE' } });
+      expect(f.state().jobs['0001'].reason).toBe('Source verification is incomplete; the recorded scoped decision allows continuation, not shipment.');
+      expect(f.state().jobs['0001'].immediateBlocker).toContain('Source verification is incomplete');
+      expect(f.state().jobs['0001'].nextAction).toContain('pending shipment approval alone cannot complete this work');
       expect(f.state().jobs['0001'].approvals).toHaveLength(1);
       expect(f.ok('next', f.run)).toBe('DONE'); expect(f.state().outcomes['0002'].status).toBe('blocked');
       f.ok('finish', f.run); expect(existsSync(source.root)).toBe(true); expect(existsSync(join(source.run, 'decision-authorizations.md'))).toBe(true);
+    } finally { f.cleanup(); }
+  });
+
+  it('projects a newer rejected plan on read-only inspect and publishes it only through report operations', () => {
+    const f = fixture(1);
+    try {
+      f.plan(); f.ok('next', f.run); const source = f.startSource('0001'); f.one('pause', source.run);
+      const sourceState = source.state();
+      Object.assign(sourceState, { revision: 30, generation: 2, pendingScopeReplan: { exactRequest: 'Rejected parallel-only repair' }, checkpoints: { repair: { attempt: 1, status: 'needs_decision' }, plan: { attempt: 2, status: 'blocked' } },
+        lastTransition: { sequence: 8, revision: 29, generation: 1, kind: 'stage', phase: 'plan', status: 'blocked', reportPath: join(source.run, 'plan.md'), summary: 'Replacement plan must cover all five marker leak paths' } });
+      f.put(join(source.run, 'state.json'), sourceState);
+      const state = f.state(); Object.assign(state.jobs['0001'], { status: 'blocked', sourceRun: source.run, checkpoint: { phase: 'repair', status: 'needs_decision' }, reason: 'Old parallel-only repair' });
+      f.put(join(f.run, 'state.json'), state);
+      const before = ['state.json', 'report.json'].map(name => readFileSync(join(f.run, name), 'utf8'));
+      const sourceBefore = readFileSync(join(source.run, 'state.json'), 'utf8');
+      const inspected = JSON.parse(f.ok('inspect', f.run));
+      expect(inspected.bugs[0]).toMatchObject({ status: 'blocked', checkpoint: { phase: 'plan', status: 'blocked' }, reason: 'Replacement plan must cover all five marker leak paths' });
+      expect(inspected.bugs[0].nextAction).toContain('report-only scope revision');
+      expect(['state.json', 'report.json'].map(name => readFileSync(join(f.run, name), 'utf8'))).toEqual(before);
+      expect(readFileSync(join(source.run, 'state.json'), 'utf8')).toBe(sourceBefore);
+      expect(existsSync(join(f.run, 'controller.lock'))).toBe(false);
+      expect(existsSync(join(f.run, 'report.txt'))).toBe(false);
+      const published = JSON.parse(f.ok('report', f.run));
+      expect(JSON.parse(readFileSync(join(f.run, 'report.json'), 'utf8'))).toEqual(published);
+      expect(readFileSync(join(f.run, 'state.json'), 'utf8')).toBe(before[0]);
+      const text = f.ok('render-report', f.run);
+      expect(text).toContain('immediate blocker: plan/blocked'); expect(text).toContain('report-only scope revision');
+      const detail = readFileSync(join(f.run, 'report.txt'), 'utf8');
+      expect(detail).toContain('Source execution: blocked; source verification: incomplete; owner authority: clear');
+      expect(detail).toContain('Next supported action:'); expect(detail).toContain('Latest source transition (recorded-transition)');
+      expect(f.state().jobs['0001'].checkpoint.phase).toBe('repair'); // projection does not rewrite history
     } finally { f.cleanup(); }
   });
 
@@ -386,7 +430,11 @@ describe('deterministic four-lane bug batch controller', () => {
       expect(f.call('integrate-record', f.run, '0001').stderr).toContain('Integration declined: Required fixture prerequisite');
       expect(f.ok('integration-park', f.run, '0001')).toBe('PARKED');
       expect(existsSync(ctx.root)).toBe(true); expect(existsSync(first.root)).toBe(true);
-      expect(f.state().jobs['0001']).toMatchObject({ status: 'integration-blocked', shipmentState: 'not-attempted' });
+      expect(f.state().jobs['0001']).toMatchObject({ status: 'integration-blocked', verification: 'passed', integrationVerification: 'failed', shipmentState: 'not-attempted' });
+      const projected = JSON.parse(f.ok('inspect', f.run)).bugs.find((b: any) => b.id === '0001');
+      expect(projected).toMatchObject({ execution: 'completed', verification: 'passed', integrationState: 'blocked' });
+      expect(projected.checkpoint).toBeUndefined();
+      expect(projected.immediateBlocker).toContain('Required fixture prerequisite is unavailable');
       expect(f.ok('ready', f.run)).toBe('0002');
       const second = f.context('0002'); f.merge(second); f.ok('integration-gate', f.run, '0002'); f.verdict(second); f.ok('integrate-record', f.run, '0002');
       expect(f.ok('next', f.run)).toBe('DONE'); f.ok('finish', f.run);

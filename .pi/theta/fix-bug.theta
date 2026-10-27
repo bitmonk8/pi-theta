@@ -95,7 +95,8 @@ fn stage_attempt(run: string, phase: string, feedback: string) {
       next_action: "Continue the recorded workflow.", recommendation: "Preserve the original evidence." }
   }
   if cached.trim() != "RUN" { return worker_failure("Checkpoint validation failed: " + cached) }
-  if !control(command + "begin " + quoted + " " + phase) { return worker_failure("Could not begin stage checkpoint: " + phase) }
+  let began = bash({ command: command + "begin " + quoted + " " + phase })?
+  if began.trim() != "PASS" { return worker_failure("Could not begin stage checkpoint: " + phase + ". " + began.trim()) }
   let tree = worktree(run)?
   if tree == "" { return worker_failure("Invalid isolated worktree path in state.json") }
   let result = match bugfix_stage(run, phase, feedback) with { cwd: tree } {
@@ -394,6 +395,18 @@ if diagnosis.status != "pass" {
 }
 if !control(prefix + "red " + quoted) { return checkpoint_stop(bug, "Pre-fix evidence gate", "Red witness evidence gate failed.",
   "Inspect red-*.json for the failing command and assertion signature.", "Establish a correct-reason red before implementing; do not waive the evidence gate.", run) }
+// Structured admission only: a rejected pending exact request can be revised
+// in reports, never implemented or expanded by a historical BLOCKED verdict.
+let revision = bash({ command: prefix + "scope-revision-status " + quoted })?.trim()
+if revision == "REQUIRED" {
+  let candidate = stage_attempt(run, "scope-revision", "Address every archived rejected-scope finding; preserve owner choices. Reports only, zero implementation/spec authority.")?
+  if candidate.status != "pass" {
+    return stop_report(bug, "Report-only exact scope revision", candidate.summary, candidate.environment,
+      candidate.bug_validity, candidate.fixability, candidate.progress, candidate.next_action, candidate.recommendation, run)
+  }
+}
+if revision != "NONE" && revision != "REQUIRED" { return checkpoint_stop(bug, "Scope revision admission", revision,
+  "Reconcile the exact request, checkpoint, reviews and unchanged checkout proof.", "Do not overwrite rejected history or infer implementation authority.", run) }
 if !control(prefix + "snapshot " + quoted) { return checkpoint_stop(bug, "Plan snapshot", "Plan snapshot failed.",
   "Check HEAD, branch, scope and specification approval against state.json.", "Resolve checkout drift before planning; preserve existing work.", run) }
 let plan = match run_stage(run, "plan", "") {
@@ -403,6 +416,8 @@ let plan = match run_stage(run, "plan", "") {
 if !control(prefix + "review-check " + quoted) { return checkpoint_stop(bug, "Planning — read-only check", "Plan changed checkout files or checkpoint validation failed.",
   "Compare the checkout with the saved snapshot.", "Review unexpected changes before authorizing implementation.", run) }
 if plan.status != "pass" && plan.status != "needs_spec" && plan.status != "needs_decision" {
+  let revise = bash({ command: prefix + "scope-revision-status " + quoted })?.trim()
+  if revise == "REQUIRED" { return "REPLAN" }
   return stop_report(bug, "Planning (before implementation)", plan.summary, plan.environment,
     plan.bug_validity, plan.fixability, plan.progress, plan.next_action, plan.recommendation, run)
 }
@@ -418,7 +433,11 @@ if !control(prefix + "review-check " + quoted) { return checkpoint_stop(bug, "Ev
 write({ path: run + "/evidence-review.md", content: evidence.findings })?
 write({ path: run + "/evidence-review-result.json", content: "{\"ok\":" + (evidence.ok ? "true" : "false") + ",\"findings\":" + json_string(evidence.findings) + "}" })?
 if !evidence.ok {
+  if !control(prefix + "review-record " + quoted + " evidence") { return checkpoint_stop(bug, "Evidence review record", "Failed independent review could not be bound to its unchanged inputs.",
+    "Inspect the review snapshot and structured result.", "Preserve the rejected reports; no implementation authority exists.", run) }
   let decision = resolve_decision(run, "evidence")?
+  let revise = bash({ command: prefix + "scope-revision-status " + quoted })?.trim()
+  if revise == "REQUIRED" { return "REPLAN" }
   // Never convert a failed review to a pass or reuse its rejected cached plan.
   // Archive/invalidate the old plan explicitly; the next PLAN gets the findings
   // and scoped decision, followed by a genuinely fresh evidence review.
@@ -459,6 +478,8 @@ if plan.status == "needs_decision" && scope == "NONE" {
 if scope == "REQUIRED" {
   let decision = resolve_decision(run, "scope")?
   if !decision.proceed || !control(prefix + "scope-approved " + quoted) {
+    let revise = bash({ command: prefix + "scope-revision-status " + quoted })?.trim()
+    if revise == "REQUIRED" { return "REPLAN" }
     return checkpoint_stop(bug, "Reviewed implementation scope decision", "Exact revised request is not authorized after fresh plan/evidence review.",
       "Resolve the recorded prerequisite; preserve original plans, requests and reds.", "Do not implement the expanded scope without its exact recorded authority.", run)
   }
@@ -494,6 +515,10 @@ while round < review_rounds {
     "Compare the checkout with the saved snapshot.", "Review unexpected changes; do not accept a compromised read-only review.", run) }
   reviews = reviews.concat([review.findings])
   write({ path: run + "/reviews.md", content: reviews.join("\n\n--- next review ---\n\n") })?
+  write({ path: run + "/fix-review.md", content: review.findings })?
+  write({ path: run + "/fix-review-result.json", content: "{\"ok\":" + (review.ok ? "true" : "false") + ",\"findings\":" + json_string(review.findings) + "}" })?
+  if !control(prefix + "review-record " + quoted + " fix") { return checkpoint_stop(bug, "Fix review record", "Could not bind independent fix review to its unchanged checkout.",
+    "Inspect the structured result and snapshot.", "Do not advance on unbound review evidence.", run) }
   if review.ok {
     clean = true
     break
@@ -535,7 +560,10 @@ let final_review = final_result?
 if !control(prefix + "review-check " + quoted) { return checkpoint_stop(bug, "Final review — read-only check", "Final reviewer changed files or checkpoint validation failed.",
   "Compare the checkout with the saved snapshot.", "Review unexpected changes before shipment.", run) }
 write({ path: run + "/final-review.md", content: final_review.findings })?
+write({ path: run + "/final-review-result.json", content: "{\"ok\":" + (final_review.ok ? "true" : "false") + ",\"findings\":" + json_string(final_review.findings) + "}" })?
 if !final_review.ok {
+  if !control(prefix + "review-record " + quoted + " final") { return checkpoint_stop(bug, "Final review record", "Could not bind failed independent final review to its unchanged checkout.",
+    "Inspect the structured result and snapshot.", "Retain the local fix; failed review is not authorization.", run) }
   let decision = resolve_decision(run, "final")?
   if decision.proceed {
     let repair = run_stage(run, "repair", final_review.findings + "\n" + decision.feedback)?
@@ -546,7 +574,6 @@ if !final_review.ok {
   return checkpoint_stop(bug, "Final verification review", "Final independent review did not pass.",
     "Address the blocking findings in final-review.md and reverify the changed diff.", "Keep the fix local until the final review is clean.", run)
 }
-write({ path: run + "/final-review-result.json", content: "{\"ok\":true,\"findings\":" + json_string(final_review.findings) + "}" })?
 if !control(prefix + "final-review-record " + quoted) {
   return checkpoint_stop(bug, "Final review — durable verification", "Could not bind clean final review to the verified checkout.",
     "Inspect final-review-result.json and post-gate drift before continuing.", "Do not ship or waive final review integrity.", run)

@@ -110,8 +110,11 @@ Each gate reserves its attempt durably before launching commands. Per-command
 `.intent.json`, `.started.json` and `.finished.json` records identify execution;
 `.stdout.log`/`.stderr.log` retain complete streaming output, including partial
 output after interruption. The result JSON contains only bounded convenience
-output. Incomplete evidence is never a PASS. Original orphan attempt directories
-are retained and never reused. The runner currently requires **Linux** to prove
+output. Immutable journal records are published atomically only after their JSON
+is complete and flushed; the final filename is never replaced if it already exists.
+An observer may see no record or a complete record, not a partially written final
+JSON file. Private publication temporaries are not completion evidence. Incomplete
+evidence is never a PASS. Original orphan attempt directories are retained and never reused. The runner currently requires **Linux** to prove
 launched execution settled. It follows a unique inherited execution token plus
 boot/PID/start identities, including detached descendants and nested gate runners,
 not just the first process/group's exit. Other platforms fail closed with an
@@ -165,6 +168,21 @@ unassessed/unattempted entries after a planner failure. `COMPLETE` means schedul
 finished and all work was classified, **not all bugs were fixed or shipped**.
 Releasing a settled lease after an early stop does not make the headline COMPLETE.
 
+The current blocker comes from a source's monotonic, generation/revision-bound
+`lastTransition`, not a fixed preference for REPAIR over PLAN or a report's mtime.
+A rejected replan therefore cannot be hidden by an older repair request. Legacy
+runs use structured decision/checkpoint evidence where ordering is provable;
+otherwise the report explicitly says the latest transition is uncertain and
+links the retained history rather than inventing chronology.
+
+`verification` describes the **source**; `integrationVerification` separately
+reports merged-tree verification. A verified source can still have a failed
+integration. Owner authorization is another axis: accepting a compatibility
+choice does not cure an engineering blocker. Each row carries an immediate
+blocker and next action, while pending owner choices remain separately visible.
+Verified/integrated jobs no longer inherit an old `implement/blocked` checkpoint
+or a stale `not-attempted` shipment label as their current state.
+
 The batch directory contains:
 
 - `report.json`: machine-readable recorded outcomes, source locations, pending
@@ -195,6 +213,36 @@ job dispositions are not a live reconciliation of every source checkpoint; a
 fresh observation timestamp does not mean a child is verified or settled.
 The older `report` and `render-report` commands still acquire the controller lock
 and publish files; do not use them as harmless inspection of an active run.
+
+### Recording a deferred owner choice is not resuming fixers
+
+A policy choice and an engineering prerequisite are different. Accepting a
+provisional compatibility/design choice does not repair a failed gate, complete
+an insufficient scope proposal, or approve a later unseen change.
+
+For a finished batch, source approval operations still require authenticated batch
+and source lease ownership. An operator-controlled administrative handoff can use
+`node tools/bugfix/batch.mjs resume /absolute/run/path` to validate/adopt the allowed
+owner state and reclassify retained jobs **without running the theta**. That CLI
+operation launches no model workers, runs no fixes/gates and pushes nothing, but
+it does mutate bookkeeping and may park a safely settled pre-push integration.
+It is not a read-only inspection command and must be deliberately authorized.
+
+Then record each decision against its exact original context using the existing
+`decision-answer` operation and genuine structured confirmation. Do not fabricate
+a `User selected: ...` transcript from free-form chat, approve every decision in
+bulk, or edit state/authority files directly. The source decision records retain
+immutable provenance; confirmation of a historical choice cannot reauthorize an
+obsolete spec proposal or expand a new repair scope. A chat choice can be recorded
+in investigation notes while awaiting this explicit controller handoff.
+
+After the handoff, the batch may remain **paused with its lease held** and eligible
+jobs queued; no worker is running merely because a queued job exists. The operator
+can then run the theta's `/fix-all-bugs resume` when ready. That separate invocation
+can automatically integrate/push eligible fixes and update/push pi-config. The
+handoff itself is not permission to start it. `tests/bugfix-owner-handoff.test.ts`
+exercises admission, exact/once-only confirmation, unchanged source proof, and the
+continued rejection of missing verification after the policy choice is accepted.
 
 ## Resume rather than start over
 
