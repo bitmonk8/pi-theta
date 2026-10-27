@@ -35,7 +35,9 @@ The registry's *Message* column carries `<…>` placeholders that the renderer i
 | `index` | An index read whose receiver did not determine as `array<T>`. |
 | `object` | An object literal carrying no schema name. |
 | `query` | A `query` expression carrying no schema annotation. |
-| `unknown` | An element, tail or common type the layer did not determine: a `par for` over a non-`array` iterand, a block expression with no tail expression, or an empty candidate set (`#typeExpr`'s `par-for` and `block` arms, `#commonType`, `#matchArmType` — `src/parser/static-type-inference.ts`). |
+| `unknown` | An element, tail, common type or member-read type the layer did not determine: a `par for` over a non-`array` iterand, a block expression with no tail expression, an empty candidate set, or a member read whose receiver declaration is unavailable (`#typeExpr`'s `par-for` and `block` arms, `#commonType`, `#matchArmType`, `#memberType` — `src/parser/static-type-inference.ts`). |
+
+A member read whose receiver declaration is unavailable carries `unknown` as its stand-in spelling, including inside an otherwise determined array, union, inline object or `Result<T, E>` type. This does not make the member type statically known or change whether a diagnostic fires: unavailable-member withholding remains distinct from an unmarked nominal with the same spelling. The historical binder stand-in remains `<withheld>`; this member-read rule does not rename it or change its rendering vectors.
 
 A token from this table appearing inside a composite renders through the clauses above and needs no second rule: `array<<withheld>>` via the `array<T>` clause, `array<Result<unknown, QueryError>>` via the `array<T>` and `Result<T, E>` clauses. The second form arises where a `par for` value — [CTRL-3](../control-flow.md#ctrl-3)'s `array<Result<T, QueryError>>`, with `T` undetermined — reaches a typed sink: `let r: integer = par for y in p { y }` over an unannotated parameter renders `expected integer, got array<Result<unknown, QueryError>>`. Because the table is keyed on bytes, a position whose author-written identifier happens to spell a table token renders the same admitted bytes as the engine's own fabrication of that token — a legal `fn index()` call renders `got index`, byte-identical to the fabrication an unresolvable receiver's index read produces.
 
@@ -46,6 +48,7 @@ This clause admits the tokens in the table and nothing else. A rendered name der
 - A binding typed `array<integer | string>` renders as `array<integer | string>`.
 - A binding typed `Foo | null` renders as `Foo | null`.
 - A condition on an array built from an unannotated `fn` parameter renders `condition must be boolean; got array<<withheld>>`.
+- A condition on an array built from a member read whose receiver declaration is unavailable renders `condition must be boolean; got array<unknown>`.
 - A `for` whose iterand is an index read on a receiver that did not determine as `array<T>` renders `'for' expects array<T> after 'in'; got index`.
 
 ### 2. Runtime-value placeholders

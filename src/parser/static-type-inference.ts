@@ -254,11 +254,10 @@ export class StaticTypeInferencePass {
 
   /**
    * The DECLARED field type a member-access node resolves to, or `undefined`
-   * when `#memberType` fell back to an unresolvable receiver's own name or a
-   * field-name mint. This is the provenance question `typeOf` cannot answer:
-   * `typeOf`'s returned `CompatType` cannot distinguish a resolved declared
-   * field type from either fallback, because two of `#memberType`'s three
-   * outcomes are `named` and a bare `CompatType` carries no marker for which.
+   * when `#memberType` withholds an unavailable declaration, recognises an
+   * enum variant, or falls back to a field-name mint. This is the declared
+   * provenance question `typeOf` cannot answer: a resolved nominal field and
+   * the closing field-name fallback can have the same `CompatType` shape.
    *
    * Lives beside `typeOf` so the resolution stays in ONE place: both answers
    * come from the same `#memberType` the walk itself uses to type every
@@ -652,8 +651,8 @@ export class StaticTypeInferencePass {
 
   /**
    * The static type of a member-access node, together with whether that type
-   * is a DECLARED field type (`declared: true`) or one of the arm's two
-   * fallbacks (`declared: false`). The declared field type is one
+   * is a DECLARED field type (`declared: true`) or an enum/withheld/fallback
+   * answer (`declared: false`). The declared field type is one
    * own-key-guarded lookup away, and the Unresolvable operands paragraph's
    * deferral licence is for an operand past the parser's static view — a
    * declared field on a resolved object schema is not one. The lookup reuses
@@ -662,8 +661,8 @@ export class StaticTypeInferencePass {
    * third reader of it.
    *
    * Type and provenance travel together in one return because a bare
-   * `CompatType` cannot carry the distinction on its own: two of the three
-   * outcomes below are `named`, so nothing in the returned shape tells a
+   * `CompatType` cannot carry the distinction on its own: the declared and
+   * closing fallback outcomes can both be unmarked `named`, so neither tells a
    * TYPE-10 nominal that IS the value's type (a resolved field whose own
    * declared type is an object schema) apart from a mint that resolves
    * against an unrelated declaration by spelling. A caller that must judge
@@ -671,21 +670,19 @@ export class StaticTypeInferencePass {
    * a caller that wants the pass's best-effort answer regardless of
    * provenance reads only `type` (`typeOf`, `#typeExpr`'s `case "member"`).
    *
-   * When the receiver resolves to no declaration, `declared` is `false` and
-   * `type` is the receiver's OWN `named` rather than `node.field`. For an
-   * `Enum.Variant` receiver naming NO same-file `schema` this is schemas.md's
-   * Enum declarations section's "statically typed as `Enum`" for free — the
-   * receiver is `named <Enum>`, no `enum` entry ever enters the `TypeEnv`, so
-   * it stays unresolved and the expression defers exactly as the
-   * Unresolvable operands paragraph prescribes. The same branch is also the
-   * provably-inert answer for every other unresolvable receiver: `node.field`
-   * might resolve by accident against an unrelated declaration that happens
-   * to share its spelling, where the receiver has just been proven to
-   * resolve to nothing.
+   * When the receiver declaration is unavailable, `declared` is `false` and
+   * `type` carries withheld provenance (bug 0518). Imported names are known
+   * without their declarations in this FS-free pass: neither the receiver's
+   * nominal nor the field's spelling truthfully types the member. A marked
+   * `unknown` carries this unavailable information without the binder display
+   * spelling; known outer composite kinds still render and remain decidable.
+   * The marker lets iterand checks defer without relaxing rejection of unmarked unknown
+   * nominals, and propagates through nested unavailable reads. Recognised
+   * same-file enum variants instead get their enum type from the earlier gate.
    *
-   * A same-file `schema` spelled like the enum removes that branch —
-   * `resolveNamed` would answer the schema, not `undefined` — which is why
-   * the enum test below runs BEFORE the receiver is resolved at all (bug 0191
+   * A same-file `schema` spelled like the enum would make `resolveNamed`
+   * answer the schema, so the enum test below runs BEFORE the receiver is
+   * resolved at all (bug 0191
    * §Fix route 1). A conformant `schema` can never own a field spelled like a
    * variant (variant names are PascalCase, field names lowercase-first,
    * lexical.md §Identifiers; the ill-cased spelling draws `binding-case-mismatch`), so
@@ -739,7 +736,7 @@ export class StaticTypeInferencePass {
     if (receiver.kind === "named") {
       const decl = resolveNamed(env, receiver.name);
       if (decl === undefined) {
-        return { type: receiver, declared: false };
+        return { type: withheldBinderType("unavailable-member"), declared: false };
       }
       const fields = decl.kind === "object-schema" ? decl.fields : undefined;
       if (fields !== undefined && Object.hasOwn(fields, node.field)) {

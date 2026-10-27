@@ -430,7 +430,7 @@ description.
 
 ## Expression sublanguage
 
-Supported forms: literals; identifiers; member access `a.b` (result type is the receiver's declared field type); indexed access
+Supported forms: literals; identifiers; member access `a.b` (declared result type is the receiver's declared field type; when its declaration is unavailable the parser withholds the member type, including for imported names, while recognised same-file enum variants retain their enum type; see [Member access](../spec_topics/expressions.md#supported-forms)); indexed access
 `a[k]` (receiver must be `array<T>` or object — otherwise
 `theta/parse/non-indexable-receiver`; array result type is `T`; object index must be `string` —
 `theta/parse/non-string-object-index`; the `[` must open on the same line as
@@ -592,8 +592,8 @@ Anything not on this list is `theta/parse/unknown-method`.
 ## Control flow
 
 - **`if` / `else`** — statement form. Braced blocks only.
-- **`for x in expr`** — iterates an `array<T>`; a non-array iterand is
-  `theta/parse/non-array-iterand`. The iterand is evaluated **exactly once** at
+- **`for x in expr`** — iterates an `array<T>`; a statically judged non-array iterand is
+  `theta/parse/non-array-iterand`; a withheld iterand receives no parse-time verdict and a non-array runtime value aborts as `theta/runtime/internal-error` (for `par for`, before worker scheduling), per [Control Flow](../spec_topics/control-flow.md). The iterand is evaluated **exactly once** at
   loop entry (CTRL-1), before the first iteration, including when the array is
   empty. The iteration variable is a fresh immutable local per iteration, typed
   as the iterand's element type `T`; a non-`array` iterand leaves it untyped and
@@ -601,7 +601,7 @@ Anything not on this list is `theta/parse/unknown-method`.
 - **`par for x in expr [max n] { ... }`** — the parallel, value-producing form of
   `for` (theta 1.1). Same iterand rules as `for` (`array<T>` iterand, evaluated
   once at loop entry, fresh immutable loop variable, typed as the iterand's element
-  type — CTRL-1); a non-array iterand is `theta/parse/non-array-iterand`.
+  type — CTRL-1, including the withheld-iterand disposition above); a statically judged non-array iterand is `theta/parse/non-array-iterand`.
   Produces `array<Result<T, QueryError>>` in input-index order. The optional
   `max n` clause admits any `integer`-typed expression, evaluated once at loop
   entry; the operand is an `integer` sink, so a `number`-typed operand triggers
