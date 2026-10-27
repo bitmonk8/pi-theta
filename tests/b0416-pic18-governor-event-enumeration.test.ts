@@ -1,35 +1,26 @@
-// Bug 0416 witness — PIC-18's closed event-consumption set is contradicted by
-// the shipped PromptToolLoopGovernor.
+// Bug 0416 witness — retain the governor event/blocking controls after 0498's
+// correction of PIC-18's historical five-handler premise.
 //
 // Bug doc: docs/bugs/0416-pic18-closed-event-set-contradicted-by-governor.md.
-// PIC-18 (docs/spec_topics/pi-integration-contract/conversation-drive.md,
-// anchor `pic-18`, line 27 at 261e483b) pins a CLOSED consumption set — "of
-// which theta 1.0 consumes exactly the five members above" (`tool_call`,
-// `tool_result`, `message_update`, `turn_end`, `agent_end`) — and rests a
-// normative conclusion on passivity: the handlers' "sole prompt-mode role is
-// cancellation forwarding, so cross-fire from an unrelated session's turn event
-// is harmless". But the shipped `PromptToolLoopGovernor.ensureRegistered`
-// (src/extension/prompt-tool-loop-governor.ts) subscribes a SIXTH event via its
-// `pi.on` calls — `before_provider_request` — AND a `tool_call` handler
-// (`#onToolCall`) that returns `{ block: true, reason }`, an EFFECTFUL role
-// beyond cancellation forwarding. The version-bump audit item (v)
-// (docs/spec_topics/pi-integration-contract/version-bump-step2.md, bump-checklist
-// item (v)) audits only "the five turn-lifecycle events the runtime's
-// cancellation-forwarding handlers subscribe to"; `before_provider_request`
-// appears in no checklist item.
+// Historical PIC-18 (anchor `pic-18`, line 27 at 261e483b) falsely described
+// "exactly the five members above" and harmless cancellation-only handlers.
+// Bug 0416 exposed the missing governor roles: `before_provider_request` marks
+// round boundaries and `tool_call` returns `{ block: true, reason }`. Its
+// "sixth event" terminology below is retained in historical cell names only;
+// the five cancellation subscribers were never installed. The two governor
+// registrations are the actual shipped prompt-mode turn-lifecycle consumers.
 //
-// The settled spec-side §Fix (no code change) widens PIC-18 to enumerate the
-// governor's two subscriptions and their roles (`before_provider_request`
-// round-boundary detection; the `tool_call` handler's `block`ing role), scopes
-// the harmless-cross-fire sentence to the five cancellation-forwarding handlers
-// only and adds an `armed`-window session-scoping caveat, and adds a bump item
-// auditing `before_provider_request` delivery.
+// Bug 0416 added the governor enumeration, blocking role, armed-window caveat
+// and event-delivery bump audit. Bug 0498 retains all those controls, removes
+// the false harmless-forwarder rationale, and documents driver-local deferred
+// signal recording plus settle classification instead. Item (v) now audits
+// those signal observations; item (at) audits governor delivery/blocking and
+// item (ah) audits process-global delivery and the lack of origin markers.
 //
-// Cell (A) is the SHIPPED-SURFACE CONTROL — green both directions (the code is
-// untouched by the fix). Cells (B)/(C)/(D)/(E) assert the settled spec-side
-// §Fix end state against the doc text and are RED at fork for the right reason:
-// the spec text lacks the governor's sixth subscription, its blocking role, the
-// armed-window caveat, and the bump audit of `before_provider_request`.
+// Cell (A) is the unchanged SHIPPED-SURFACE CONTROL. Cells (B)/(C)/(D)/(E)
+// were RED at the 0416 fork because its spec lacked the governor enumeration,
+// blocking role, armed-window caveat and bump audit. They remain unchanged
+// regression assertions against the corrected PIC-18 contract.
 //
 // Sibling patterns: the FakePi recorder mirrors
 // tests/prompt-tool-loop-governor.test.ts; the `readFileSync(fileURLToPath(new
@@ -116,14 +107,14 @@ function subscribedEvents(): string[] {
 describe("b0416 (A) shipped-surface control — governor consumes a sixth pi.on event and a blocking tool_call handler", () => {
   it("ensureRegistered subscribes exactly before_provider_request + tool_call", () => {
     // Green now (the code is under test unchanged) and after the doc-only fix.
-    // Proves the impl side of the contradiction: the governor consumes
-    // `before_provider_request` (a SIXTH member beyond PIC-18's five) and a
-    // `tool_call` handler whose `{ block: true }` return is an effectful role.
+    // Proves the impl side of the historical contradiction: the governor
+    // consumes `before_provider_request` and a `tool_call` handler whose
+    // `{ block: true }` return is an effectful role.
     const events = subscribedEvents();
     expect(events).toEqual(["before_provider_request", "tool_call"]);
 
-    // The tool_call handler returns a real block decision (effectful, not the
-    // "re-check of a non-aborted captured signal" PIC-18 permits): a round-cap
+    // The tool_call handler returns a real block decision (not the passive
+    // signal re-check the old PIC-18 falsely described): a round-cap
     // exhaustion (`begin(0)` blocks the first tool-use round).
     const pi = new RecordingPi();
     const gov = new PromptToolLoopGovernor();
@@ -150,9 +141,9 @@ describe("b0416 (B) PIC-18 enumerates every event the governor subscribes (RED a
     const pic18 = extractPic18(readSpec(CONVERSATION_DRIVE));
     // Derived from cell (A)'s recorder so the assertion tracks the impl.
     const events = subscribedEvents();
-    // RED at fork: `before_provider_request` is subscribed but PIC-18 says
-    // "exactly the five members above" and never names it. GREEN once the fix
-    // widens PIC-18 to enumerate the governor's two subscriptions.
+    // RED at the 0416 fork: the old PIC-18 falsely said "exactly the five
+    // members above" and omitted `before_provider_request`. The corrected
+    // PIC-18 must still enumerate both real governor subscriptions.
     const missing = events.filter((e) => !pic18.includes(e));
     expect(missing).toEqual([]);
   });
@@ -161,9 +152,8 @@ describe("b0416 (B) PIC-18 enumerates every event the governor subscribes (RED a
 describe("b0416 (C) PIC-18 describes the tool_call handler's blocking role (RED at fork)", () => {
   it("the PIC-18 paragraph references a blocking role for the tool_call handler", () => {
     const pic18 = extractPic18(readSpec(CONVERSATION_DRIVE));
-    // RED at fork: PIC-18 currently says the handlers' "sole prompt-mode role is
-    // cancellation forwarding" and never mentions the governor's `block`. GREEN
-    // once the fix names the tool_call handler's ToolCallEventResult `block`.
+    // RED at the 0416 fork: the old spec's false cancellation-only premise
+    // omitted the governor's `block`. Keep that effectful role explicit.
     expect(pic18).toContain("block");
   });
 });
@@ -171,8 +161,8 @@ describe("b0416 (C) PIC-18 describes the tool_call handler's blocking role (RED 
 describe("b0416 (D) PIC-18 carries the armed-window session-scoping caveat (RED at fork)", () => {
   it("the PIC-18 paragraph mentions the armed drive window", () => {
     const pic18 = extractPic18(readSpec(CONVERSATION_DRIVE));
-    // RED at fork: PIC-18 has no armed-window caveat about concurrent in-process
-    // sessions being mis-governed during a drive. GREEN once the fix adds it.
+    // RED at the 0416 fork: its spec lacked the armed-window caveat about
+    // concurrent in-process sessions being mis-governed. Keep that limitation.
     expect(pic18).toContain("armed");
   });
 });
@@ -180,9 +170,9 @@ describe("b0416 (D) PIC-18 carries the armed-window session-scoping caveat (RED 
 describe("b0416 (E) the version-bump checklist audits before_provider_request (RED at fork)", () => {
   it("some bump-checklist text references before_provider_request", () => {
     const bumpText = readSpec(VERSION_BUMP_STEP2);
-    // RED at fork: item (v) audits only the five cancellation-forwarding events;
-    // `before_provider_request` — on which ceiling #2's round-boundary detection
-    // depends — is in no item. GREEN once the fix adds the new bump item.
+    // RED at the 0416 fork: old item (v) audited the phantom five forwarders
+    // and no item audited `before_provider_request`. Item (at) now owns the
+    // governor's real provider-round delivery and blocking dependencies.
     expect(bumpText).toContain("before_provider_request");
   });
 });

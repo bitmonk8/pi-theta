@@ -2,7 +2,7 @@
 // active-set-gating leaf.
 //
 // Spec: pi-integration-contract/conversation-drive.md (PIC-2 prompt-mode
-// sequential execution, PIC-18 turn-lifecycle event subscription, PIC-53
+// sequential execution, PIC-53
 // untyped-query `Ok(string)` trailing-turn extraction);
 // pi-integration-contract/tool-registration-lifetime.md (PIC-17 active-set
 // allowlist gating and its §"Acceptance criteria — PIC-17 active-set install
@@ -14,9 +14,6 @@
 //     and the gating-window cells exercise `withActiveSetGate`
 //     (tool-registration.ts) — see the bug-0372 retarget note below for how
 //     each still asserts its ORIGINAL PIC-17/PIC-2 property;
-//   - `subscribePromptModeCancelForwarding` registers per-session-marked event
-//     names (PIC-18 process-global / no-marker) and never forwards the captured
-//     abort into `thetaAbort` (PIC-18 cancel-forwarding role);
 //   - `extractTrailingTurnText` returns a fixed sentinel (PIC-53).
 // No test reds on a compile error, a missing fixture, or a harness throw.
 
@@ -25,11 +22,7 @@ import { describe, expect, it } from "vitest";
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import {
   extractTrailingTurnText,
-  subscribePromptModeCancelForwarding,
   computeActiveSetInstall,
-  PROMPT_MODE_LIFECYCLE_EVENTS,
-  type ActiveInvocationSignals,
-  type PromptModeEventApi,
 } from "../src/runtime/conversation-drive";
 import { withActiveSetGate, type ActiveSetGateDeps, type ActiveSetPi } from "../src/runtime/tool-registration";
 
@@ -78,26 +71,6 @@ function makeRecordingGate(ambient: readonly string[]): {
     },
   };
   return { gate, setCalls };
-}
-
-/** A recording double of the process-global `pi.on` subscription surface. */
-function makeRecordingEventApi(): {
-  pi: PromptModeEventApi;
-  registrations: { event: string; handler: () => void }[];
-  fireAll: () => void;
-} {
-  const registrations: { event: string; handler: () => void }[] = [];
-  const pi: PromptModeEventApi = {
-    on: (event, handler): void => {
-      registrations.push({ event, handler });
-    },
-  };
-  const fireAll = (): void => {
-    for (const { handler } of registrations) {
-      handler();
-    }
-  };
-  return { pi, registrations, fireAll };
 }
 
 /** A distinct error type so the finally-restore test rejects without a broad catch. */
@@ -324,48 +297,6 @@ describe("V9c-T — PIC-2 prompt-mode sequential execution (cross-body non-overl
       }
     }
     expect(maxDepth).toBe(1);
-  });
-});
-
-// ===========================================================================
-// PIC-18 — prompt-mode turn-lifecycle event subscription (cancel-forward only).
-// ===========================================================================
-
-describe("V9c-T — PIC-18 prompt-mode turn-lifecycle event subscription", () => {
-  it("PIC-18: the subscription is process-global — exactly the five lifecycle events, each under its bare name with no per-session marker", () => {
-    const { pi, registrations } = makeRecordingEventApi();
-
-    subscribePromptModeCancelForwarding(pi, () => undefined);
-
-    // PIC-18: exactly the five turn-lifecycle events, each registered under its
-    // bare, process-global name (no per-session origin marker appended).
-    const events = registrations.map((r) => r.event).sort();
-    expect(events).toEqual([...PROMPT_MODE_LIFECYCLE_EVENTS].sort());
-  });
-
-  it("PIC-18: the handlers forward the captured abort into thetaAbort (cancel-forward only, never completion)", () => {
-    const { pi, fireAll } = makeRecordingEventApi();
-
-    const captured = new AbortController();
-    const thetaAbort = new AbortController();
-    const invocation: ActiveInvocationSignals = {
-      capturedSignal: captured.signal,
-      thetaAbort,
-    };
-    subscribePromptModeCancelForwarding(pi, () => invocation);
-
-    // A cross-fire while the captured signal is NOT aborted only re-checks it —
-    // it must not spuriously abort (nor resolve completion).
-    fireAll();
-    expect(thetaAbort.signal.aborted).toBe(false);
-
-    // PIC-18 primary assertion: once the captured `ctx.signal` is aborted, a
-    // lifecycle event forwards that abort into the V17a `thetaAbort` controller.
-    const reason = new Error("cancelled by ctx.signal");
-    captured.abort(reason);
-    fireAll();
-    expect(thetaAbort.signal.aborted).toBe(true);
-    expect(thetaAbort.signal.reason).toBe(reason);
   });
 });
 
