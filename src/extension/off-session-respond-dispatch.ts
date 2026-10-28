@@ -381,4 +381,4 @@ async function dispatchForcedRespondTurn(
   }
 }
 
-export { OFF_SESSION_NORMAL_STOP_REASONS, resolveRegistryAuth, dispatchForcedRespondTurn };
+export { OFF_SESSION_NORMAL_STOP_REASONS, resolveRegistryAuth, dispatchForcedRespondTurn, classifyOffSessionReply };

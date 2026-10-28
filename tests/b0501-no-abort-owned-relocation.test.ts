@@ -69,7 +69,9 @@ function rig(shape: Shape, options: { typed?: boolean; capture?: boolean; fast?:
     if (!options.suppressSend) ownId = sm.appendMessage(user(text));
     idle = false; pending = true;
     if (options.fast) tick();
-  }, getActiveTools: () => [], setActiveTools: () => {}, sendMessage: (note: { content: string }) => notes.push(note.content),
+  }, getActiveTools: () => [], setActiveTools: () => {}, sendMessage: (note: { customType: string; content: string; display: boolean; details?: unknown }) => {
+    notes.push(note.content); sm.appendCustomMessageEntry(note.customType, note.content, note.display, note.details);
+  },
   } as unknown as ExtensionAPI;
   const respond: RespondTurnContext = {
     toolName: "__theta_respond_b0501", lowered: { type: "object" }, template: "Return the score",
@@ -152,12 +154,23 @@ describe("0501 no-abort owned relocation", () => {
 });
 
 describe("0501 typed relocated-window policy", () => {
-  it.each(["prior-edit", "kept-user", "split-turn"] as const)("%s refuses forced replay and repair replay with no provider dispatch", async (shape) => {
+  // 0500: prior-edit retains a complete, failed-attempt-free own answer and
+  // now qualifies for separate finalization. The compaction fixtures below
+  // lose/retain overflow failure residue and remain deliberately ineligible.
+  it("prior-edit uses one attributable finalizer instead of stale replay or operational repair", async () => {
+    scripted.queue.push(() => ({ ...assistant(""), content: [{ type: "toolCall", id: "final", name: "__theta_finalize", arguments: { outcome: "answer", answer: { score: 777 } } }] }));
+    const r = rig("prior-edit", { typed: true });
+    expect(await r.turn()).toEqual({ kind: "text", text: "777" });
+    expect(await r.model.forcedRespondTurn()).toEqual({ kind: "respond", payload: { score: 777 } });
+    expect(await r.model.driveRepairAttempt("repair")).toMatchObject({ kind: "provider_failure", error: { retryable: false } });
+    expect(scripted.calls).toHaveLength(1);
+  });
+  it.each(["kept-user", "split-turn"] as const)("%s refuses forced replay and repair replay with no provider dispatch", async (shape) => {
     const r = rig(shape, { typed: true });
     expect(await r.turn(), "B0501_TYPED_FREE_PHASE: completed free phase is still attributable").toEqual({ kind: "text", text: "777" });
     const result = await r.model.forcedRespondTurn();
     expect(result).toMatchObject({ kind: "transport", error: { kind: "transport", retryable: true,
-      message: expect.stringContaining(shape === "prior-edit" ? "session projection change relocated" : "compaction relocated") } });
+      message: expect.stringContaining("compaction relocated") } });
     // A repair may drive another own turn but may never replay the stale window.
     expect(await r.model.driveRepairAttempt("repair")).toMatchObject({ kind: "provider_failure", error: { retryable: true } });
     expect(scripted.calls).toEqual([]);

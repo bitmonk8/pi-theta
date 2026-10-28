@@ -34,6 +34,8 @@ import type { ActiveRespondCapture, RespondTurnContext } from "./respond-capture
 import { OwnedTurnAttempt } from "./owned-turn";
 import { macrotask, POLL_INTERVAL_MS, PRE_SEND_GATE_POLL_BOUND, TURN_START_POLL_BOUND, TURN_END_POLL_BOUND, WAIT_FOR_IDLE_BOUND_MS, TURN_SETTLE_POLL_BOUND } from "./turn-settlement";
 import { dispatchForcedRespondTurn } from "./off-session-respond-dispatch";
+import { FinalizationEvidenceRetention, type FinalizationEvidence } from "./finalization-evidence";
+import { dispatchFinalization, finalizationFailure, type FinalizationDispatchContext, type FinalizationTurn } from "./off-session-finalization";
 
 /**
  * Bug 0483 §Fix item 2: the settle-poll bound applied when this attempt's
@@ -236,6 +238,13 @@ class LivePromptQueryModel implements QueryModelDriver {
    * fires at most once for the whole invocation — the spec's one-shot guard.
    */
   #promptCancelPropagated = false;
+  readonly #finalizationContext: FinalizationDispatchContext | undefined;
+  #readFinalizationEvidence: (() => FinalizationEvidence | undefined) | undefined;
+  #lostFinalOutput = false;
+  #finalizationSpent = false;
+  #repairEntered = false;
+  #finalizationResult: Promise<FinalizationTurn> | undefined;
+  #finalizationProof: string | undefined;
 
   constructor(deps: {
     readonly pi: LivePromptQueryPi;
@@ -273,7 +282,10 @@ class LivePromptQueryModel implements QueryModelDriver {
     readonly queryModelRef?: string;
     /** Bug 0491: the theta's `thinking:` pin (absent = no pin; the session level stands). */
     readonly queryThinking?: string;
+    /** Separate tools-disabled channel; never a shared-session operational restart. */
+    readonly finalizationContext?: FinalizationDispatchContext;
   }) {
+    this.#finalizationContext = deps.finalizationContext;
     this.#queryModel = deps.queryModel;
     this.#queryModelRef = deps.queryModelRef;
     this.#queryThinking = deps.queryThinking;
@@ -351,6 +363,12 @@ class LivePromptQueryModel implements QueryModelDriver {
         // effects (ERR-13 no-rollback); this batch is not re-executed
         // (`runToolBatch` is a no-op below).
         return this.#exhaustionTurn(this.#exhaustion?.lastToolName);
+      }
+      if (this.#lostFinalOutput) {
+        if (this.#respond !== undefined) return { kind: "text", text: "" };
+        if (this.#budgetConsumedWithoutBlock()) return this.#exhaustionTurn(this.#exhaustion?.lastAllowedToolName);
+        const finalized = await this.#finalize();
+        return finalized.kind === "text" || finalized.kind === "transport" ? finalized : finalizationFailure(this.#provider, "unexpected typed result");
       }
       // Bug 0483 §"Decided sub-case": when the attempt loop stopped on a
       // host-recovery settle with the early-respond capture already fired, the
@@ -523,6 +541,7 @@ class LivePromptQueryModel implements QueryModelDriver {
     if (this.#earlyRespond.captured) {
       return { kind: "respond", payload: this.#earlyRespond.payload };
     }
+    if (this.#lostFinalOutput) return this.#finalizeRespond();
     if (this.#respond === undefined) {
       // DEGRADED arm (bug 0010): the declared annotation did not lower, so no
       // respond tool exists to force. Keep the pre-0010 fused mechanism — one
@@ -612,6 +631,8 @@ class LivePromptQueryModel implements QueryModelDriver {
     prompt: string,
   ): Promise<string | FollowUpDriveFailure | FollowUpRespondOutcome> {
     const respond = this.#respond;
+    if (this.#finalizationSpent) return { kind: "provider_failure", error: this.#thetaAbort.signal.aborted
+      ? makeCancelledError() : finalizationFailure(this.#provider, "one-shot recovery cannot open operational repair").error };
     if (respond === undefined) {
       // Unreachable by construction: `#resolvePromptQuery` wires this drive
       // only when the respond context exists. Kept total rather than throwing
@@ -637,6 +658,7 @@ class LivePromptQueryModel implements QueryModelDriver {
     const interleaving = this.#typedInterleavingFailure();
     if (this.#thetaAbort.signal.aborted) return { kind: "provider_failure", error: makeCancelledError() };
     if (interleaving !== undefined) return { kind: "provider_failure", error: interleaving };
+    this.#repairEntered = true;
     // Reset the per-attempt early-respond snapshot BEFORE the restarted phase:
     // the capture slot is re-armed per driven turn inside
     // `#driveUserVisibleTurn` (it arms whenever `#respond` is present), and the
@@ -772,6 +794,7 @@ class LivePromptQueryModel implements QueryModelDriver {
     // schema-valid payload even over a window that carries none of this
     // query's turns, so a stale window must fail loudly, never dispatch.
     if (this.#windowRelocated !== undefined) {
+      if (this.#readFinalizationEvidence?.() !== undefined) return this.#finalizeRespond();
       const relocation = this.#windowRelocated === "compaction"
         ? "a mid-turn compaction relocated the driven turn"
         : "a session projection change relocated the driven turn";
@@ -810,6 +833,8 @@ class LivePromptQueryModel implements QueryModelDriver {
    */
   async #driveUserVisibleTurn(bound: boolean, text: string = this.#queryText): Promise<void> {
     this.#endedOnCapturedRecovery = false;
+    this.#readFinalizationEvidence = undefined;
+    this.#lostFinalOutput = false;
     this.#acceptedMessages = [];
     this.#transportFromThrow = undefined;
     this.#exhaustion = undefined;
@@ -1006,8 +1031,11 @@ class LivePromptQueryModel implements QueryModelDriver {
             // or foreign turn. Each continuation gets fresh attempt provenance.
             this.#acceptedMessages = [];
             const attempt = new OwnedTurnAttempt(this.#readMessages(), this.#readContextPath(), attemptText);
+            const retention = new FinalizationEvidenceRetention();
             const readOwn = () => {
-              const own = attempt.read(this.#readMessages(), this.#readContextPath(), true);
+              const path = this.#readContextPath();
+              const own = attempt.read(this.#readMessages(), path, true);
+              retention.observe(own, path);
               if (own.userId !== undefined) this.#ownedUserIds.add(own.userId);
               if (own.user !== undefined) this.#ownedUsers.add(own.user);
               if (own.foreign) {
@@ -1191,6 +1219,24 @@ class LivePromptQueryModel implements QueryModelDriver {
               this.#transportFromThrow = mapPromptModeHostOmittedRecovery(own.omission, this.#provider);
               return;
             }
+            // PIC-70 waits and PIC-79 disposition have already run. Pin an
+            // attributable evidence reader, not a relocated numeric window.
+            if (!own.foreign && !recorder.recorded && !postSettleAbortObserved && this.#ctx.isIdle() &&
+              text === this.#queryText && rides === 0 && !this.#repairEntered && !this.#finalizationSpent) {
+              this.#readFinalizationEvidence = () => {
+                if (!this.#ctx.isIdle() || this.#ctx.signal?.aborted || this.#thetaAbort.signal.aborted || this.#foreignWindow) return undefined;
+                return retention.read(readOwn(), this.#readContextPath());
+              };
+              // Healthy retained-output extraction does not need a recovery
+              // proof. Only an unavailable/unsettled ending needs admission
+              // here; typed relocation invokes the lazy reader at its gate.
+              const evidence = own.settled ? undefined : this.#readFinalizationEvidence();
+              if (evidence !== undefined && !evidence.terminalRetained) {
+                this.#lostFinalOutput = true;
+                // New output, not projected success or raw text resurrection.
+                return;
+              }
+            }
             if ((!own.foreign && !this.#ctx.isIdle()) || !own.settled || own.messages === undefined) {
               this.#recordLifecycleExpiry("settle", settleBound * POLL_INTERVAL_MS, recorder);
               return;
@@ -1303,6 +1349,40 @@ class LivePromptQueryModel implements QueryModelDriver {
         }
       }
     }
+  }
+
+  async #finalizeRespond(): Promise<ForcedRespondTurn> {
+    const result = await this.#finalize();
+    return result.kind === "text" ? finalizationFailure(this.#provider, "typed submission unavailable") : result;
+  }
+
+  #finalize(): Promise<FinalizationTurn> {
+    if (this.#thetaAbort.signal.aborted) return Promise.resolve(finalizationFailure(this.#provider, "cancelled"));
+    const evidence = this.#readFinalizationEvidence?.();
+    if (this.#finalizationResult !== undefined) return evidence !== undefined && evidence.proof === this.#finalizationProof
+      ? this.#finalizationResult : Promise.resolve(finalizationFailure(this.#provider, "retained evidence or ownership changed"));
+    if (this.#finalizationSpent || evidence === undefined) return Promise.resolve(finalizationFailure(this.#provider, "insufficient attributable retained evidence"));
+    this.#finalizationSpent = true;
+    this.#finalizationProof = evidence.proof;
+    const context = this.#respond ?? this.#finalizationContext;
+    if (context === undefined) return Promise.resolve(finalizationFailure(this.#provider, "no finalization dispatch context"));
+    this.#finalizationResult = dispatchFinalization({ context, ...(this.#respond !== undefined ? { respond: this.#respond } : {}), evidence,
+      query: this.#queryText, signal: this.#thetaAbort.signal, clock: this.#clock,
+      eligible: () => {
+        const current = this.#readFinalizationEvidence?.();
+        return current !== undefined && current.proof === evidence.proof;
+      } }).then((result) => {
+        // Idle SDK sendMessage persists a context-producing custom_message.
+        // Deliver only after the last proof check: never whitelist notes by text
+        // or customType, and never let our announcement poison its own gate.
+        if (this.#thetaAbort.signal.aborted) return finalizationFailure(this.#provider, "cancelled");
+        const current = this.#readFinalizationEvidence?.();
+        const accepted = current !== undefined && current.proof === evidence.proof
+          ? result : finalizationFailure(this.#provider, "retained evidence or ownership changed");
+        sendSystemNote({ content: `theta /${this.#thetaName}: finalizing unavailable query output from retained evidence without operational tools`, display: true }, this.#resolveSystemNoteChannel());
+        return accepted;
+      });
+    return this.#finalizationResult;
   }
 
   /** Sticky guard, rechecked at capture/replay/repair boundaries, not a filter. */

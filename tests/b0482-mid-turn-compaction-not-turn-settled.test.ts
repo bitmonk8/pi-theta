@@ -1,3 +1,8 @@
+// 0500 fixture correction: the two wait-through/reply-absent cells below now
+// use actual unfinished tool-use partials, not terminal `stop` answers. Their
+// wait/loud-expiry assertions are unchanged. The original file is archived at
+// .pi/tmp/b0500/baseline/b0482-mid-turn-compaction-not-turn-settled.test.ts.
+//
 // Bug 0482 — a host auto-compaction landing MID driven-turn is read by the
 // prompt-mode drive as the turn settling: the query binds the PARTIAL reply
 // that precedes the compaction instead of waiting for (or loudly failing on)
@@ -212,7 +217,19 @@ class CompactionScriptedSession {
       if (m.atPoll !== this.#ticks) {
         continue;
       }
-      if (m.append === "partial" || m.append === "reply") {
+      if (m.append === "partial") {
+        // A still-unfinished tool round: terminal stop would already be a
+        // completed answer under 0500, not a premise for waiting on recovery.
+        appendMessageEntry(this.entries, {
+          role: "assistant",
+          content: [
+            { type: "text", text: m.text },
+            { type: "toolCall", id: "partial-read", name: "read", arguments: { path: "shard-02" } },
+          ],
+          api: "anthropic-messages", provider: "anthropic", model: "m1",
+          stopReason: "toolUse", timestamp: 0,
+        });
+      } else if (m.append === "reply") {
         appendAssistantEntry(this.entries, m.text);
       } else {
         appendCompactionEntry(this.entries, m.firstKeptEntryId!);

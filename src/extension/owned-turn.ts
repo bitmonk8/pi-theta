@@ -102,7 +102,7 @@ export class OwnedTurnAttempt {
         relocated = true;
       }
     }
-    const settled = slice !== undefined && !trailingCompactionUnanswered(ownPath) && (
+    const settled = slice !== undefined && !trailingCompactionUnanswered(ownPath, slice) && (
       relocated ? slice.some((message) => message.role === "assistant") : thisTurnSettled(slice, 0, ownPath)
     );
     const relocationCause = !relocated ? undefined

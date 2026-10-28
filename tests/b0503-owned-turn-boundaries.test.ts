@@ -163,7 +163,9 @@ describe("0503 bounded driver consumers", () => {
     expect(await turn(r)).toEqual({ kind: "text", text: "777" });
   });
   it("foreign reply cannot heal own unanswered compaction", async () => {
-    const r = rig((r) => { r.sm.appendMessage(assistant("partial")); r.sm.appendCompaction("own summary", r.ownId!, 10); finish(r, undefined, assistant("222")); });
+    // 0500: a terminal stop before compaction is already complete; this
+    // negative specifically needs genuinely unfinished own work.
+    const r = rig((r) => { r.sm.appendMessage(assistant("partial", "pending")); r.sm.appendCompaction("own summary", r.ownId!, 10); finish(r, undefined, assistant("222")); });
     expect(await turn(r)).toEqual({ kind: "transport", error: transport() });
   });
   it.each(["user", "assistant", "foreign-user"])("fails conservatively after projection omission of %s", async (target) => {

@@ -1203,6 +1203,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
             ? { queryThinking: deps.theta.frontmatter.thinking }
             : {}),
           ...(respond !== undefined ? { respond } : {}),
+          finalizationContext: { model: queryModel, auth: () => resolveRegistryAuth(this.#input.modelRegistry, queryModel) },
           thetaName: deps.theta.slashName,
           emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
           ...(this.#input.systemNoteChannel !== undefined

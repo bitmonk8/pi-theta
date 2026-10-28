@@ -136,32 +136,53 @@ function thisTurnSettled(
   const rawStart = path.findIndex((entry) => entry.type === "message" && entry.message === user);
   const rawEnd = rawStart === -1 ? -1 : path.findIndex((entry, index) => index > rawStart && entry.type === "message" && entry.message.role === "user");
   const ownPath = rawStart === -1 ? path : path.slice(rawStart, rawEnd === -1 ? path.length : rawEnd);
-  return slice.opened && isSettledTurnEnding(slice.after) && !trailingCompactionUnanswered(ownPath);
+  return slice.opened && isSettledTurnEnding(slice.after) && !trailingCompactionUnanswered(ownPath, slice.after);
 }
 
 /**
- * Bug 0482 (conversation-drive.md PIC-70): whether the chronological leaf
- * path ends in a `compaction` entry with NO assistant reply (or settling
- * `toolResult`) after it. Auto-compaction is transparent to the conversation
- * (`docs/compaction.md` in the pi package) — a trailing, unanswered
- * compaction means the turn is still in flight, so the drive must wait
- * through it; PIC-70's settle-phase expiry is the loud backstop when no
- * reply ever follows.
+ * 0482/0500: wait through an unanswered trailing compaction, except when its
+ * bookkeeping-only suffix follows an already terminal owned answer that is
+ * STILL in the eligible SDK projection. Raw history proves chronology, never
+ * supplies answer content. The caller supplies a proven owned path/slice and
+ * retains the existing lifecycle waits, cancellation and omission precedence.
  */
-function trailingCompactionUnanswered(path: readonly SessionEntry[]): boolean {
+function trailingCompactionUnanswered(
+  path: readonly SessionEntry[],
+  projected: readonly Message[] = [],
+): boolean {
+  let compacted = false;
+  let substantiveSuffix = false;
   for (let i = path.length - 1; i >= 0; i -= 1) {
     const entry = path[i];
-    if (entry === undefined) {
+    if (entry === undefined) continue;
+    if (entry.type === "compaction") {
+      compacted = true;
       continue;
     }
-    if (entry.type === "compaction") {
-      return true;
-    }
     if (entry.type === "message" && (entry.message.role === "assistant" || entry.message.role === "toolResult")) {
-      return false;
+      if (!compacted) return false;
+      const ending = entry.message;
+      // Never search past later tool work, unfinished text or failed attempts
+      // for an older terminal. Reference identity excludes omissions and edits.
+      let lastProjected: Message | undefined;
+      for (let j = projected.length - 1; j >= 0; j -= 1) {
+        const candidate = projected[j];
+        if (candidate?.role === "assistant" || candidate?.role === "toolResult") {
+          lastProjected = candidate;
+          break;
+        }
+      }
+      return substantiveSuffix || ending.role !== "assistant" ||
+        !["stop", "end_turn"].includes(ending.stopReason) || lastProjected !== ending ||
+        !Array.isArray(ending.content) || ending.content.some((part) => part.type === "toolCall");
+    }
+    // These entries introduce model-visible input, unlike invisible metadata
+    // (custom state, usage, labels, settings, context-edit bookkeeping).
+    if (entry.type === "message" || entry.type === "custom_message" || entry.type === "branch_summary") {
+      substantiveSuffix = true;
     }
   }
-  return false;
+  return compacted;
 }
 
 export { POLL_INTERVAL_MS, PRE_SEND_GATE_POLL_BOUND, TURN_START_POLL_BOUND, TURN_END_POLL_BOUND, WAIT_FOR_IDLE_BOUND_MS, TURN_SETTLE_POLL_BOUND, macrotask, thisTurnSettled, trailingCompactionUnanswered };

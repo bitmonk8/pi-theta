@@ -60,8 +60,8 @@ describe("0502 real-host compaction compatibility control", () => {
           const timing = entries.flatMap((e) => e.type === "custom" && e.customType === B0502_TIMING ? [e.data as {
             phase: string; idle: boolean; signal: boolean; at: number;
           }] : []);
-          console.log("B0502 live evidence", JSON.stringify({ model: `${provider.model.provider}/${provider.modelId}`,
-            users, assistants, notes, timing, compactionEvents, idle: handle.session.isIdle }));
+          // Assert synthetic observables below without logging full provider
+          // messages, response identifiers, or transcript contents.
           expect(compactionEvents).toHaveLength(1);
           expect(compactionEvents[0]).toMatchObject({ reason: "threshold", aborted: false, willRetry: false, result: { summary: expect.any(String) } });
           const compactAt = entries.findIndex((e) => e.type === "compaction");
