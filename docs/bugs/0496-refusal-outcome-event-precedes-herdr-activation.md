@@ -1,7 +1,10 @@
 # Bug 0496 — the registration-refusal outcome event fires inside pi-theta's `session_start`, before pi-theta-herdr's reporter activates: herdr drops the one-per-process event and a refused visible child's pane is never retitled `FAILED <label>`
 
-- **Status:** open
-- **Owning repo:** pi-theta-herdr (recommended fix — option (a) below);
+- **Status:** fixed in pi-theta-herdr commit
+  `31189dd49d09802cee3f155925ed938ea1909c03` (2026-10-28), installed into
+  canonical pi-config from that Git commit. Existing Pi processes must reload
+  or restart to load the update. See **Fix and verification** below.
+- **Owning repo:** pi-theta-herdr (implemented option (a) below);
   filed here because the emitter, the event contract, and the falsified
   0493 §Fix claim live in pi-theta.
 - **Sev/Diff estimate:** S4/D1 — S4: cosmetic. The 0493 D1 (a) shutdown
@@ -120,11 +123,56 @@ exactly the status quo.
   bounded hold are unaffected by the latch (the hold covers turn gaps
   while active, the latch covers the pre-activation window).
 
-## Notes
+## Notes (historical filing)
 
-- The pi-theta-herdr working tree carries an unrelated uncommitted change
+- At filing, the pi-theta-herdr working tree carried an unrelated uncommitted change
   (`src/herdr-placement-backend.ts` `persistSession`, plus test edits) —
   out of scope here, untouched.
 - Severity would rise if a future consumer keyed anything functional
   (e.g. cleanup, accounting) on the refusal outcome event: today's only
   shipped consumer is cosmetic, which is what caps this at S4.
+
+## Fix and verification (2026-10-28)
+
+The owner authorized the separate companion fix and its commit, push and
+installation into pi-config. Commit
+[`31189dd49d09802cee3f155925ed938ea1909c03`](https://github.com/bitmonk8/pi-theta-herdr/commit/31189dd49d09802cee3f155925ed938ea1909c03)
+implements the bounded early-outcome latch in the companion, without changing
+theta's emitter or its envelope → event → shutdown ordering.
+
+- A closure-local slot retains the first valid outcome before the initial
+  activation decision, with no preactivation reports.
+- A qualifying child consumes it through the existing terminal path after
+  normal startup reports, preserving FIFO ordering and duplicate suppression.
+- Rejected activation, detach and shutdown discard the slot and permanently
+  close initial capture. Later sessions cannot replay stale outcomes or reopen
+  capture. Existing optional-bus fallback and hold-timer behavior are unchanged.
+
+The regression was red before the implementation: 10 failed / 107 passed in
+the targeted suites, including the actual companion composition/registration
+ordering witness. After the fix, all 117 targeted tests passed; the complete
+offline suite passed **227 tests in 11 files**, with no skips. Typecheck and
+`git diff --check` passed. Independent correctness review found no issues.
+The companion has no lint script/configuration; lint is not claimed as passed.
+
+The composition witness uses the lock-pinned real Pi loader, runner and event
+bus, the production companion factory and its real client against an isolated
+fake daemon. An earlier session-start handler supplies the refusal event.
+This verifies the ordering defect but is not an actual paired-package load
+refusal or live Herdr retitle test. No live pane was manipulated. The rename
+remains advisory and may still lose the pane-close race; this fix does not
+promise otherwise.
+
+The companion commit was pushed to main. Canonical pi-config's manifest and
+lockfile were updated to the exact Git commit, and the installed reporter and
+README bytes were checked against the reviewed source. This is a Git-pinned
+installation, not a newly published package version or a claim that already
+running Pi processes have reloaded their modules.
+
+No F001 workflow-busy redesign, hold-timeout change, dependency upgrade in the
+companion, or user-pane lifecycle change is included. Verification logs remain
+in the companion checkout's ignored `build/bug-0496/` directory; installation
+evidence is in this checkout's ignored
+`.pi/tmp/investigations/bugfix-workflows/shipment-20261028/` directory. The
+completed batch's original authorization-required disposition is retained
+unchanged as historical audit evidence.

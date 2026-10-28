@@ -1,6 +1,11 @@
 # Bug 0509 — `invocation.md` and its `discovery-cli.md` mirror state `invoke(...)` path resolution as caller-relative with no `.thetalib` exception and no cross-reference to `imports.md:17`: since the bug-0504 fix the sentence misdescribes shipped behaviour for an `invoke` written in a `.thetalib` `fn` body
 
-- **Status:** open — filed 2026-10-02 as residual 5 of the bug-0504 fix
+- **Status:** fixed — already addressed by [0508](./0508-static-invoke-checks-skip-thetalib-fn-bodies.md)
+  in commit `a04348da8d03c4b3442f717676b655595eacbeb9`; closure verified
+  2026-10-28 against main `43a0fdef4a0baad03f27f71bcab016eb697fd460`.
+  See **Closure** below; the original defect account and proposed fix are
+  retained as history, not current implementation instructions.
+- **Filed:** 2026-10-02 as residual 5 of the bug-0504 fix
   ([0504](./0504-thetalib-invoke-resolves-caller-relative.md),
   `## Fix (0.495.0)` → Residuals, item 5)
 - **Owning repo:** pi-theta
@@ -161,3 +166,43 @@ prints `invocation.md:20` and `invocation.md:97` only — no link from either
   (A)–(E2).
 - Inventory: `rg -n "relative to" docs/spec_topics docs/reference`, filtered
   to path-resolution sentences.
+
+## Closure — already addressed by 0508 (2026-10-28)
+
+The owner authorized closing this report after the earlier overlap verification.
+The correction was already made by commit
+`a04348da8d03c4b3442f717676b655595eacbeb9` (bug 0508), an ancestor of the
+rechecked main `43a0fdef4a0baad03f27f71bcab016eb697fd460`. This is closure of
+an already-addressed prose defect, not a claim that the later batch produced
+another implementation fix.
+
+Both current **Resolution** passages now state the required split:
+
+- A literal in a `.theta` body uses the authoring theta's directory.
+- A literal in a `.thetalib` function body uses the declaring library's
+  directory, regardless of importer, re-export or alias.
+- Both arms apply at **load time**, and runtime uses the same declaring-file
+  base. Both passages link to the governing Imports rule.
+
+The historical **Fix direction** above predates 0508's library-body static
+coverage. In particular, its suggestion that library-body resolution is
+runtime-only is obsolete and must not be restored.
+
+Fresh closure verification on that main:
+
+- Checked the actual Resolution paragraphs in `docs/spec_topics/invocation.md`
+  and `docs/reference/discovery-cli.md`, including both bases, load/runtime
+  timing and Imports link targets. The assertions also rejected the actual
+  pre-0508 paragraphs obtained from Git and runtime-only wording mutations
+  made in memory; no source file was mutated for those controls.
+- All **94 tests in five files** passed: the b0504 library-relative invocation
+  suite and the four b0508 static unit, coverage, production and composition
+  suites. These are offline production-seam tests, not a new live-host claim.
+- Local verification artifacts are retained under
+  `.pi/tmp/investigations/bugfix-workflows/closure-0509-20261028/`
+  (`docs-check.log`, `focused-tests.log`). The prior broader verification
+  remains under `verification-0497-0509/` in the same investigation directory.
+
+No runtime or normative prose change, dependency update, or new package release
+is part of this closure. The completed batch's `not-reproduced` disposition
+and retained source evidence remain unchanged as historical audit records.

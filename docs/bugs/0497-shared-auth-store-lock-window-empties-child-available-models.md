@@ -1,12 +1,17 @@
 # Bug 0497 — real-child tests flake intermittently with `subagent model pre-flight mismatch … '(unresolved: no matching model)'`: spawned children inherit the operator's shared `~/.pi/agent`, and a child whose startup loses the auth.json lock race silently loads an EMPTY credential store, dropping the marshalled model's provider out of `getAvailable()`
 
-- **Status:** open
-- **Owning repo:** split. The recurring TEST flake is owned by the
-  pi-theta test harness (hermetic per-run agent dir for the offline
-  real-child tests — proven below). The underlying windows are owned by
-  the pi host (lock held across the OAuth refresh network round-trip;
-  silent empty-store degradation on lock timeout; in-place non-atomic
-  writes) — to be filed/pinned upstream.
+- **Status:** closed in pi-theta (2026-10-28) — the offline test-harness
+  isolation was already fixed by `de146127e98743430572de78ab8061fa5665c69e`.
+  Remaining credential-store/model-availability concerns belong upstream;
+  this closure does **not** claim that upstream behavior is fixed.
+- **Owning repo:** upstream Pi (`@earendil-works/pi-coding-agent` and
+  `@earendil-works/pi-ai`) for the remaining production concerns, not the
+  pi-theta runtime. Theta correctly refuses a required model absent from
+  the host's available-model snapshot.
+- **Historical scope:** the original report below describes the older
+  0.80.10/0.87.1 behavior and the then-unisolated local test harness.
+  Its lifetime-empty-store account must not be applied unchanged to
+  current Pi 1.3.0/1.4.0. See **Closure and upstream disposition** below.
 - **Sev/Diff estimate:** S3/D2 — S3: no pi-theta runtime defect (the
   PIC-62 pre-flight correctly refuses a child whose registry genuinely
   cannot resolve the marshalled model; the INPUT is what degrades). Cost
@@ -217,3 +222,71 @@ child spawns over ~50 s).
   precedent that a real-child test must pin every ambient input the
   child resolves; this bug is the unpinned third input (the agent
   config/credential dir).
+
+## Closure and upstream disposition (2026-10-28)
+
+The owner directed closure as an upstream concern rather than an outstanding
+pi-theta runtime bug. This does not erase the historical local test-harness
+exposure: that part was already addressed by
+`de146127e98743430572de78ab8061fa5665c69e`, an ancestor of the rechecked main
+`43a0fdef4a0baad03f27f71bcab016eb697fd460`.
+
+The default launcher in `tests/helpers/real-subagent-spawn.ts` now creates a
+private per-launch offline agent directory with synthetic credentials. Both
+`driveRealSubagentRoot` and `runDrivenSubagentFixtureCell` use it by default.
+The earlier isolated verification exercised both helpers with a disposable
+ambient auth store unlocked and under a maintained lock; all four cases
+returned the expected value. A wrong-payload control established assertion
+sensitivity. The associated eight-file run passed 113 tests. This is evidence
+for test isolation, not a claim that production authentication is hermetic.
+
+### Current-version qualifications
+
+A read-only public-source comparison of Pi/AI **1.3.0** and **1.4.0** found
+matching credential-store and OAuth resolver implementations:
+
+- `pi-coding-agent/dist/core/auth-storage.js:45–60,314–377` retains a short
+  synchronous acquisition window (about 180 ms plus overhead) and swallowed
+  constructor reload failures, but now performs asynchronous latest-data
+  reloads. Later reads can wait and recover credentials. The historical
+  **permanent empty-store** explanation is therefore obsolete for these
+  versions. An earlier fake-credential probe on 1.3.0 demonstrated recovery
+  after lock release.
+- `pi-ai/dist/auth/resolve.js:47–92` still performs OAuth refresh inside
+  `credentials.modify`; `auth-storage.js:136–159,385–402` holds the shared
+  file lock while awaiting it. The refresh timeout is 15 seconds and an
+  asynchronous lock acquisition has roughly 30 seconds of retry budget.
+  Other processes can wait behind that network operation. OpenAI/ChatGPT
+  subscription OAuth uses this machinery too.
+- Authentication/availability errors are recorded by the current host.
+  Theta's extension-facing registry nevertheless exposes a synchronous
+  availability snapshot. Delayed or failed availability refresh can therefore
+  affect child preflight; exact current end-to-end failure conditions and
+  frequency still need controlled upstream reproduction.
+- Writes remain in-place rather than temp-file-plus-rename, while some exported
+  readers do not lock. The synchronous and asynchronous lock-staleness policies
+  also differ. These are source-level upstream hardening concerns, not evidence
+  of observed credential corruption or data loss.
+
+The lock also deliberately serializes refreshes to preserve rotated OAuth
+credentials. Any upstream change must retain that protection; simply removing
+serialization around network refresh is not an established safe remedy.
+
+### Disposition and limits
+
+No theta runtime change, relaxed model preflight, test waiver or automatic retry
+is warranted by this closure. The remaining risk is host authentication and
+model-availability reliability under concurrency, not a demonstrated theta
+language/runtime defect or credential-security incident. Live tests and real
+children may still depend on the shared host store; the offline helper fix does
+not remove that production dependency.
+
+No upstream fix or issue filing is claimed. No operator credential/configuration
+was read, locked, changed or exposed by the current source audit, and no new
+provider call or execution probe was made for this closure. It also establishes
+no cause for the separately investigated F010 immediate-child-exit incident.
+
+Local earlier verification is retained under
+`.pi/tmp/investigations/bugfix-workflows/verification-0497-0509/`.
+The completed batch's `not-reproduced` disposition and original evidence remain
+unchanged as historical audit records.
